@@ -4,50 +4,75 @@ import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
 import { groupActionsKeyboard } from "../keyboards/menus.js";
 
-export async function botIsAdministrator(api: Api, chatId: number): Promise<boolean> {
-  try {
-    const me = await api.getMe();
-    const member = await api.getChatMember(chatId, me.id);
-    return member.status === "creator" || member.status === "administrator";
-  } catch {
-    return false;
-  }
-}
+export type RequiredBotPerm =
+  | "can_delete_messages"
+  | "can_restrict_members"
+  | "can_invite_users";
 
-export async function botCanRestrict(api: Api, chatId: number): Promise<boolean> {
+export const REQUIRED_BOT_PERMS: RequiredBotPerm[] = [
+  "can_delete_messages",
+  "can_restrict_members",
+  "can_invite_users",
+];
+
+export type BotAdminCheck =
+  | { ok: true }
+  | { ok: false; missing: RequiredBotPerm[]; notAdmin: boolean };
+
+/**
+ * Verifica admin + permessi obbligatori via getChatMember.
+ * Creator del gruppo ⇒ ok. Altrimenti servono i tre flag.
+ */
+export async function checkRequiredBotAdminPerms(
+  api: Api,
+  chatId: number,
+): Promise<BotAdminCheck> {
   try {
     const me = await api.getMe();
     const member = await api.getChatMember(chatId, me.id);
-    if (member.status === "creator") return true;
-    if (member.status === "administrator") {
-      return Boolean(member.can_restrict_members);
+
+    if (member.status === "creator") {
+      return { ok: true };
     }
-    return false;
+
+    if (member.status !== "administrator") {
+      return { ok: false, missing: [...REQUIRED_BOT_PERMS], notAdmin: true };
+    }
+
+    const missing: RequiredBotPerm[] = [];
+    if (!member.can_delete_messages) missing.push("can_delete_messages");
+    if (!member.can_restrict_members) missing.push("can_restrict_members");
+    if (!member.can_invite_users) missing.push("can_invite_users");
+
+    if (missing.length > 0) {
+      return { ok: false, missing, notAdmin: false };
+    }
+    return { ok: true };
   } catch {
-    return false;
+    return { ok: false, missing: [...REQUIRED_BOT_PERMS], notAdmin: true };
   }
 }
 
 /**
- * Collega il gruppo al deal e verifica che il bot sia admin.
- * Non crea più invite link per la controparte.
+ * Collega il gruppo al deal solo se i permessi admin obbligatori sono ok.
+ * Altrimenti lascia awaiting_bot_admin e non avvia escrow.
  */
 export async function bindGroupToDeal(
   api: Api,
   store: DealStore,
   deal: Deal,
   chatId: number,
-): Promise<{ deal: Deal; isAdmin: boolean }> {
-  const isAdmin = await botIsAdministrator(api, chatId);
+): Promise<{ deal: Deal; perms: BotAdminCheck }> {
+  const perms = await checkRequiredBotAdminPerms(api, chatId);
 
-  if (!isAdmin) {
+  if (!perms.ok) {
     const updated =
       store.update(deal.id, {
         groupChatId: chatId,
         status: "awaiting_bot_admin",
         groupInviteLink: undefined,
       }) ?? deal;
-    return { deal: updated, isAdmin: false };
+    return { deal: updated, perms };
   }
 
   try {
@@ -76,7 +101,7 @@ export async function bindGroupToDeal(
       groupInviteLink: undefined,
     }) ?? deal;
 
-  return { deal: updated, isAdmin: true };
+  return { deal: updated, perms };
 }
 
 export async function postDealActivated(api: Api, deal: Deal): Promise<void> {

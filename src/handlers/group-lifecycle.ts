@@ -9,6 +9,7 @@ import {
 } from "../services/deal-logic.js";
 import {
   bindGroupToDeal,
+  checkRequiredBotAdminPerms,
   kickUnauthorized,
   postDealActivated,
 } from "../services/group-setup.js";
@@ -108,15 +109,15 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    const { deal: bound, isAdmin } = await bindGroupToDeal(
+    const { deal: bound, perms } = await bindGroupToDeal(
       ctx.api,
       ctx.store,
       deal,
       ctx.chat.id,
     );
 
-    if (!isAdmin) {
-      await ctx.reply(it.needBotAdmin, { parse_mode: "Markdown" });
+    if (!perms.ok) {
+      await ctx.reply(it.missingBotPerms(perms.missing), { parse_mode: "Markdown" });
       return;
     }
 
@@ -164,6 +165,13 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     if (bothPartiesPresent(deal)) {
       await ctx.answerCallbackQuery({ text: "Già completo" });
       await ctx.reply(it.counterpartTaken);
+      return;
+    }
+
+    const perms = await checkRequiredBotAdminPerms(ctx.api, ctx.chat.id);
+    if (!perms.ok) {
+      await ctx.answerCallbackQuery({ text: "Permessi bot mancanti" });
+      await ctx.reply(it.missingBotPerms(perms.missing), { parse_mode: "Markdown" });
       return;
     }
 

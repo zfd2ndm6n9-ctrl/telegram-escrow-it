@@ -44,7 +44,27 @@ Asset MVP: USDT (placeholder).`,
     "📄 *Termini di servizio*: in arrivo. Prima di ogni deal ti chiederemo di leggerli qui.",
 
   needBotAdmin:
-    "⚠️ Sono nel gruppo ma *non sono amministratore*. Promuovimi ad admin, poi reinvia /avvia.",
+    "⚠️ Non posso avviare il deal: promuovimi ad *amministratore* con Elimina messaggi, Blocca utenti e Invita utenti, poi reinvia /avvia.",
+
+  missingBotPerms: (missing: string[]) => {
+    const labels: Record<string, string> = {
+      can_delete_messages: "Elimina messaggi",
+      can_restrict_members: "Blocca utenti",
+      can_invite_users: "Invita utenti",
+    };
+    const lines = missing.map((k) => `• ${labels[k] ?? k}`);
+    return `⚠️ *Non posso avviare il deal*: mi mancano permessi da amministratore.
+
+Promuovimi admin con almeno:
+• Elimina messaggi
+• Blocca utenti
+• Invita utenti
+
+*Ti manca ancora:*
+${lines.join("\n")}
+
+Poi reinvia /avvia. Niente escrow finché non è a posto.`;
+  },
 
   askCounterpartConfirm: (deal: Deal) => {
     const role = deal.creatorRole === "buyer" ? "seller" : "buyer";

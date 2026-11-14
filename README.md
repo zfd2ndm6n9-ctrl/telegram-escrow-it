@@ -50,8 +50,8 @@ npm run build && npm start
 
 ### Nel gruppo
 
-5. `/avvia` + conferma controparte (codice; non ripetuto nei 4 passi post-importo)
-6. Indirizzo escrow **mock**, `/depositato`, `/pay_seller` / `/refund_buyer`, `/dispute`
+5. `/avvia` richiede bot admin con: *Elimina messaggi*, *Blocca utenti*, *Invita utenti* — altrimenti messaggio IT con cosa manca e **nessun escrow**
+6. Conferma controparte → indirizzo escrow **mock**, `/depositato`, `/pay_seller` / `/refund_buyer`, `/dispute`
 
 Altri: `/indirizzo`, `/stato`, `/miei` (privato), `/aiuto`
 
