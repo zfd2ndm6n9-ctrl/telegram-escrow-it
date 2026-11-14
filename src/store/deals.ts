@@ -16,8 +16,7 @@ function newDealId(): string {
 }
 
 /**
- * Store persistente semplice su JSON (sufficiente per l'MVP).
- * Sostituibile in seguito con SQLite senza cambiare i handler.
+ * Store JSON su disco (MVP). Chiave principale: id deal; lookup per groupChatId / creator.
  */
 export class DealStore {
   private deals = new Map<string, Deal>();
@@ -59,17 +58,25 @@ export class DealStore {
       id: newDealId(),
       creatorId: input.creatorId,
       creatorUsername: input.creatorUsername,
-      counterpartId: input.counterpartId,
-      counterpartUsername: input.counterpartUsername,
+      creatorRole: input.creatorRole,
       amount: input.amount,
       asset: input.asset,
-      status: "pending_confirm",
+      status: "awaiting_group",
       escrowAddress: input.escrowAddress,
       releaseVotes: [],
       refundVotes: [],
       createdAt: ts,
       updatedAt: ts,
     };
+
+    if (input.creatorRole === "buyer") {
+      deal.buyerId = input.creatorId;
+      deal.buyerUsername = input.creatorUsername;
+    } else {
+      deal.sellerId = input.creatorId;
+      deal.sellerUsername = input.creatorUsername;
+    }
+
     this.deals.set(deal.id, deal);
     this.persist();
     return deal;
@@ -97,19 +104,28 @@ export class DealStore {
     return this.update(id, { status });
   }
 
-  listForUser(userId: number): Deal[] {
-    return [...this.deals.values()]
-      .filter((d) => d.creatorId === userId || d.counterpartId === userId)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  findByGroupChatId(chatId: number): Deal | undefined {
+    return [...this.deals.values()].find((d) => d.groupChatId === chatId);
   }
 
-  findPendingForCounterpart(userId: number, username?: string): Deal[] {
-    const uname = username?.replace(/^@/, "").toLowerCase();
-    return [...this.deals.values()].filter((d) => {
-      if (d.status !== "pending_confirm") return false;
-      if (d.counterpartId === userId) return true;
-      if (uname && d.counterpartUsername?.toLowerCase() === uname) return true;
-      return false;
-    });
+  /** Deal in attesa di gruppo creato dal creator (il più recente). */
+  findAwaitingGroupByCreator(creatorId: number): Deal | undefined {
+    return [...this.deals.values()]
+      .filter(
+        (d) =>
+          d.creatorId === creatorId &&
+          (d.status === "awaiting_group" || d.status === "awaiting_bot_admin") &&
+          d.groupChatId == null,
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  }
+
+  listForUser(userId: number): Deal[] {
+    return [...this.deals.values()]
+      .filter(
+        (d) =>
+          d.creatorId === userId || d.buyerId === userId || d.sellerId === userId,
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 }

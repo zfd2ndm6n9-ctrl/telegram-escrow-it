@@ -5,8 +5,8 @@ import { config } from "./config.js";
 import { registerStartHandlers } from "./handlers/start.js";
 import { registerCreateDealHandlers } from "./handlers/create-deal.js";
 import { registerDealViewHandlers } from "./handlers/deals.js";
-import { registerActionHandlers } from "./handlers/actions.js";
-import { registerDisputeHandlers } from "./handlers/dispute.js";
+import { registerGroupLifecycleHandlers } from "./handlers/group-lifecycle.js";
+import { registerGroupCommandHandlers } from "./handlers/group-commands.js";
 import { it } from "./messages/it.js";
 
 export function createBot(token: string): Bot<BotContext> {
@@ -28,16 +28,18 @@ export function createBot(token: string): Bot<BotContext> {
   registerStartHandlers(bot);
   registerCreateDealHandlers(bot);
   registerDealViewHandlers(bot);
-  registerActionHandlers(bot);
-  registerDisputeHandlers(bot);
+  registerGroupLifecycleHandlers(bot);
+  registerGroupCommandHandlers(bot);
 
   bot.catch((err) => {
     console.error("Errore bot:", err.error);
   });
 
-  bot.on("message", async (ctx) => {
+  // Solo in privato: messaggio sconosciuto (non spammare i gruppi)
+  bot.on("message:text", async (ctx) => {
+    if (ctx.chat?.type !== "private") return;
     if (ctx.session.creating) return;
-    await ctx.reply(it.unknownCommand);
+    await ctx.reply(it.unknownPrivate);
   });
 
   return bot;

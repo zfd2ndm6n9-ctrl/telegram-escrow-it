@@ -1,5 +1,7 @@
 export type DealStatus =
-  | "pending_confirm"
+  | "awaiting_group"
+  | "awaiting_bot_admin"
+  | "awaiting_counterpart"
   | "awaiting_deposit"
   | "funded"
   | "release_pending"
@@ -10,22 +12,29 @@ export type DealStatus =
   | "cancelled";
 
 export type Asset = "USDT";
+export type PartyRole = "buyer" | "seller";
 
 export interface Deal {
   id: string;
-  /** Chi crea il deal (tipicamente chi deposita / buyer) */
+  /** Chi ha avviato il wizard in privato */
   creatorId: number;
   creatorUsername?: string;
-  /** Controparte (tipicamente seller) */
-  counterpartId?: number;
-  counterpartUsername?: string;
+  creatorRole: PartyRole;
+  buyerId?: number;
+  buyerUsername?: string;
+  sellerId?: number;
+  sellerUsername?: string;
   amount: string;
   asset: Asset;
   status: DealStatus;
   escrowAddress: string;
-  /** User id che hanno già confermato il release */
+  /** Chat id del gruppo escrow (negativo) */
+  groupChatId?: number;
+  groupInviteLink?: string;
+  adminInviteLink?: string;
+  /** Voti per /pay_seller */
   releaseVotes: number[];
-  /** User id che hanno già confermato il refund */
+  /** Voti per /refund_buyer */
   refundVotes: number[];
   createdAt: string;
   updatedAt: string;
@@ -34,8 +43,7 @@ export interface Deal {
 export type CreateDealInput = {
   creatorId: number;
   creatorUsername?: string;
-  counterpartId?: number;
-  counterpartUsername?: string;
+  creatorRole: PartyRole;
   amount: string;
   asset: Asset;
   escrowAddress: string;

@@ -1,8 +1,5 @@
-import type { Deal } from "../types.js";
-
-export function isParty(deal: Deal, userId: number): boolean {
-  return deal.creatorId === userId || deal.counterpartId === userId;
-}
+import type { Deal, PartyRole } from "../types.js";
+import { config } from "../config.js";
 
 export function parseAmount(raw: string): string | null {
   const normalized = raw.trim().replace(",", ".");
@@ -12,56 +9,75 @@ export function parseAmount(raw: string): string | null {
   return normalized;
 }
 
-export function parseCounterpart(raw: string): {
-  counterpartId?: number;
-  counterpartUsername?: string;
-} | null {
-  const text = raw.trim();
-  if (/^\d{5,15}$/.test(text)) {
-    return { counterpartId: Number(text) };
-  }
-  const m = text.match(/^@?([A-Za-z0-9_]{5,32})$/);
-  if (!m) return null;
-  return { counterpartUsername: m[1] };
+export function isParty(deal: Deal, userId: number): boolean {
+  return deal.buyerId === userId || deal.sellerId === userId;
 }
 
-/**
- * Se il deal ha solo @username, collega l'id quando la controparte apre il link.
- * Se ha solo id, opzionalmente aggiorna lo username.
- */
-export function bindCounterpartIfNeeded(
-  deal: Deal,
-  userId: number,
-  username?: string,
-): Partial<Deal> | null {
-  if (deal.creatorId === userId) return null;
+export function isAdminUser(userId: number): boolean {
+  if (!config.adminTelegramId) return false;
+  return String(userId) === config.adminTelegramId;
+}
 
-  if (deal.counterpartId != null && deal.counterpartId !== userId) {
-    return null;
-  }
+export function isAllowedHuman(deal: Deal, userId: number): boolean {
+  if (isParty(deal, userId)) return true;
+  if (isAdminUser(userId)) return true;
+  return false;
+}
 
-  if (deal.counterpartId === userId) {
-    if (username && deal.counterpartUsername !== username) {
-      return { counterpartUsername: username };
-    }
-    return null;
-  }
-
-  if (deal.counterpartUsername) {
-    const expected = deal.counterpartUsername.toLowerCase();
-    if (username && username.toLowerCase() === expected) {
-      return { counterpartId: userId, counterpartUsername: username };
-    }
-    // Username mismatch: allow bind only if no username was set on the joining user
-    // and deal was created with username — require match.
-    return null;
-  }
-
-  // Deal created with numeric id only — already handled above if id matches.
-  return null;
+export function bothPartiesPresent(deal: Deal): boolean {
+  return deal.buyerId != null && deal.sellerId != null;
 }
 
 export function addUniqueVote(votes: number[], userId: number): number[] {
   if (votes.includes(userId)) return votes;
   return [...votes, userId];
+}
+
+export function counterpartRole(role: PartyRole): PartyRole {
+  return role === "buyer" ? "seller" : "buyer";
+}
+
+export function assignJoiningParty(
+  deal: Deal,
+  userId: number,
+  username?: string,
+): Partial<Deal> | null {
+  if (deal.buyerId === userId || deal.sellerId === userId) {
+    const patch: Partial<Deal> = {};
+    if (deal.buyerId === userId && username && deal.buyerUsername !== username) {
+      patch.buyerUsername = username;
+    }
+    if (deal.sellerId === userId && username && deal.sellerUsername !== username) {
+      patch.sellerUsername = username;
+    }
+    return Object.keys(patch).length ? patch : null;
+  }
+
+  // Slot libero = ruolo opposto al creator se quel lato manca
+  if (deal.creatorRole === "buyer" && deal.sellerId == null) {
+    return { sellerId: userId, sellerUsername: username };
+  }
+  if (deal.creatorRole === "seller" && deal.buyerId == null) {
+    return { buyerId: userId, buyerUsername: username };
+  }
+
+  // Se per qualche motivo manca il lato creator (non dovrebbe)
+  if (deal.buyerId == null) {
+    return { buyerId: userId, buyerUsername: username };
+  }
+  if (deal.sellerId == null) {
+    return { sellerId: userId, sellerUsername: username };
+  }
+
+  return null;
+}
+
+export function startGroupPayload(dealId: string): string {
+  // Telegram startgroup payload: max 64 chars, A-Z a-z 0-9 _ -
+  return `d_${dealId}`;
+}
+
+export function parseStartGroupPayload(payload: string): string | null {
+  const m = payload.trim().match(/^d_([a-f0-9]{8})$/i);
+  return m ? m[1].toLowerCase() : null;
 }

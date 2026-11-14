@@ -2,18 +2,20 @@
 
 Bot Telegram di **escrow crypto** per il mercato italiano.
 
-- Solo chat privata con il bot (niente gruppi deal)
-- UI in italiano
-- Solo crypto in MVP (asset placeholder: **USDT**)
-- Le parti si conoscono già; il bot media il deal
+- Per ogni deal il bot prepara un **gruppo privato** (buyer + seller + bot)
+- L’**admin** può entrare solo in disputa per arbitrare
+- UI in italiano · solo crypto in MVP (asset placeholder: **USDT**)
+- Le parti si conoscono già; il bot media il deal nel gruppo
 
-Stack: **Node.js + TypeScript + [grammY](https://grammy.dev)** · store JSON su disco (`data/deals.json`)
+Stack: **Node.js + TypeScript + [grammY](https://grammy.dev)** · store JSON (`data/deals.json`)
+
+> Nota Bot API: i bot non possono creare gruppi da soli. Il flusso usa il deep link Telegram `?startgroup=` (l’utente conferma la creazione del gruppo con il bot già dentro), poi il bot genera un **invite link a 1 posto** per la controparte.
 
 ## Requisiti
 
 - Node.js 20+
-- Un bot creato con [@BotFather](https://t.me/BotFather)
-- Token in `TELEGRAM_BOT_TOKEN` (mai committare il token)
+- Bot da [@BotFather](https://t.me/BotFather) — consigliato: **Group Privacy = Off** oppure bot sempre **admin** nel gruppo escrow
+- `TELEGRAM_BOT_TOKEN` (mai committare il token)
 
 ## Setup
 
@@ -22,72 +24,72 @@ git clone https://github.com/zfd2ndm6n9-ctrl/telegram-escrow-it.git
 cd telegram-escrow-it
 npm install
 cp .env.example .env
-# Modifica .env e inserisci TELEGRAM_BOT_TOKEN (e opzionalmente ADMIN_TELEGRAM_ID)
+# Imposta TELEGRAM_BOT_TOKEN e opzionalmente ADMIN_TELEGRAM_ID
 ```
 
 ### Variabili d'ambiente
 
 | Variabile | Obbligatoria | Descrizione |
 |-----------|--------------|-------------|
-| `TELEGRAM_BOT_TOKEN` | sì | Token del bot da BotFather / secret Cursor |
-| `ADMIN_TELEGRAM_ID` | no | User id numerico admin per notifiche `/dispute` |
+| `TELEGRAM_BOT_TOKEN` | sì | Token BotFather / secret Cursor |
+| `ADMIN_TELEGRAM_ID` | no | User id numerico admin (dispute + ingresso gruppo) |
 | `DATA_DIR` | no | Cartella store (default `data`) |
-
-In Cursor Cloud Agent, `TELEGRAM_BOT_TOKEN` può essere già disponibile come secret: usa `process.env.TELEGRAM_BOT_TOKEN` senza stamparlo.
 
 ## Avvio (polling)
 
-Sviluppo con reload:
-
 ```bash
-npm run dev
+npm run dev      # sviluppo (tsx watch)
+npm run build && npm start
 ```
 
-Produzione:
-
-```bash
-npm run build
-npm start
-```
-
-All’avvio il bot chiama `getMe` e stampa lo username (es. `@NomeBot`). Modalità **polling** (niente webhook in questo scaffold).
+All’avvio: `getMe` + long-polling con update `message`, `callback_query`, `my_chat_member`, `chat_member`.
 
 ## Flusso MVP
 
-1. `/start` — benvenuto in italiano + menu
-2. `/crea` o «Crea deal» — importo USDT + controparte (`@username` o id)
-3. Controparte conferma (link `t.me/<bot>?start=deal_<id>` o pulsante)
-4. Bot mostra indirizzo escrow **mock**
-5. «Segna depositato» (stub, nessuna verifica on-chain)
-6. Release / rimborso con **doppia conferma** (pulsanti)
-7. `/dispute <id>` — stato disputa + notifica admin se `ADMIN_TELEGRAM_ID` è impostato
+### In privato con il bot
 
-Altri comandi: `/miei`, `/deal <id>`, `/aiuto`
+1. `/start` — benvenuto
+2. `/crea` o «Crea escrow» — scegli ruolo (*buyer* / *seller*) e importo USDT
+3. Pulsante **Crea gruppo escrow** (`t.me/<bot>?startgroup=d_<id>`)
+4. Nel gruppo: promuovi il bot ad **amministratore** (invita + ban). Se serve: `/setup`
+
+### Nel gruppo escrow
+
+5. Il bot pubblica il **link invito controparte** (`member_limit: 1`)
+6. Controparte entra → indirizzo escrow **mock**
+7. «Segna depositato» / `/depositato` (stub, no on-chain)
+8. `/pay_seller` o `/refund_buyer` — **doppia conferma** (oppure pulsanti)
+9. `/dispute` — stato disputa, notifica admin + **link one-time** per entrare e arbitrare (`/pay_seller` / `/refund_buyer` da soli se admin)
+
+Altri: `/indirizzo`, `/stato`, `/miei` (privato), `/aiuto`
+
+### Protezioni base
+
+- Invite controparte limitato a 1 posto
+- Utenti extra (non buyer/seller/admin) → tentativo di **kick**
+- Messaggi e comandi in italiano
 
 ## Struttura
 
 ```
 src/
-  index.ts           # entrypoint polling
-  bot.ts             # wiring grammY
-  config.ts          # env
+  index.ts              # polling + allowed_updates
+  bot.ts
+  config.ts
   types.ts
-  context.ts         # session + store sul context
-  store/deals.ts     # persistenza JSON
-  handlers/          # comandi e callback
-  keyboards/         # reply / inline keyboard
-  messages/it.ts     # copy italiana
-  services/          # parsing e regole deal
+  store/deals.ts
+  handlers/             # privato + lifecycle gruppo + comandi gruppo
+  keyboards/
+  messages/it.ts
+  services/             # regole deal + setup gruppo
 ```
 
 ## Limiti dello scaffold
 
-- Indirizzo escrow e release/refund sono **stub** (nessun wallet reale)
-- Nessuna detection automatica del deposito on-chain
-- Store locale file-based (ok per demo; non multi-istanza)
-- Nessun KYC / fiat / SEPA
-
-Vedi il piano post-scaffold in `docs` del project store (`mvp-plan.md`).
+- Indirizzo escrow e payout sono **stub**
+- Creazione gruppo via `startgroup` (non MTProto)
+- Store file-based (non multi-istanza)
+- Niente fiat/SEPA, niente KYC
 
 ## Licenza
 
