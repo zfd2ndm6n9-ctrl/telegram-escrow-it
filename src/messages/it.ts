@@ -3,23 +3,23 @@ import type { Deal } from "../types.js";
 export const it = {
   welcome: `Ciao! Sono il bot di *escrow crypto* (Italia).
 
-Per ogni deal creo un *gruppo privato* con solo *2 persone* (buyer + seller) + il bot.
-L'admin può entrare solo in caso di disputa.
+Tu e la controparte create un *gruppo privato* (solo voi due), mi aggiungete come *amministratore*, poi avviate il deal nel gruppo.
+L'admin di servizio può entrare solo in caso di disputa.
 
 Comandi (in privato):
-/crea — avvia un nuovo escrow
+/crea — prepara un nuovo escrow
 /miei — i tuoi deal
 /aiuto — guida`,
 
   help: `*Guida*
 
-1. In privato: /crea → scegli ruolo (buyer/seller) e importo USDT
-2. Apri il link *Crea gruppo escrow* e rendi il bot *amministratore*
-3. Condividi il link invito (1 posto) con la controparte
-4. Nel gruppo: indirizzo escrow → conferma deposito → /pay_seller o /refund_buyer (doppia conferma)
-5. /dispute — avvisa l'admin e gli permette di entrare ad arbitrare
+1. In privato: /crea → ruolo (buyer/seller) + importo USDT
+2. Create un gruppo con la controparte (max 2 persone)
+3. Aggiungete @ESCROWITAbot come *amministratore*
+4. Nel gruppo: /avvia → la controparte conferma → indirizzo escrow e comandi
+5. /pay_seller o /refund_buyer (doppia conferma); /dispute per l'admin
 
-Asset MVP: USDT (placeholder). Wallet reale in arrivo.`,
+Asset MVP: USDT (placeholder).`,
 
   askRole: "Che ruolo hai in questo deal?",
   askAmount: "Quanto vuoi mettere in escrow? Importo in USDT (es. `100` o `50.5`).",
@@ -27,40 +27,46 @@ Asset MVP: USDT (placeholder). Wallet reale in arrivo.`,
   cancelled: "Operazione annullata.",
   unknownPrivate: "Non ho capito. Usa /aiuto oppure i pulsanti del menu.",
 
-  dealReadyToCreateGroup: (deal: Deal, startGroupUrl: string) =>
-    `✅ Deal *#${deal.id}* pronto.
+  /** Dopo l'importo: istruzioni, NON un invite come se il gruppo esistesse già */
+  afterAmountInstructions: (deal: Deal, botUsername: string) =>
+    `✅ Deal *#${deal.id}* preparato (non ancora avviato).
 
 • Ruolo tuo: *${deal.creatorRole}*
 • Importo: *${deal.amount} ${deal.asset}*
 
-1. Tocca il pulsante qui sotto per *creare il gruppo* (Telegram include già il bot)
-2. Nel gruppo, promuovi il bot ad *amministratore* (almeno: invita utenti + ban)
-3. Il bot pubblicherà il link per la controparte (max 1 posto)
+Crea un *gruppo* con la controparte, aggiungi *@${botUsername}* come *amministratore*, poi avviate il deal.
 
-${startGroupUrl}`,
+Passi:
+1. Crea un gruppo privato e invita solo la controparte (max 2 persone)
+2. Aggiungi @${botUsername} e promuovilo ad amministratore
+3. Nel gruppo invia /avvia (tu che hai creato il deal qui)
+4. La controparte tocca *Confermo* → il bot mostra indirizzo escrow e i comandi`,
 
   needBotAdmin:
-    "⚠️ Sono nel gruppo ma *non sono admin*. Promuovimi ad amministratore (invita utenti + rimuovi membri), poi invia /setup.",
+    "⚠️ Sono nel gruppo ma *non sono amministratore*. Promuovimi ad admin, poi reinvia /avvia.",
 
-  groupBound: (deal: Deal) =>
-    `🔐 Gruppo escrow collegato al deal *#${deal.id}*.
+  askCounterpartConfirm: (deal: Deal) => {
+    const role = deal.creatorRole === "buyer" ? "seller" : "buyer";
+    return `🔐 Deal *#${deal.id}* collegato a questo gruppo.
 
 • Importo: *${deal.amount} ${deal.asset}*
-• Buyer: ${deal.buyerId != null ? (deal.buyerUsername ? `@${deal.buyerUsername}` : deal.buyerId) : "_in attesa_"}
-• Seller: ${deal.sellerId != null ? (deal.sellerUsername ? `@${deal.sellerUsername}` : deal.sellerId) : "_in attesa_"}
+• Creatore: *${deal.creatorRole}*
 
-Solo *2 persone* + bot. Non aggiungere altri utenti.`,
+Controparte: tocca il pulsante per confermare come *${role}*.
+(Devono esserci solo buyer + seller + bot — niente altri utenti.)`;
+  },
 
-  inviteCounterpart: (link: string) =>
-    `🔗 *Link invito controparte* (1 solo posto):\n${link}\n\nCondividilo in privato con l'altra parte.`,
+  dealActivated: (deal: Deal) =>
+    `🤝 Deal *#${deal.id}* avviato.
 
-  counterpartJoined: (deal: Deal) =>
-    `🤝 Controparte entrata. Deal *#${deal.id}* pronto per il deposito.
+• Buyer: ${deal.buyerUsername ? `@${deal.buyerUsername}` : deal.buyerId}
+• Seller: ${deal.sellerUsername ? `@${deal.sellerUsername}` : deal.sellerId}
+• Importo: *${deal.amount} ${deal.asset}*
 
-Buyer: invia *${deal.amount} ${deal.asset}* a:
+Indirizzo escrow (mock MVP):
 \`${deal.escrowAddress}\`
 
-Poi usa «Segna depositato» o /depositato (stub MVP — nessuna verifica on-chain).`,
+Poi: «Segna depositato» / /depositato → /pay_seller o /refund_buyer (doppia conferma).`,
 
   depositAddress: (deal: Deal) =>
     `📫 *Indirizzo escrow* (mock MVP)\n\`${deal.escrowAddress}\`\n\nImporto: *${deal.amount} ${deal.asset}*`,
@@ -89,19 +95,30 @@ Ora: /pay_seller oppure /refund_buyer — serve conferma di *entrambe* le parti.
     `Azione non disponibile nello stato \`${status}\`.`,
 
   notParty: "Solo buyer/seller (o admin in disputa) possono farlo.",
+  notCreator: "Solo chi ha creato il deal in privato può usare /avvia.",
   dealNotFound: "Deal non trovato.",
   noDeals: "Nessun deal. Usa /crea in chat privata con il bot.",
   onlyPrivate: "Questo comando va usato in *chat privata* con il bot.",
   onlyGroup: "Questo comando va usato nel *gruppo escrow*.",
-  noDealInGroup: "Questo gruppo non è collegato a un deal escrow attivo.",
+  noDealInGroup:
+    "Nessun deal da avviare. In privato col bot fai /crea, poi qui /avvia.",
+  alreadyBound: "Questo gruppo è già collegato a un deal.",
+  alreadyActivated: "Il deal in questo gruppo è già avviato.",
+  counterpartIsCreator: "Il creatore del deal non può confermare come controparte.",
+  counterpartTaken: "La controparte è già confermata.",
 
   kickedExtra: (userId: number) =>
-    `🚫 Utente \`${userId}\` rimosso: nel gruppo escrow sono ammessi solo buyer, seller e (in disputa) admin.`,
+    `🚫 Utente \`${userId}\` rimosso: ammessi solo buyer, seller e (in disputa) admin.`,
 
   disputeOpened: (deal: Deal) =>
     `⚠️ Disputa aperta sul deal *#${deal.id}*. Admin avvisato: può entrare e arbitrare con /pay_seller o /refund_buyer.`,
 
-  disputeAdminNotify: (deal: Deal, fromId: number, fromUsername: string | undefined, link?: string) =>
+  disputeAdminNotify: (
+    deal: Deal,
+    fromId: number,
+    fromUsername: string | undefined,
+    link?: string,
+  ) =>
     `🚨 Disputa deal #${deal.id}
 Da: ${fromUsername ? `@${fromUsername}` : fromId} (${fromId})
 Importo: ${deal.amount} ${deal.asset}
@@ -111,17 +128,19 @@ ${link ? `Link one-time admin:\n${link}` : "Nessun link (bot senza permesso invi
 
 In gruppo: /pay_seller o /refund_buyer (potere admin in disputa).`,
 
-  adminMissing:
-    "Disputa registrata, ma ADMIN_TELEGRAM_ID non è configurato.",
+  adminMissing: "Disputa registrata, ma ADMIN_TELEGRAM_ID non è configurato.",
+
+  botAddedHint:
+    "Bot aggiunto. Chi ha preparato il deal in privato: invia /avvia per collegarlo a questo gruppo (dopo avermi reso admin).",
 
   groupTitle: (deal: Deal) => `Escrow #${deal.id} · ${deal.amount} ${deal.asset}`,
 } as const;
 
 export function statusLabel(status: Deal["status"]): string {
   const map: Record<Deal["status"], string> = {
-    awaiting_group: "crea il gruppo",
+    awaiting_group: "crea gruppo + aggiungi bot",
     awaiting_bot_admin: "promuovi il bot admin",
-    awaiting_counterpart: "in attesa controparte",
+    awaiting_counterpart: "in attesa conferma controparte",
     awaiting_deposit: "in attesa deposito",
     funded: "fondato",
     release_pending: "pay_seller in corso",

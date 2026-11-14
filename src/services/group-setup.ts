@@ -3,17 +3,24 @@ import type { Deal } from "../types.js";
 import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
 import { groupActionsKeyboard } from "../keyboards/menus.js";
-import { bothPartiesPresent } from "./deal-logic.js";
 
-export async function botHasInvitePermission(
-  api: Api,
-  chatId: number,
-): Promise<boolean> {
+export async function botIsAdministrator(api: Api, chatId: number): Promise<boolean> {
   try {
-    const me = await api.getChatMember(chatId, (await api.getMe()).id);
-    if (me.status === "creator") return true;
-    if (me.status === "administrator") {
-      return Boolean(me.can_invite_users);
+    const me = await api.getMe();
+    const member = await api.getChatMember(chatId, me.id);
+    return member.status === "creator" || member.status === "administrator";
+  } catch {
+    return false;
+  }
+}
+
+export async function botCanRestrict(api: Api, chatId: number): Promise<boolean> {
+  try {
+    const me = await api.getMe();
+    const member = await api.getChatMember(chatId, me.id);
+    if (member.status === "creator") return true;
+    if (member.status === "administrator") {
+      return Boolean(member.can_restrict_members);
     }
     return false;
   } catch {
@@ -21,33 +28,26 @@ export async function botHasInvitePermission(
   }
 }
 
-export async function ensureGroupConfigured(
+/**
+ * Collega il gruppo al deal e verifica che il bot sia admin.
+ * Non crea più invite link per la controparte.
+ */
+export async function bindGroupToDeal(
   api: Api,
   store: DealStore,
   deal: Deal,
   chatId: number,
-): Promise<Deal> {
-  const canInvite = await botHasInvitePermission(api, chatId);
-  if (!canInvite) {
-    return (
+): Promise<{ deal: Deal; isAdmin: boolean }> {
+  const isAdmin = await botIsAdministrator(api, chatId);
+
+  if (!isAdmin) {
+    const updated =
       store.update(deal.id, {
         groupChatId: chatId,
         status: "awaiting_bot_admin",
-      }) ?? deal
-    );
-  }
-
-  let invite = deal.groupInviteLink;
-  if (!invite) {
-    try {
-      const link = await api.createChatInviteLink(chatId, {
-        name: `counterpart-${deal.id}`,
-        member_limit: 1,
-      });
-      invite = link.invite_link;
-    } catch (err) {
-      console.warn("createChatInviteLink failed:", err);
-    }
+        groupInviteLink: undefined,
+      }) ?? deal;
+    return { deal: updated, isAdmin: false };
   }
 
   try {
@@ -56,48 +56,35 @@ export async function ensureGroupConfigured(
     // ok se manca can_change_info
   }
 
-  const status = bothPartiesPresent(deal)
-    ? deal.status === "awaiting_group" ||
-      deal.status === "awaiting_bot_admin" ||
-      deal.status === "awaiting_counterpart"
-      ? "awaiting_deposit"
-      : deal.status
-    : "awaiting_counterpart";
+  const nextStatus =
+    deal.buyerId != null && deal.sellerId != null
+      ? deal.status === "awaiting_deposit" ||
+        deal.status === "funded" ||
+        deal.status === "release_pending" ||
+        deal.status === "refund_pending" ||
+        deal.status === "released" ||
+        deal.status === "refunded" ||
+        deal.status === "disputed"
+        ? deal.status
+        : "awaiting_deposit"
+      : "awaiting_counterpart";
 
-  return (
+  const updated =
     store.update(deal.id, {
       groupChatId: chatId,
-      groupInviteLink: invite,
-      status,
-    }) ?? deal
-  );
+      status: nextStatus,
+      groupInviteLink: undefined,
+    }) ?? deal;
+
+  return { deal: updated, isAdmin: true };
 }
 
-export async function postGroupWelcome(
-  api: Api,
-  deal: Deal,
-): Promise<void> {
+export async function postDealActivated(api: Api, deal: Deal): Promise<void> {
   if (deal.groupChatId == null) return;
-
-  await api.sendMessage(deal.groupChatId, it.groupBound(deal), {
+  await api.sendMessage(deal.groupChatId, it.dealActivated(deal), {
     parse_mode: "Markdown",
     reply_markup: groupActionsKeyboard(deal.status),
   });
-
-  if (deal.groupInviteLink && deal.status === "awaiting_counterpart") {
-    await api.sendMessage(
-      deal.groupChatId,
-      it.inviteCounterpart(deal.groupInviteLink),
-      { parse_mode: "Markdown" },
-    );
-  }
-
-  if (deal.status === "awaiting_deposit") {
-    await api.sendMessage(deal.groupChatId, it.counterpartJoined(deal), {
-      parse_mode: "Markdown",
-      reply_markup: groupActionsKeyboard(deal.status),
-    });
-  }
 }
 
 export async function createAdminInviteLink(

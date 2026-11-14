@@ -2,19 +2,16 @@
 
 Bot Telegram di **escrow crypto** per il mercato italiano.
 
-- Per ogni deal il bot prepara un **gruppo privato** (buyer + seller + bot)
-- L’**admin** può entrare solo in disputa per arbitrare
+- Buyer + seller creano un **gruppo privato** (max 2 persone), aggiungono il bot come **admin**, poi avviano il deal
+- L’**admin** di servizio può entrare solo in disputa
 - UI in italiano · solo crypto in MVP (asset placeholder: **USDT**)
-- Le parti si conoscono già; il bot media il deal nel gruppo
 
 Stack: **Node.js + TypeScript + [grammY](https://grammy.dev)** · store JSON (`data/deals.json`)
-
-> Nota Bot API: i bot non possono creare gruppi da soli. Il flusso usa il deep link Telegram `?startgroup=` (l’utente conferma la creazione del gruppo con il bot già dentro), poi il bot genera un **invite link a 1 posto** per la controparte.
 
 ## Requisiti
 
 - Node.js 20+
-- Bot da [@BotFather](https://t.me/BotFather) — consigliato: **Group Privacy = Off** oppure bot sempre **admin** nel gruppo escrow
+- Bot da [@BotFather](https://t.me/BotFather) — bot **admin** nel gruppo escrow
 - `TELEGRAM_BOT_TOKEN` (mai committare il token)
 
 ## Setup
@@ -42,54 +39,37 @@ npm run dev      # sviluppo (tsx watch)
 npm run build && npm start
 ```
 
-All’avvio: `getMe` + long-polling con update `message`, `callback_query`, `my_chat_member`, `chat_member`.
-
 ## Flusso MVP
 
-### In privato con il bot
+### In privato
 
-1. `/start` — benvenuto
-2. `/crea` o «Crea escrow» — scegli ruolo (*buyer* / *seller*) e importo USDT
-3. Pulsante **Crea gruppo escrow** (`t.me/<bot>?startgroup=d_<id>`)
-4. Nel gruppo: promuovi il bot ad **amministratore** (invita + ban). Se serve: `/setup`
+1. `/start` → `/crea` (o «Crea escrow»)
+2. Scegli ruolo (*buyer* / *seller*) e importo USDT
+3. Il bot **non** manda un invite come se il gruppo esistesse già: spiega di creare il gruppo con la controparte, aggiungere `@ESCROWITAbot` come admin, poi `/avvia` nel gruppo
+4. Pulsante opzionale «Aggiungi il bot a un gruppo» (`startgroup`) — solo per aggiungere il bot, non per invitare la controparte
 
-### Nel gruppo escrow
+### Nel gruppo (dopo che buyer + seller ci sono già)
 
-5. Il bot pubblica il **link invito controparte** (`member_limit: 1`)
-6. Controparte entra → indirizzo escrow **mock**
-7. «Segna depositato» / `/depositato` (stub, no on-chain)
-8. `/pay_seller` o `/refund_buyer` — **doppia conferma** (oppure pulsanti)
-9. `/dispute` — stato disputa, notifica admin + **link one-time** per entrare e arbitrare (`/pay_seller` / `/refund_buyer` da soli se admin)
+5. Promuovi il bot ad **amministratore**
+6. `/avvia` (chi ha creato il deal in privato)
+7. Controparte tocca **Confermo**
+8. Bot mostra importo, indirizzo escrow **mock**, comandi
+9. `/depositato` → `/pay_seller` / `/refund_buyer` (doppia conferma)
+10. `/dispute` → notifica admin + link one-time (solo per l’admin)
 
 Altri: `/indirizzo`, `/stato`, `/miei` (privato), `/aiuto`
 
 ### Protezioni base
 
-- Invite controparte limitato a 1 posto
-- Utenti extra (non buyer/seller/admin) → tentativo di **kick**
-- Messaggi e comandi in italiano
-
-## Struttura
-
-```
-src/
-  index.ts              # polling + allowed_updates
-  bot.ts
-  config.ts
-  types.ts
-  store/deals.ts
-  handlers/             # privato + lifecycle gruppo + comandi gruppo
-  keyboards/
-  messages/it.ts
-  services/             # regole deal + setup gruppo
-```
+- Dopo l’attivazione: kick utenti che non sono buyer/seller/admin
+- Nessun invite link controparte generato dal bot in setup
+- Messaggi in italiano
 
 ## Limiti dello scaffold
 
-- Indirizzo escrow e payout sono **stub**
-- Creazione gruppo via `startgroup` (non MTProto)
-- Store file-based (non multi-istanza)
-- Niente fiat/SEPA, niente KYC
+- Escrow address e payout sono **stub**
+- Store file-based
+- Niente fiat/SEPA
 
 ## Licenza
 

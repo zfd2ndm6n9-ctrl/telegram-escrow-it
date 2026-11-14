@@ -3,8 +3,8 @@ import type { BotContext } from "../context.js";
 import { config } from "../config.js";
 import { it } from "../messages/it.js";
 import {
+  addBotToGroupKeyboard,
   cancelKeyboard,
-  createGroupKeyboard,
   mainMenuKeyboard,
   roleKeyboard,
 } from "../keyboards/menus.js";
@@ -57,7 +57,6 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Ruolo già gestito dagli hears
     if (creating.step === "role") {
       await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
       return;
@@ -91,22 +90,18 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
 
       ctx.session.creating = undefined;
 
-      const username = config.botUsername ?? ctx.botUsername;
-      const payload = startGroupPayload(deal.id);
-      const startGroupUrl = username
-        ? `https://t.me/${username}?startgroup=${payload}`
-        : `startgroup=${payload}`;
-
-      await ctx.reply(it.dealReadyToCreateGroup(deal, startGroupUrl), {
+      const username = config.botUsername ?? ctx.botUsername ?? "ESCROWITAbot";
+      await ctx.reply(it.afterAmountInstructions(deal, username), {
         parse_mode: "Markdown",
-        reply_markup: username
-          ? createGroupKeyboard(startGroupUrl)
-          : mainMenuKeyboard(),
+        reply_markup: mainMenuKeyboard(),
       });
 
-      if (username) {
-        await ctx.reply("Menu principale:", { reply_markup: mainMenuKeyboard() });
-      }
+      // Deep link opzionale: solo per aggiungere il bot a un gruppo, non invita la controparte
+      const startGroupUrl = `https://t.me/${username}?startgroup=${startGroupPayload(deal.id)}`;
+      await ctx.reply(
+        "Opzionale: usa il pulsante per aggiungere il bot a un gruppo (dopo che siete già tu e la controparte, promuovilo admin e fai /avvia).",
+        { reply_markup: addBotToGroupKeyboard(startGroupUrl) },
+      );
     }
   });
 }

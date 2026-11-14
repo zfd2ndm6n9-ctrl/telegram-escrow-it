@@ -24,8 +24,13 @@ export function roleKeyboard(): Keyboard {
     .oneTime();
 }
 
-export function createGroupKeyboard(startGroupUrl: string): InlineKeyboard {
-  return new InlineKeyboard().url("👥 Crea gruppo escrow", startGroupUrl);
+/** Opzionale: deep link per aggiungere il bot a un gruppo (non è un invite controparte). */
+export function addBotToGroupKeyboard(startGroupUrl: string): InlineKeyboard {
+  return new InlineKeyboard().url("➕ Aggiungi il bot a un gruppo", startGroupUrl);
+}
+
+export function counterpartConfirmKeyboard(dealId: string): InlineKeyboard {
+  return new InlineKeyboard().text("✅ Confermo (controparte)", `cp:${dealId}`);
 }
 
 export function groupActionsKeyboard(status: string): InlineKeyboard {
@@ -35,8 +40,15 @@ export function groupActionsKeyboard(status: string): InlineKeyboard {
     kb.text("💰 Segna depositato", "funded").row();
   }
 
-  if (status === "funded" || status === "release_pending" || status === "refund_pending" || status === "disputed") {
-    kb.text("🔓 pay_seller", "pay_seller").text("↩️ refund_buyer", "refund_buyer").row();
+  if (
+    status === "funded" ||
+    status === "release_pending" ||
+    status === "refund_pending" ||
+    status === "disputed"
+  ) {
+    kb.text("🔓 pay_seller", "pay_seller")
+      .text("↩️ refund_buyer", "refund_buyer")
+      .row();
   }
 
   kb.text("⚠️ Disputa", "dispute").text("📄 Stato", "stato");

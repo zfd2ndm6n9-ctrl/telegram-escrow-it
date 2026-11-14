@@ -108,14 +108,15 @@ export class DealStore {
     return [...this.deals.values()].find((d) => d.groupChatId === chatId);
   }
 
-  /** Deal in attesa di gruppo creato dal creator (il più recente). */
+  /** Deal del creator ancora da avviare / in setup gruppo (il più recente). */
   findAwaitingGroupByCreator(creatorId: number): Deal | undefined {
     return [...this.deals.values()]
       .filter(
         (d) =>
           d.creatorId === creatorId &&
-          (d.status === "awaiting_group" || d.status === "awaiting_bot_admin") &&
-          d.groupChatId == null,
+          (d.status === "awaiting_group" ||
+            d.status === "awaiting_bot_admin" ||
+            d.status === "awaiting_counterpart"),
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   }

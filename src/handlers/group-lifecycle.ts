@@ -8,11 +8,11 @@ import {
   parseStartGroupPayload,
 } from "../services/deal-logic.js";
 import {
-  ensureGroupConfigured,
+  bindGroupToDeal,
   kickUnauthorized,
-  postGroupWelcome,
+  postDealActivated,
 } from "../services/group-setup.js";
-import { groupActionsKeyboard } from "../keyboards/menus.js";
+import { counterpartConfirmKeyboard } from "../keyboards/menus.js";
 
 async function onHumanJoined(
   ctx: BotContext,
@@ -23,32 +23,18 @@ async function onHumanJoined(
   const deal = ctx.store.findByGroupChatId(chatId);
   if (!deal) return;
 
-  if (isAllowedHuman(deal, userId)) {
-    const patch = assignJoiningParty(deal, userId, username);
-    if (patch) {
-      let updated = ctx.store.update(deal.id, patch)!;
-      if (bothPartiesPresent(updated) && updated.status === "awaiting_counterpart") {
-        updated = ctx.store.setStatus(updated.id, "awaiting_deposit")!;
-        await ctx.api.sendMessage(chatId, it.counterpartJoined(updated), {
-          parse_mode: "Markdown",
-          reply_markup: groupActionsKeyboard(updated.status),
-        });
-      }
+  // Deal non ancora attivato: non auto-assegnare via join; kick solo se già chiuso a 2 party
+  if (!bothPartiesPresent(deal)) {
+    if (isAllowedHuman(deal, userId) || userId === deal.creatorId) {
+      const patch = assignJoiningParty(deal, userId, username);
+      if (patch) ctx.store.update(deal.id, patch);
     }
     return;
   }
 
-  // Non ancora party: prova ad assegnare lo slot controparte libero
-  const patch = assignJoiningParty(deal, userId, username);
-  if (patch && (patch.buyerId === userId || patch.sellerId === userId)) {
-    let updated = ctx.store.update(deal.id, patch)!;
-    if (bothPartiesPresent(updated) && updated.status === "awaiting_counterpart") {
-      updated = ctx.store.setStatus(updated.id, "awaiting_deposit")!;
-      await ctx.api.sendMessage(chatId, it.counterpartJoined(updated), {
-        parse_mode: "Markdown",
-        reply_markup: groupActionsKeyboard(updated.status),
-      });
-    }
+  if (isAllowedHuman(deal, userId)) {
+    const patch = assignJoiningParty(deal, userId, username);
+    if (patch) ctx.store.update(deal.id, patch);
     return;
   }
 
@@ -66,54 +52,144 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       status === "member" || status === "administrator" || status === "restricted";
     if (!joined) return;
 
-    // Se già collegato e diventiamo admin, completa setup
-    let deal = ctx.store.findByGroupChatId(chat.id);
-    if (!deal) {
-      deal = ctx.store.findAwaitingGroupByCreator(update.from.id);
-    }
-    if (!deal) {
-      console.log(
-        `my_chat_member: nessun deal per user ${update.from.id} chat ${chat.id}`,
-      );
-      return;
+    // Non avviare il deal qui: solo hint. Setup solo con /avvia dopo admin + parti.
+    const pending = ctx.store.findAwaitingGroupByCreator(update.from.id);
+    if (pending && pending.groupChatId == null) {
+      ctx.store.update(pending.id, { groupChatId: chat.id, status: "awaiting_bot_admin" });
     }
 
-    const configured = await ensureGroupConfigured(ctx.api, ctx.store, deal, chat.id);
-
-    if (configured.status === "awaiting_bot_admin") {
-      await ctx.api.sendMessage(chat.id, it.needBotAdmin, { parse_mode: "Markdown" });
-      return;
-    }
-
-    await postGroupWelcome(ctx.api, configured);
-    console.log(`Gruppo collegato deal #${configured.id} chat=${chat.id}`);
+    await ctx.api.sendMessage(chat.id, it.botAddedHint);
+    console.log(`Bot aggiunto a chat ${chat.id}; in attesa di /avvia`);
   });
 
-  bot.command("setup", async (ctx) => {
+  /**
+   * /avvia — chi ha creato il deal in DM collega il gruppo e chiede conferma controparte.
+   * Alias: /setup
+   */
+  const avvia = async (ctx: BotContext) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await ctx.reply(it.onlyGroup, { parse_mode: "Markdown" });
       return;
     }
     if (!ctx.from) return;
 
-    let deal =
-      ctx.store.findByGroupChatId(ctx.chat.id) ??
-      ctx.store.findAwaitingGroupByCreator(ctx.from.id);
-
-    if (!deal) {
-      await ctx.reply(it.noDealInGroup);
+    const existing = ctx.store.findByGroupChatId(ctx.chat.id);
+    if (existing && bothPartiesPresent(existing) && existing.status !== "awaiting_counterpart" && existing.status !== "awaiting_bot_admin" && existing.status !== "awaiting_group") {
+      await ctx.reply(it.alreadyActivated);
       return;
     }
 
-    deal = await ensureGroupConfigured(ctx.api, ctx.store, deal, ctx.chat.id);
-    if (deal.status === "awaiting_bot_admin") {
+    let deal =
+      existing && existing.creatorId === ctx.from.id
+        ? existing
+        : ctx.store.findAwaitingGroupByCreator(ctx.from.id);
+
+    if (!deal) {
+      // Altro membro con deal già bound
+      if (existing) {
+        if (existing.creatorId !== ctx.from.id) {
+          await ctx.reply(it.notCreator);
+          return;
+        }
+        deal = existing;
+      } else {
+        await ctx.reply(it.noDealInGroup);
+        return;
+      }
+    }
+
+    if (deal.creatorId !== ctx.from.id) {
+      await ctx.reply(it.notCreator);
+      return;
+    }
+
+    if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
+      await ctx.reply(it.alreadyBound);
+      return;
+    }
+
+    const { deal: bound, isAdmin } = await bindGroupToDeal(
+      ctx.api,
+      ctx.store,
+      deal,
+      ctx.chat.id,
+    );
+
+    if (!isAdmin) {
       await ctx.reply(it.needBotAdmin, { parse_mode: "Markdown" });
       return;
     }
 
-    await postGroupWelcome(ctx.api, deal);
+    if (bothPartiesPresent(bound)) {
+      const active =
+        bound.status === "awaiting_counterpart" || bound.status === "awaiting_bot_admin"
+          ? ctx.store.setStatus(bound.id, "awaiting_deposit")!
+          : bound;
+      await postDealActivated(ctx.api, active);
+      return;
+    }
+
+    const waiting =
+      ctx.store.setStatus(bound.id, "awaiting_counterpart") ?? bound;
+    await ctx.reply(it.askCounterpartConfirm(waiting), {
+      parse_mode: "Markdown",
+      reply_markup: counterpartConfirmKeyboard(waiting.id),
+    });
+  };
+
+  bot.command("avvia", avvia);
+  bot.command("setup", avvia);
+
+  // Controparte conferma nel gruppo
+  bot.callbackQuery(/^cp:(.+)$/, async (ctx) => {
+    const dealId = ctx.match![1];
+    const deal = ctx.store.get(dealId);
+    if (!deal || !ctx.from || !ctx.chat) {
+      await ctx.answerCallbackQuery({ text: "Deal non trovato" });
+      return;
+    }
+    if (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup") {
+      await ctx.answerCallbackQuery({ text: "Solo in gruppo" });
+      return;
+    }
+    if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
+      await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
+      return;
+    }
+    if (ctx.from.id === deal.creatorId) {
+      await ctx.answerCallbackQuery({ text: "Sei il creatore" });
+      await ctx.reply(it.counterpartIsCreator);
+      return;
+    }
+    if (bothPartiesPresent(deal)) {
+      await ctx.answerCallbackQuery({ text: "Già completo" });
+      await ctx.reply(it.counterpartTaken);
+      return;
+    }
+
+    const patch = assignJoiningParty(deal, ctx.from.id, ctx.from.username);
+    if (!patch || (patch.buyerId !== ctx.from.id && patch.sellerId !== ctx.from.id)) {
+      await ctx.answerCallbackQuery({ text: "Non assegnabile" });
+      return;
+    }
+
+    let updated = ctx.store.update(deal.id, {
+      ...patch,
+      groupChatId: ctx.chat.id,
+    })!;
+
+    if (bothPartiesPresent(updated)) {
+      updated = ctx.store.setStatus(updated.id, "awaiting_deposit")!;
+      await ctx.answerCallbackQuery({ text: "Confermato" });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+      await postDealActivated(ctx.api, updated);
+      return;
+    }
+
+    await ctx.answerCallbackQuery({ text: "Ok" });
   });
 
+  // startgroup payload: memorizza chat, non avviare deal / non invitare
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -140,21 +216,18 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
 
     if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
-      await ctx.reply("Questo deal è già collegato a un altro gruppo.");
+      await ctx.reply(it.alreadyBound);
       return;
     }
 
-    const configured = await ensureGroupConfigured(
-      ctx.api,
-      ctx.store,
-      deal,
-      ctx.chat.id,
-    );
-    if (configured.status === "awaiting_bot_admin") {
-      await ctx.reply(it.needBotAdmin, { parse_mode: "Markdown" });
-    } else {
-      await postGroupWelcome(ctx.api, configured);
+    if (deal.creatorId === ctx.from.id && deal.groupChatId == null) {
+      ctx.store.update(deal.id, {
+        groupChatId: ctx.chat.id,
+        status: "awaiting_bot_admin",
+      });
     }
+
+    await ctx.reply(it.botAddedHint);
   });
 
   bot.on("chat_member", async (ctx) => {
