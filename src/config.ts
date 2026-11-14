@@ -13,6 +13,8 @@ function requireEnv(name: string): string {
 export const config = {
   botToken: process.env.TELEGRAM_BOT_TOKEN?.trim() ?? "",
   adminTelegramId: process.env.ADMIN_TELEGRAM_ID?.trim() || undefined,
+  /** URL ToS pubblici; se assente il pulsante risponde “in arrivo” */
+  tosUrl: process.env.TOS_URL?.trim() || undefined,
   /** Indirizzo escrow mock finché il wallet reale non è pronto */
   mockEscrowAddress: "TXescrowMockUSDTAddressItalyMVP0001",
   defaultAsset: "USDT" as const,

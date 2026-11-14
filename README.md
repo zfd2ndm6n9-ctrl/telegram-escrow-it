@@ -45,17 +45,13 @@ npm run build && npm start
 
 1. `/start` → `/crea` (o «Crea escrow»)
 2. Scegli ruolo (*buyer* / *seller*) e importo USDT
-3. Il bot **non** manda un invite come se il gruppo esistesse già: spiega di creare il gruppo con la controparte, aggiungere `@ESCROWITAbot` come admin, poi `/avvia` nel gruppo
-4. Pulsante opzionale «Aggiungi il bot a un gruppo» (`startgroup`) — solo per aggiungere il bot, non per invitare la controparte
+3. Un messaggio con *Passi*: crea gruppo (max 2) → pulsante **+ Aggiungi il bot a un gruppo +** → leggi i ToS → in disputa aggiungi il supporto
+4. Pulsante **📄 Leggi i Termini** (URL `TOS_URL` oppure “in arrivo”)
 
-### Nel gruppo (dopo che buyer + seller ci sono già)
+### Nel gruppo
 
-5. Promuovi il bot ad **amministratore**
-6. `/avvia` (chi ha creato il deal in privato)
-7. Controparte tocca **Confermo**
-8. Bot mostra importo, indirizzo escrow **mock**, comandi
-9. `/depositato` → `/pay_seller` / `/refund_buyer` (doppia conferma)
-10. `/dispute` → notifica admin + link one-time (solo per l’admin)
+5. `/avvia` + conferma controparte (codice; non ripetuto nei 4 passi post-importo)
+6. Indirizzo escrow **mock**, `/depositato`, `/pay_seller` / `/refund_buyer`, `/dispute`
 
 Altri: `/indirizzo`, `/stato`, `/miei` (privato), `/aiuto`
 

@@ -24,9 +24,15 @@ export function roleKeyboard(): Keyboard {
     .oneTime();
 }
 
-/** Opzionale: deep link per aggiungere il bot a un gruppo (non è un invite controparte). */
-export function addBotToGroupKeyboard(startGroupUrl: string): InlineKeyboard {
-  return new InlineKeyboard().url("➕ Aggiungi il bot a un gruppo", startGroupUrl);
+/** Post-importo: startgroup + ToS (stesso messaggio). */
+export function afterAmountKeyboard(startGroupUrl: string, tosUrl?: string): InlineKeyboard {
+  const kb = new InlineKeyboard().url("+ Aggiungi il bot a un gruppo +", startGroupUrl).row();
+  if (tosUrl) {
+    kb.url("📄 Leggi i Termini", tosUrl);
+  } else {
+    kb.text("📄 Leggi i Termini", "tos");
+  }
+  return kb;
 }
 
 export function counterpartConfirmKeyboard(dealId: string): InlineKeyboard {

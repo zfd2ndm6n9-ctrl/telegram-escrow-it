@@ -3,8 +3,8 @@ import type { Deal } from "../types.js";
 export const it = {
   welcome: `Ciao! Sono il bot di *escrow crypto* (Italia).
 
-Tu e la controparte create un *gruppo privato* (solo voi due), mi aggiungete come *amministratore*, poi avviate il deal nel gruppo.
-L'admin di servizio può entrare solo in caso di disputa.
+Tu e la controparte create un *gruppo privato* (max 2 persone), aggiungete il bot al gruppo, poi gestite il deal lì.
+In caso di disputa va aggiunto il *supporto*.
 
 Comandi (in privato):
 /crea — prepara un nuovo escrow
@@ -14,10 +14,10 @@ Comandi (in privato):
   help: `*Guida*
 
 1. In privato: /crea → ruolo (buyer/seller) + importo USDT
-2. Create un gruppo con la controparte (max 2 persone)
-3. Aggiungete @ESCROWITAbot come *amministratore*
-4. Nel gruppo: /avvia → la controparte conferma → indirizzo escrow e comandi
-5. /pay_seller o /refund_buyer (doppia conferma); /dispute per l'admin
+2. Crea un gruppo privato e invita solo la controparte (max 2)
+3. Aggiungi il bot al gruppo (pulsante dopo /crea)
+4. Leggi i ToS prima di ogni deal
+5. Nel gruppo: comandi escrow; in disputa aggiungete il supporto
 
 Asset MVP: USDT (placeholder).`,
 
@@ -27,20 +27,21 @@ Asset MVP: USDT (placeholder).`,
   cancelled: "Operazione annullata.",
   unknownPrivate: "Non ho capito. Usa /aiuto oppure i pulsanti del menu.",
 
-  /** Dopo l'importo: istruzioni, NON un invite come se il gruppo esistesse già */
-  afterAmountInstructions: (deal: Deal, botUsername: string) =>
-    `✅ Deal *#${deal.id}* preparato (non ancora avviato).
+  /** Un solo messaggio post-importo: 4 passi + pulsanti (bot / ToS) */
+  afterAmountInstructions: (deal: Deal) =>
+    `✅ Deal *#${deal.id}* preparato.
 
 • Ruolo tuo: *${deal.creatorRole}*
 • Importo: *${deal.amount} ${deal.asset}*
 
-Crea un *gruppo* con la controparte, aggiungi *@${botUsername}* come *amministratore*, poi avviate il deal.
-
-Passi:
+*Passi:*
 1. Crea un gruppo privato e invita solo la controparte (max 2 persone)
-2. Aggiungi @${botUsername} e promuovilo ad amministratore
-3. Nel gruppo invia /avvia (tu che hai creato il deal qui)
-4. La controparte tocca *Confermo* → il bot mostra indirizzo escrow e i comandi`,
+2. Aggiungi il bot al gruppo con il pulsante qui sotto
+3. Leggi i *ToS* prima di ogni deal
+4. Se ci sono dispute, aggiungete il *supporto* al gruppo: sistemerà la situazione`,
+
+  tosComingSoon:
+    "📄 *Termini di servizio*: in arrivo. Prima di ogni deal ti chiederemo di leggerli qui.",
 
   needBotAdmin:
     "⚠️ Sono nel gruppo ma *non sono amministratore*. Promuovimi ad admin, poi reinvia /avvia.",

@@ -3,7 +3,7 @@ import type { BotContext } from "../context.js";
 import { config } from "../config.js";
 import { it } from "../messages/it.js";
 import {
-  addBotToGroupKeyboard,
+  afterAmountKeyboard,
   cancelKeyboard,
   mainMenuKeyboard,
   roleKeyboard,
@@ -37,6 +37,11 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
 
   bot.hears("🏪 Sono il seller", async (ctx) => {
     await pickRole(ctx, "seller");
+  });
+
+  bot.callbackQuery("tos", async (ctx) => {
+    await ctx.answerCallbackQuery({ text: "ToS in arrivo" });
+    await ctx.reply(it.tosComingSoon, { parse_mode: "Markdown" });
   });
 
   bot.on("message:text", async (ctx, next) => {
@@ -91,17 +96,12 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       ctx.session.creating = undefined;
 
       const username = config.botUsername ?? ctx.botUsername ?? "ESCROWITAbot";
-      await ctx.reply(it.afterAmountInstructions(deal, username), {
-        parse_mode: "Markdown",
-        reply_markup: mainMenuKeyboard(),
-      });
-
-      // Deep link opzionale: solo per aggiungere il bot a un gruppo, non invita la controparte
       const startGroupUrl = `https://t.me/${username}?startgroup=${startGroupPayload(deal.id)}`;
-      await ctx.reply(
-        "Opzionale: usa il pulsante per aggiungere il bot a un gruppo (dopo che siete già tu e la controparte, promuovilo admin e fai /avvia).",
-        { reply_markup: addBotToGroupKeyboard(startGroupUrl) },
-      );
+
+      await ctx.reply(it.afterAmountInstructions(deal), {
+        parse_mode: "Markdown",
+        reply_markup: afterAmountKeyboard(startGroupUrl, config.tosUrl),
+      });
     }
   });
 }
