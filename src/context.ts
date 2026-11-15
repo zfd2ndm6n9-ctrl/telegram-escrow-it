@@ -2,7 +2,7 @@ import { Context, SessionFlavor } from "grammy";
 import type { DealStore } from "./store/deals.js";
 import type { PartyRole } from "./types.js";
 
-export type CreateDealStep = "role" | "amount" | "wallet";
+export type CreateDealStep = "role" | "amount";
 
 export interface SessionData {
   creating?: {

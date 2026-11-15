@@ -5,15 +5,25 @@ import {
   assignJoiningParty,
   bothPartiesPresent,
   isAllowedHuman,
+  isParty,
+  isPreDepositSetup,
   parseStartGroupPayload,
+  tosAccepted,
 } from "../services/deal-logic.js";
 import {
   bindGroupToDeal,
   checkRequiredBotAdminPerms,
   kickUnauthorized,
-  postDealActivated,
+  postAskSellerWallet,
+  postStabilizeTos,
+  postTosDraft,
 } from "../services/group-setup.js";
-import { counterpartConfirmKeyboard } from "../keyboards/menus.js";
+import {
+  counterpartConfirmKeyboard,
+  tosConfirmKeyboard,
+} from "../keyboards/menus.js";
+
+const MIN_TOS_LENGTH = 20;
 
 async function onHumanJoined(
   ctx: BotContext,
@@ -75,7 +85,13 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     if (!ctx.from) return;
 
     const existing = ctx.store.findByGroupChatId(ctx.chat.id);
-    if (existing && bothPartiesPresent(existing) && existing.status !== "awaiting_counterpart" && existing.status !== "awaiting_bot_admin" && existing.status !== "awaiting_group") {
+    if (
+      existing &&
+      bothPartiesPresent(existing) &&
+      existing.status !== "awaiting_counterpart" &&
+      existing.status !== "awaiting_bot_admin" &&
+      existing.status !== "awaiting_group"
+    ) {
       await ctx.reply(it.alreadyActivated);
       return;
     }
@@ -122,11 +138,26 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
 
     if (bothPartiesPresent(bound)) {
-      const active =
-        bound.status === "awaiting_counterpart" || bound.status === "awaiting_bot_admin"
-          ? ctx.store.setStatus(bound.id, "awaiting_deposit")!
-          : bound;
-      await postDealActivated(ctx.api, active);
+      // Ruoli già noti (es. join): passa ai ToS, non allo escrow
+      if (!tosAccepted(bound) && !isPreDepositSetup(bound.status)) {
+        const waitingTos =
+          ctx.store.setStatus(bound.id, "awaiting_tos") ?? bound;
+        await postStabilizeTos(ctx.api, waitingTos);
+        return;
+      }
+      if (bound.status === "awaiting_tos") {
+        await postStabilizeTos(ctx.api, bound);
+        return;
+      }
+      if (bound.status === "awaiting_tos_confirm" && bound.tosText) {
+        await postTosDraft(ctx.api, bound);
+        return;
+      }
+      if (bound.status === "awaiting_seller_wallet") {
+        await postAskSellerWallet(ctx.api, bound);
+        return;
+      }
+      await ctx.reply(it.alreadyActivated);
       return;
     }
 
@@ -141,7 +172,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
   bot.command("avvia", avvia);
   bot.command("setup", avvia);
 
-  // Controparte conferma nel gruppo
+  // Controparte conferma nel gruppo → Stabiliamo i ToS
   bot.callbackQuery(/^cp:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     const deal = ctx.store.get(dealId);
@@ -162,7 +193,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.counterpartIsCreator);
       return;
     }
-    if (bothPartiesPresent(deal)) {
+    if (bothPartiesPresent(deal) && deal.status !== "awaiting_counterpart") {
       await ctx.answerCallbackQuery({ text: "Già completo" });
       await ctx.reply(it.counterpartTaken);
       return;
@@ -175,30 +206,80 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
+    const alreadyParty = isParty(deal, ctx.from.id);
     const patch = assignJoiningParty(deal, ctx.from.id, ctx.from.username);
-    if (!patch || (patch.buyerId !== ctx.from.id && patch.sellerId !== ctx.from.id)) {
+    if (
+      !alreadyParty &&
+      (!patch || (patch.buyerId !== ctx.from.id && patch.sellerId !== ctx.from.id))
+    ) {
       await ctx.answerCallbackQuery({ text: "Non assegnabile" });
       return;
     }
 
     let updated = ctx.store.update(deal.id, {
-      ...patch,
+      ...(patch ?? {}),
       groupChatId: ctx.chat.id,
     })!;
 
     if (bothPartiesPresent(updated)) {
-      updated = ctx.store.setStatus(updated.id, "awaiting_deposit")!;
+      updated = ctx.store.setStatus(updated.id, "awaiting_tos")!;
       await ctx.answerCallbackQuery({ text: "Confermato" });
       await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
-      await ctx.reply(it.askCounterpartWallet(updated), { parse_mode: "Markdown" });
-      await postDealActivated(ctx.api, updated);
+      await postStabilizeTos(ctx.api, updated);
       return;
     }
 
     await ctx.answerCallbackQuery({ text: "Ok" });
   });
 
-  // startgroup payload: memorizza chat, non avviare deal / non invitare
+  // Controparte accetta i ToS → wallet seller
+  bot.callbackQuery(/^tosok:(.+)$/, async (ctx) => {
+    const dealId = ctx.match![1];
+    const deal = ctx.store.get(dealId);
+    if (!deal || !ctx.from || !ctx.chat) {
+      await ctx.answerCallbackQuery({ text: "Deal non trovato" });
+      return;
+    }
+    if (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup") {
+      await ctx.answerCallbackQuery({ text: "Solo in gruppo" });
+      return;
+    }
+    if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
+      await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
+      return;
+    }
+    if (!deal.tosText || deal.status !== "awaiting_tos_confirm") {
+      await ctx.answerCallbackQuery({ text: "Nessun ToS da accettare" });
+      return;
+    }
+    if (tosAccepted(deal)) {
+      await ctx.answerCallbackQuery({ text: "Già accettati" });
+      await ctx.reply(it.tosAlreadyAccepted);
+      return;
+    }
+    if (ctx.from.id === deal.creatorId) {
+      await ctx.answerCallbackQuery({ text: "Solo controparte" });
+      await ctx.reply(it.tosCreatorCannotAccept);
+      return;
+    }
+    if (!isParty(deal, ctx.from.id)) {
+      await ctx.answerCallbackQuery({ text: "Non sei parte" });
+      await ctx.reply(it.notParty);
+      return;
+    }
+
+    const updated = ctx.store.update(deal.id, {
+      tosAcceptedAt: new Date().toISOString(),
+      status: "awaiting_seller_wallet",
+    })!;
+
+    await ctx.answerCallbackQuery({ text: "ToS accettati" });
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+    await ctx.reply(it.tosAccepted(updated), { parse_mode: "Markdown" });
+    await postAskSellerWallet(ctx.api, updated);
+  });
+
+  // Creatore scrive i ToS (o li aggiorna prima della conferma)
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -207,36 +288,76 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     const text = ctx.message.text.trim();
     const startMatch = text.match(/^\/start(?:@\w+)?(?:\s+(.+))?$/i);
-    if (!startMatch?.[1] || !ctx.from) {
+    if (startMatch?.[1] && ctx.from) {
+      const dealId = parseStartGroupPayload(startMatch[1]);
+      if (dealId) {
+        const deal = ctx.store.get(dealId);
+        if (!deal) {
+          await next();
+          return;
+        }
+
+        if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
+          await ctx.reply(it.alreadyBound);
+          return;
+        }
+
+        if (deal.creatorId === ctx.from.id && deal.groupChatId == null) {
+          ctx.store.update(deal.id, {
+            groupChatId: ctx.chat.id,
+            status: "awaiting_bot_admin",
+          });
+        }
+
+        await ctx.reply(it.botAddedHint);
+        return;
+      }
+    }
+
+    if (text.startsWith("/")) {
       await next();
       return;
     }
 
-    const dealId = parseStartGroupPayload(startMatch[1]);
-    if (!dealId) {
+    const deal = ctx.store.findByGroupChatId(ctx.chat.id);
+    if (!deal || !ctx.from) {
       await next();
       return;
     }
 
-    const deal = ctx.store.get(dealId);
-    if (!deal) {
+    if (
+      deal.status !== "awaiting_tos" &&
+      deal.status !== "awaiting_tos_confirm"
+    ) {
       await next();
       return;
     }
 
-    if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
-      await ctx.reply(it.alreadyBound);
+    if (ctx.from.id !== deal.creatorId) {
+      if (deal.status === "awaiting_tos") {
+        await ctx.reply(it.onlyCreatorWritesTos);
+        return;
+      }
+      // awaiting_tos_confirm: la controparte deve usare il pulsante, non scrivere
+      await next();
       return;
     }
 
-    if (deal.creatorId === ctx.from.id && deal.groupChatId == null) {
-      ctx.store.update(deal.id, {
-        groupChatId: ctx.chat.id,
-        status: "awaiting_bot_admin",
-      });
+    if (text.length < MIN_TOS_LENGTH) {
+      await ctx.reply(it.tosTooShort);
+      return;
     }
 
-    await ctx.reply(it.botAddedHint);
+    const updated = ctx.store.update(deal.id, {
+      tosText: text,
+      tosAcceptedAt: undefined,
+      status: "awaiting_tos_confirm",
+    })!;
+
+    await ctx.reply(it.tosDraftPosted(updated), {
+      parse_mode: "Markdown",
+      reply_markup: tosConfirmKeyboard(updated.id),
+    });
   });
 
   bot.on("chat_member", async (ctx) => {

@@ -71,16 +71,18 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 ### In privato
 
 1. `/start` → `/crea`
-2. Ruolo (*buyer* / *seller*) → importo **SOL** → tuo **wallet Solana**
-3. Crea gruppo (max 2) → aggiungi bot → ToS → in disputa il supporto
+2. Ruolo (*buyer* / *seller*) → importo **SOL** — **niente wallet in DM**
+3. Crea gruppo (max 2) → aggiungi bot → in disputa il supporto
 
 ### Nel gruppo
 
-4. `/avvia` (bot admin con permessi) → conferma controparte → `/wallet` della controparte
-5. Buyer invia SOL all’**indirizzo escrow univoco** del deal
-6. Rilevamento automatico (o «Verifica deposito» / `/depositato`)
-7. `/pay_seller` o `/refund_buyer` (doppia conferma) → transfer on-chain
-8. `/dispute` → admin forza release/refund on-chain
+4. `/avvia` (bot admin con permessi) → controparte conferma il ruolo
+5. *Stabiliamo i ToS*: il creatore scrive i termini; la controparte conferma col pulsante
+6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
+7. Solo allora: indirizzo escrow → buyer deposita SOL
+8. Rilevamento automatico (o «Verifica deposito» / `/depositato`)
+9. `/pay_seller` o `/refund_buyer` (doppia conferma) → transfer on-chain
+10. `/dispute` → admin forza release/refund on-chain
 
 Altri: `/indirizzo`, `/stato`, `/miei` (privato), `/aiuto`
 
@@ -95,8 +97,8 @@ Altri: `/indirizzo`, `/stato`, `/miei` (privato), `/aiuto`
 1. `npm run solana:keygen` → salva secret su Render come `SOLANA_PRIVATE_KEY`
 2. Invia **~0.05 SOL** alla **pubkey master** (solo per fee tx)
 3. Deploy / restart del worker
-4. Su Telegram: `/crea` → buyer → `0.01` → tuo wallet → gruppo → `/avvia`
-5. Controparte conferma + `/wallet …`
+4. Su Telegram: `/crea` → buyer → `0.01` → gruppo → `/avvia`
+5. Controparte conferma → creatore scrive ToS → controparte Accetta → `/wallet` seller poi buyer
 6. Invia `0.01 SOL` all’indirizzo mostrato da `/indirizzo`
 7. Attendi messaggio “deposito rilevato” (o «Verifica deposito»)
 8. Entrambe: `/pay_seller` → controlla signature su Solscan
