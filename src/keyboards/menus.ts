@@ -24,6 +24,18 @@ export function roleKeyboard(): Keyboard {
     .oneTime();
 }
 
+/** Crypto step: SOL live; ETH/LTC shown for UX, labeled coming soon. */
+export function assetKeyboard(): Keyboard {
+  return new Keyboard()
+    .text("◎ SOL")
+    .text("ETH (presto)")
+    .text("LTC (presto)")
+    .row()
+    .text("❌ Annulla")
+    .resized()
+    .oneTime();
+}
+
 /** Post-importo: startgroup + ToS piattaforma (stesso messaggio). */
 export function afterAmountKeyboard(startGroupUrl: string, tosUrl?: string): InlineKeyboard {
   const kb = new InlineKeyboard().url("+ Aggiungi il bot a un gruppo +", startGroupUrl).row();

@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import { it } from "../messages/it.js";
 import {
   afterAmountKeyboard,
+  assetKeyboard,
   cancelKeyboard,
   mainMenuKeyboard,
   roleKeyboard,
@@ -13,7 +14,7 @@ import {
   getDealEscrowAddress,
   isSolanaConfigured,
 } from "../services/solana/index.js";
-import type { PartyRole } from "../types.js";
+import type { Asset, PartyRole } from "../types.js";
 
 export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
   const beginCreate = async (ctx: BotContext) => {
@@ -47,6 +48,18 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     await pickRole(ctx, "seller");
   });
 
+  bot.hears("◎ SOL", async (ctx) => {
+    await pickAsset(ctx, "SOL");
+  });
+
+  bot.hears("ETH (presto)", async (ctx) => {
+    await assetComingSoon(ctx, "ETH");
+  });
+
+  bot.hears("LTC (presto)", async (ctx) => {
+    await assetComingSoon(ctx, "LTC");
+  });
+
   bot.callbackQuery("tos", async (ctx) => {
     await ctx.answerCallbackQuery({ text: "ToS in arrivo" });
     await ctx.reply(it.tosComingSoon, { parse_mode: "Markdown" });
@@ -75,6 +88,11 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
+    if (creating.step === "asset") {
+      await ctx.reply(it.askAsset, { reply_markup: assetKeyboard() });
+      return;
+    }
+
     if (creating.step === "amount") {
       const amount = parseAmount(text);
       if (!amount) {
@@ -92,13 +110,20 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
         return;
       }
 
+      const asset = creating.asset;
+      if (!asset || asset !== "SOL") {
+        ctx.session.creating = { step: "asset", role };
+        await ctx.reply(it.askAsset, { reply_markup: assetKeyboard() });
+        return;
+      }
+
       const placeholder = "PENDING_SOL_ESCROW";
       const deal = ctx.store.create({
         creatorId: ctx.from.id,
         creatorUsername: ctx.from.username,
         creatorRole: role,
         amount,
-        asset: config.defaultAsset,
+        asset,
         escrowAddress: placeholder,
       });
 
@@ -129,9 +154,33 @@ async function pickRole(ctx: BotContext, role: PartyRole): Promise<void> {
   if (!ctx.session.creating || ctx.session.creating.step !== "role") {
     ctx.session.creating = { step: "role" };
   }
-  ctx.session.creating = { step: "amount", role };
+  ctx.session.creating = { step: "asset", role };
+  await ctx.reply(it.askAsset, { reply_markup: assetKeyboard() });
+}
+
+async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
+  if (ctx.chat?.type !== "private" || !ctx.from) return;
+  const creating = ctx.session.creating;
+  if (!creating || creating.step !== "asset" || !creating.role) {
+    ctx.session.creating = { step: "role" };
+    await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
+    return;
+  }
+  ctx.session.creating = { step: "amount", role: creating.role, asset };
   await ctx.reply(it.askAmount, {
     parse_mode: "Markdown",
     reply_markup: cancelKeyboard(),
+  });
+}
+
+async function assetComingSoon(ctx: BotContext, asset: Asset): Promise<void> {
+  if (ctx.chat?.type !== "private") return;
+  const creating = ctx.session.creating;
+  if (!creating || creating.step !== "asset") {
+    return;
+  }
+  await ctx.reply(it.assetComingSoon(asset), {
+    parse_mode: "Markdown",
+    reply_markup: assetKeyboard(),
   });
 }
