@@ -24,7 +24,7 @@ export function roleKeyboard(): Keyboard {
     .oneTime();
 }
 
-/** Post-importo: startgroup + ToS (stesso messaggio). */
+/** Post-importo: startgroup + ToS piattaforma (stesso messaggio). */
 export function afterAmountKeyboard(startGroupUrl: string, tosUrl?: string): InlineKeyboard {
   const kb = new InlineKeyboard().url("+ Aggiungi il bot a un gruppo +", startGroupUrl).row();
   if (tosUrl) {
@@ -39,8 +39,25 @@ export function counterpartConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo (controparte)", `cp:${dealId}`);
 }
 
+export function tosConfirmKeyboard(dealId: string): InlineKeyboard {
+  return new InlineKeyboard().text("✅ Accetto i ToS", `tosok:${dealId}`);
+}
+
 export function groupActionsKeyboard(status: string): InlineKeyboard {
-  const kb = new InlineKeyboard().text("📫 Indirizzo escrow", "addr").row();
+  const kb = new InlineKeyboard();
+
+  const depositReady =
+    status === "awaiting_deposit" ||
+    status === "funded" ||
+    status === "release_pending" ||
+    status === "refund_pending" ||
+    status === "disputed" ||
+    status === "released" ||
+    status === "refunded";
+
+  if (depositReady) {
+    kb.text("📫 Indirizzo escrow", "addr").row();
+  }
 
   if (status === "awaiting_deposit") {
     kb.text("💰 Verifica deposito", "funded").row();

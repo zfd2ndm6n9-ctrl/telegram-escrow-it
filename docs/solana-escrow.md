@@ -68,8 +68,8 @@ All’avvio i log Render stampano: `Escrow SOL mainnet attivo. Master pubkey: �
 
 1. Deploy branch con Solana + env settate; restart worker
 2. Master funded con ~0.05 SOL (solo fee)
-3. Telegram: `/crea` → buyer → `0.01` → wallet Solana tuo
-4. Gruppo + bot admin + `/avvia` → controparte Confermo + `/wallet …`
+3. Telegram: `/crea` → buyer → `0.01` (niente wallet in DM)
+4. Gruppo + bot admin + `/avvia` → controparte Confermo → ToS creatore + Accetto → wallet seller poi buyer
 5. Invia `0.01 SOL` a `/indirizzo`
 6. Attendi “Deposito rilevato” (o «Verifica deposito»)
 7. Entrambi `/pay_seller` → signature su [Solscan](https://solscan.io)

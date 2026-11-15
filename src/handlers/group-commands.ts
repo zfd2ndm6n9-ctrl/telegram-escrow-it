@@ -7,8 +7,9 @@ import {
   addUniqueVote,
   isAdminUser,
   isParty,
+  isPreDepositSetup,
 } from "../services/deal-logic.js";
-import { createAdminInviteLink } from "../services/group-setup.js";
+import { createAdminInviteLink, postAskBuyerWallet, postDealActivated } from "../services/group-setup.js";
 import {
   checkDealDeposit,
   isValidSolAddress,
@@ -23,6 +24,18 @@ function requireGroupDeal(ctx: BotContext): Deal | null {
   return ctx.store.findByGroupChatId(ctx.chat.id) ?? null;
 }
 
+function depositUnlocked(deal: Deal): boolean {
+  return (
+    deal.status === "awaiting_deposit" ||
+    deal.status === "funded" ||
+    deal.status === "release_pending" ||
+    deal.status === "refund_pending" ||
+    deal.status === "released" ||
+    deal.status === "refunded" ||
+    deal.status === "disputed"
+  );
+}
+
 export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   bot.command("indirizzo", async (ctx) => {
     const deal = requireGroupDeal(ctx);
@@ -32,6 +45,10 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       } else {
         await ctx.reply(it.noDealInGroup);
       }
+      return;
+    }
+    if (!depositUnlocked(deal)) {
+      await ctx.reply(it.notReadyForDeposit);
       return;
     }
     await ctx.reply(it.depositAddress(deal), {
@@ -78,6 +95,11 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       await ctx.answerCallbackQuery({ text: "Nessun deal" });
       return;
     }
+    if (!depositUnlocked(deal)) {
+      await ctx.answerCallbackQuery({ text: "Non ancora" });
+      await ctx.reply(it.notReadyForDeposit);
+      return;
+    }
     await ctx.answerCallbackQuery();
     await ctx.reply(it.depositAddress(deal), { parse_mode: "Markdown" });
   });
@@ -111,6 +133,34 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     await ctx.answerCallbackQuery();
     await ctx.reply(formatStato(deal), { parse_mode: "Markdown" });
   });
+
+  // Incolla wallet in chiaro durante awaiting_*_wallet
+  bot.on("message:text", async (ctx, next) => {
+    if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
+      await next();
+      return;
+    }
+    const text = ctx.message.text.trim();
+    if (text.startsWith("/")) {
+      await next();
+      return;
+    }
+    const deal = requireGroupDeal(ctx);
+    if (
+      !deal ||
+      !ctx.from ||
+      (deal.status !== "awaiting_seller_wallet" &&
+        deal.status !== "awaiting_buyer_wallet")
+    ) {
+      await next();
+      return;
+    }
+    if (!isValidSolAddress(text)) {
+      await next();
+      return;
+    }
+    await applyWallet(ctx, deal, text);
+  });
 }
 
 function formatStato(deal: Deal): string {
@@ -119,6 +169,7 @@ function formatStato(deal: Deal): string {
 • Importo: *${deal.amount} ${deal.asset}*
 • Buyer: ${deal.buyerId ?? "—"} · \`${deal.buyerWallet ?? "wallet?"}\`
 • Seller: ${deal.sellerId ?? "—"} · \`${deal.sellerWallet ?? "wallet?"}\`
+• ToS: ${deal.tosAcceptedAt ? "accettati" : deal.tosText ? "in conferma" : "—"}
 • Escrow: \`${deal.escrowAddress}\`
 • Deposit lamports: ${deal.depositLamports ?? "—"}
 • Payout tx: ${deal.payoutTxSig ? `\`${deal.payoutTxSig}\`` : "—"}`;
@@ -145,19 +196,71 @@ async function setWallet(ctx: BotContext): Promise<void> {
     return;
   }
 
-  let role: "buyer" | "seller";
-  const patch: Partial<Deal> = {};
-  if (deal.buyerId === ctx.from.id) {
-    patch.buyerWallet = address;
-    role = "buyer";
-  } else if (deal.sellerId === ctx.from.id) {
-    patch.sellerWallet = address;
-    role = "seller";
-  } else {
+  await applyWallet(ctx, deal, address);
+}
+
+async function applyWallet(
+  ctx: BotContext,
+  deal: Deal,
+  address: string,
+): Promise<void> {
+  if (!ctx.from) return;
+
+  const isBuyer = deal.buyerId === ctx.from.id;
+  const isSeller = deal.sellerId === ctx.from.id;
+  if (!isBuyer && !isSeller) {
     await ctx.reply(it.notParty);
     return;
   }
 
+  // Dopo ToS: ordine fisso seller → buyer
+  if (deal.status === "awaiting_seller_wallet") {
+    if (!isSeller) {
+      await ctx.reply(it.walletWrongTurn("seller"), { parse_mode: "Markdown" });
+      return;
+    }
+    const updated = ctx.store.update(deal.id, {
+      sellerWallet: address,
+      status: "awaiting_buyer_wallet",
+    })!;
+    await ctx.reply(it.walletSaved(updated, "seller", address), {
+      parse_mode: "Markdown",
+    });
+    await postAskBuyerWallet(ctx.api, updated);
+    return;
+  }
+
+  if (deal.status === "awaiting_buyer_wallet") {
+    if (!isBuyer) {
+      await ctx.reply(it.walletWrongTurn("buyer"), { parse_mode: "Markdown" });
+      return;
+    }
+    const updated = ctx.store.update(deal.id, {
+      buyerWallet: address,
+      status: "awaiting_deposit",
+    })!;
+    await ctx.reply(it.walletSaved(updated, "buyer", address), {
+      parse_mode: "Markdown",
+    });
+    await postDealActivated(ctx.api, updated);
+    return;
+  }
+
+  // Stati successivi: permette update wallet propria parte senza cambiare status
+  if (isPreDepositSetup(deal.status)) {
+    await ctx.reply(it.wrongStatus(deal.status), { parse_mode: "Markdown" });
+    return;
+  }
+
+  const patch: Partial<Deal> = {};
+  let role: "buyer" | "seller";
+  if (isBuyer) {
+    patch.buyerWallet = address;
+    role = "buyer";
+  } else {
+    patch.sellerWallet = address;
+    role = "seller";
+  }
   const updated = ctx.store.update(deal.id, patch)!;
   await ctx.reply(it.walletSaved(updated, role, address), {
     parse_mode: "Markdown",
@@ -172,6 +275,11 @@ async function verifyDeposit(ctx: BotContext): Promise<void> {
   }
   if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
     await ctx.reply(it.notParty);
+    return;
+  }
+
+  if (isPreDepositSetup(deal.status) || deal.status === "awaiting_counterpart") {
+    await ctx.reply(it.notReadyForDeposit);
     return;
   }
 

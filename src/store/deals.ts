@@ -72,11 +72,9 @@ export class DealStore {
     if (input.creatorRole === "buyer") {
       deal.buyerId = input.creatorId;
       deal.buyerUsername = input.creatorUsername;
-      deal.buyerWallet = input.creatorWallet;
     } else {
       deal.sellerId = input.creatorId;
       deal.sellerUsername = input.creatorUsername;
-      deal.sellerWallet = input.creatorWallet;
     }
 
     this.deals.set(deal.id, deal);

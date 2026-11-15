@@ -29,6 +29,24 @@ export function bothPartiesPresent(deal: Deal): boolean {
   return deal.buyerId != null && deal.sellerId != null;
 }
 
+export function bothWalletsPresent(deal: Deal): boolean {
+  return Boolean(deal.buyerWallet && deal.sellerWallet);
+}
+
+export function tosAccepted(deal: Deal): boolean {
+  return Boolean(deal.tosText && deal.tosAcceptedAt);
+}
+
+/** Stati precedenti al deposito escrow (ToS / wallet ancora aperti). */
+export function isPreDepositSetup(status: Deal["status"]): boolean {
+  return (
+    status === "awaiting_tos" ||
+    status === "awaiting_tos_confirm" ||
+    status === "awaiting_seller_wallet" ||
+    status === "awaiting_buyer_wallet"
+  );
+}
+
 export function addUniqueVote(votes: number[], userId: number): number[] {
   if (votes.includes(userId)) return votes;
   return [...votes, userId];

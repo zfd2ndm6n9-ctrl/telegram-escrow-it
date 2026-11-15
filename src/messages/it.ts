@@ -1,5 +1,10 @@
 import type { Deal } from "../types.js";
 
+/** Escape minimo per testo utente in Markdown legacy Telegram. */
+function escMd(text: string): string {
+  return text.replace(/([_*`\[])/g, "\\$1");
+}
+
 export const it = {
   welcome: `Ciao! Sono il bot di *escrow crypto* (Italia).
 
@@ -16,12 +21,12 @@ Comandi (in privato):
 
   help: `*Guida*
 
-1. In privato: /crea → ruolo (buyer/seller) + importo SOL + tuo wallet Solana
+1. In privato: /crea → ruolo (buyer/seller) + importo SOL (*niente wallet in DM*)
 2. Crea un gruppo privato e invita solo la controparte (max 2)
-3. Aggiungi il bot al gruppo (pulsante dopo /crea)
-4. Leggi i ToS prima di ogni deal
-5. Nel gruppo: deposito SOL → rilevamento automatico → /pay_seller o /refund_buyer (doppia conferma)
-6. Controparte: /wallet \`IndirizzoSolana\` per ricevere/rimborsare
+3. Aggiungi il bot al gruppo (pulsante dopo /crea) → /avvia
+4. Controparte conferma il ruolo → *Stabiliamo i ToS* (creatore scrive, controparte conferma)
+5. Wallet *seller*, poi *buyer* (stessa crypto del deal)
+6. Indirizzo escrow + deposito → /pay_seller o /refund_buyer (doppia conferma)
 
 Asset roadmap: *SOL* (ora) → LTC → ETH. Niente USDT.`,
 
@@ -39,24 +44,23 @@ Asset roadmap: *SOL* (ora) → LTC → ETH. Niente USDT.`,
   cancelled: "Operazione annullata.",
   unknownPrivate: "Non ho capito. Usa /aiuto oppure i pulsanti del menu.",
 
-  /** Un solo messaggio post-importo: 4 passi + pulsanti (bot / ToS) */
+  /** Un solo messaggio post-importo: passi + pulsanti (bot / ToS piattaforma) */
   afterAmountInstructions: (deal: Deal) =>
     `✅ Deal *#${deal.id}* preparato.
 
 • Ruolo tuo: *${deal.creatorRole}*
 • Importo: *${deal.amount} ${deal.asset}*
-• Tuo wallet: \`${deal.creatorRole === "buyer" ? deal.buyerWallet : deal.sellerWallet}\`
 
 *Passi:*
 1. Crea un gruppo privato e invita solo la controparte (max 2 persone)
 2. Aggiungi il bot al gruppo con il pulsante qui sotto
-3. Leggi i *ToS* prima di ogni deal
+3. Nel gruppo: /avvia → conferma ruolo → *ToS del deal* → wallet seller poi buyer → deposito
 4. Se ci sono dispute, aggiungete il *supporto* al gruppo: sistemerà la situazione
 
-⚠️ Verifica sempre l'indirizzo escrow *nel gruppo* prima di inviare SOL.`,
+⚠️ I wallet si chiedono *solo nel gruppo*, dopo i ToS. Verifica sempre l'indirizzo escrow prima di inviare SOL.`,
 
   tosComingSoon:
-    "📄 *Termini di servizio*: in arrivo. Prima di ogni deal ti chiederemo di leggerli qui.",
+    "📄 *Termini di servizio* della piattaforma: in arrivo. I ToS *del singolo deal* si stabiliscono nel gruppo dopo la conferma del ruolo.",
 
   needBotAdmin:
     "⚠️ Non posso avviare il deal: promuovimi ad *amministratore* con Elimina messaggi, Blocca utenti e Invita utenti, poi reinvia /avvia.",
@@ -92,23 +96,72 @@ Controparte: tocca il pulsante per confermare come *${role}*.
 (Devono esserci solo buyer + seller + bot — niente altri utenti.)`;
   },
 
-  askCounterpartWallet: (deal: Deal) =>
-    `✅ Ruolo confermato sul deal *#${deal.id}*.
+  stabilizeTos: (deal: Deal) =>
+    `📜 *Stabiliamo i ToS* — deal *#${deal.id}*
 
-Ora invia il tuo wallet Solana con:
-\`/wallet IndirizzoSolanaTuo\`
+Chi ha aperto il deal (@${deal.creatorUsername ?? deal.creatorId}): scrivi qui i termini dell'accordo (cosa viene scambiato, tempi, condizioni).
 
-Poi il buyer deposita su l'indirizzo escrow del gruppo.`,
+La controparte li confermerà con un pulsante. Solo dopo chiederemo i wallet.`,
+
+  tosDraftPosted: (deal: Deal) =>
+    `📜 *ToS proposti* per deal *#${deal.id}* (dal creatore):
+
+${escMd(deal.tosText ?? "")}
+
+Controparte: tocca *Accetto i ToS* per confermare.
+Il creatore può reinviare un nuovo testo per sostituirli prima della conferma.`,
+
+  tosAccepted: (deal: Deal) =>
+    `✅ ToS accettati sul deal *#${deal.id}*.
+
+Prossimo passo: i wallet *${deal.asset}* (seller prima, poi buyer).`,
+
+  askSellerWallet: (deal: Deal) => {
+    const who = deal.sellerUsername
+      ? `@${deal.sellerUsername}`
+      : deal.sellerId
+        ? `\`${deal.sellerId}\``
+        : "seller";
+    return `👛 *Seller* (${who}): invia il tuo wallet *${deal.asset}* con:
+\`/wallet IndirizzoSolana\`
+oppure incolla qui l'indirizzo.`;
+  },
+
+  askBuyerWallet: (deal: Deal) => {
+    const who = deal.buyerUsername
+      ? `@${deal.buyerUsername}`
+      : deal.buyerId
+        ? `\`${deal.buyerId}\``
+        : "buyer";
+    return `👛 *Buyer* (${who}): invia il tuo wallet *${deal.asset}* con:
+\`/wallet IndirizzoSolana\`
+oppure incolla qui l'indirizzo.`;
+  },
 
   walletSaved: (deal: Deal, role: string, address: string) =>
     `👛 Wallet *${role}* salvato per #${deal.id}:\n\`${address}\``,
 
+  walletWrongTurn: (expected: "seller" | "buyer") =>
+    `Ora tocca al *${expected}* impostare il wallet. Attendi il tuo turno.`,
+
+  notReadyForDeposit:
+    "L'indirizzo escrow appare solo dopo ToS accettati e wallet di seller e buyer.",
+
+  onlyCreatorWritesTos:
+    "Solo chi ha creato il deal può scrivere i ToS. Controparte: attendi e conferma con il pulsante.",
+
+  tosTooShort:
+    "ToS troppo corti. Scrivi almeno qualche riga chiara sulle condizioni del deal.",
+
   dealActivated: (deal: Deal) =>
-    `🤝 Deal *#${deal.id}* avviato.
+    `🤝 Deal *#${deal.id}* pronto per il deposito.
 
 • Buyer: ${deal.buyerUsername ? `@${deal.buyerUsername}` : deal.buyerId}
 • Seller: ${deal.sellerUsername ? `@${deal.sellerUsername}` : deal.sellerId}
 • Importo: *${deal.amount} ${deal.asset}* (Solana *mainnet*)
+• ToS: accettati
+• Wallet buyer: \`${deal.buyerWallet}\`
+• Wallet seller: \`${deal.sellerWallet}\`
 
 📫 *Indirizzo escrow* (unico per questo deal):
 \`${deal.escrowAddress}\`
@@ -116,7 +169,6 @@ Poi il buyer deposita su l'indirizzo escrow del gruppo.`,
 Invia *esattamente* \`${deal.amount} SOL\` (o un po' di più) a questo indirizzo.
 Il bot rileva il deposito in automatico (ogni ~20s). Oppure: «Verifica deposito».
 
-Prima del payout: entrambe le parti devono avere un wallet con /wallet.
 Poi: /pay_seller o /refund_buyer (doppia conferma).
 
 ⚠️ Hot wallet custodial — importi di test piccoli. Verifica sempre l'indirizzo.`,
@@ -130,8 +182,7 @@ Poi: /pay_seller o /refund_buyer (doppia conferma).
 • Saldo escrow: *${balanceSol} SOL*
 • Atteso: *${deal.amount} SOL*
 
-Ora: /pay_seller oppure /refund_buyer — serve conferma di *entrambe* le parti.
-Assicurati che buyer e seller abbiano impostato /wallet.`,
+Ora: /pay_seller oppure /refund_buyer — serve conferma di *entrambe* le parti.`,
 
   depositCheckResult: (
     deal: Deal,
@@ -186,6 +237,8 @@ Assicurati che buyer e seller abbiano impostato /wallet.`,
   alreadyActivated: "Il deal in questo gruppo è già avviato.",
   counterpartIsCreator: "Il creatore del deal non può confermare come controparte.",
   counterpartTaken: "La controparte è già confermata.",
+  tosCreatorCannotAccept: "Il creatore ha già proposto i ToS: deve accettarli la controparte.",
+  tosAlreadyAccepted: "I ToS di questo deal sono già accettati.",
 
   kickedExtra: (userId: number) =>
     `🚫 Utente \`${userId}\` rimosso: ammessi solo buyer, seller e (in disputa) admin.`,
@@ -222,6 +275,10 @@ export function statusLabel(status: Deal["status"]): string {
     awaiting_group: "crea gruppo + aggiungi bot",
     awaiting_bot_admin: "promuovi il bot admin",
     awaiting_counterpart: "in attesa conferma controparte",
+    awaiting_tos: "in attesa ToS dal creatore",
+    awaiting_tos_confirm: "in attesa conferma ToS",
+    awaiting_seller_wallet: "in attesa wallet seller",
+    awaiting_buyer_wallet: "in attesa wallet buyer",
     awaiting_deposit: "in attesa deposito",
     funded: "fondato",
     release_pending: "pay_seller in corso",

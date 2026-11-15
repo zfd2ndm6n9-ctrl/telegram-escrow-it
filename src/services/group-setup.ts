@@ -2,7 +2,11 @@ import type { Api } from "grammy";
 import type { Deal } from "../types.js";
 import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
-import { groupActionsKeyboard } from "../keyboards/menus.js";
+import {
+  groupActionsKeyboard,
+  tosConfirmKeyboard,
+} from "../keyboards/menus.js";
+import { bothPartiesPresent, tosAccepted } from "./deal-logic.js";
 
 export type RequiredBotPerm =
   | "can_delete_messages"
@@ -81,18 +85,7 @@ export async function bindGroupToDeal(
     // ok se manca can_change_info
   }
 
-  const nextStatus =
-    deal.buyerId != null && deal.sellerId != null
-      ? deal.status === "awaiting_deposit" ||
-        deal.status === "funded" ||
-        deal.status === "release_pending" ||
-        deal.status === "refund_pending" ||
-        deal.status === "released" ||
-        deal.status === "refunded" ||
-        deal.status === "disputed"
-        ? deal.status
-        : "awaiting_deposit"
-      : "awaiting_counterpart";
+  const nextStatus = resolveBoundStatus(deal);
 
   const updated =
     store.update(deal.id, {
@@ -102,6 +95,63 @@ export async function bindGroupToDeal(
     }) ?? deal;
 
   return { deal: updated, perms };
+}
+
+function resolveBoundStatus(deal: Deal): Deal["status"] {
+  const advanced: Deal["status"][] = [
+    "awaiting_deposit",
+    "funded",
+    "release_pending",
+    "refund_pending",
+    "released",
+    "refunded",
+    "disputed",
+    "awaiting_tos",
+    "awaiting_tos_confirm",
+    "awaiting_seller_wallet",
+    "awaiting_buyer_wallet",
+  ];
+  if (advanced.includes(deal.status)) {
+    return deal.status;
+  }
+  if (!bothPartiesPresent(deal)) {
+    return "awaiting_counterpart";
+  }
+  if (!tosAccepted(deal)) {
+    return deal.tosText ? "awaiting_tos_confirm" : "awaiting_tos";
+  }
+  if (!deal.sellerWallet) return "awaiting_seller_wallet";
+  if (!deal.buyerWallet) return "awaiting_buyer_wallet";
+  return "awaiting_deposit";
+}
+
+export async function postStabilizeTos(api: Api, deal: Deal): Promise<void> {
+  if (deal.groupChatId == null) return;
+  await api.sendMessage(deal.groupChatId, it.stabilizeTos(deal), {
+    parse_mode: "Markdown",
+  });
+}
+
+export async function postTosDraft(api: Api, deal: Deal): Promise<void> {
+  if (deal.groupChatId == null || !deal.tosText) return;
+  await api.sendMessage(deal.groupChatId, it.tosDraftPosted(deal), {
+    parse_mode: "Markdown",
+    reply_markup: tosConfirmKeyboard(deal.id),
+  });
+}
+
+export async function postAskSellerWallet(api: Api, deal: Deal): Promise<void> {
+  if (deal.groupChatId == null) return;
+  await api.sendMessage(deal.groupChatId, it.askSellerWallet(deal), {
+    parse_mode: "Markdown",
+  });
+}
+
+export async function postAskBuyerWallet(api: Api, deal: Deal): Promise<void> {
+  if (deal.groupChatId == null) return;
+  await api.sendMessage(deal.groupChatId, it.askBuyerWallet(deal), {
+    parse_mode: "Markdown",
+  });
 }
 
 export async function postDealActivated(api: Api, deal: Deal): Promise<void> {

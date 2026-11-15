@@ -2,6 +2,10 @@ export type DealStatus =
   | "awaiting_group"
   | "awaiting_bot_admin"
   | "awaiting_counterpart"
+  | "awaiting_tos"
+  | "awaiting_tos_confirm"
+  | "awaiting_seller_wallet"
+  | "awaiting_buyer_wallet"
   | "awaiting_deposit"
   | "funded"
   | "release_pending"
@@ -29,6 +33,10 @@ export interface Deal {
   buyerWallet?: string;
   /** Indirizzo Solana del seller (rilascio) */
   sellerWallet?: string;
+  /** Termini del deal scritti dal creatore nel gruppo */
+  tosText?: string;
+  /** Quando la controparte ha accettato i ToS */
+  tosAcceptedAt?: string;
   amount: string;
   asset: Asset;
   status: DealStatus;
@@ -58,5 +66,4 @@ export type CreateDealInput = {
   amount: string;
   asset: Asset;
   escrowAddress: string;
-  creatorWallet: string;
 };
