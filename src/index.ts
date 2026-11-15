@@ -1,8 +1,14 @@
 import { assertConfig, config } from "./config.js";
 import { createBot } from "./bot.js";
+import { startHealthServer } from "./health.js";
 
 async function main(): Promise<void> {
   assertConfig();
+
+  const port = Number(process.env.PORT || 0);
+  if (Number.isFinite(port) && port > 0) {
+    startHealthServer(port);
+  }
 
   const bot = createBot(config.botToken);
   const me = await bot.api.getMe();
