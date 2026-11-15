@@ -1,6 +1,11 @@
 import { assertConfig, config } from "./config.js";
 import { createBot } from "./bot.js";
 import { startHealthServer } from "./health.js";
+import {
+  getMasterKeypair,
+  isSolanaConfigured,
+  startDepositWatcher,
+} from "./services/solana/index.js";
 
 async function main(): Promise<void> {
   // Render Web Service: aprire PORT subito, prima di Telegram / assertConfig
@@ -14,9 +19,33 @@ async function main(): Promise<void> {
 
   assertConfig();
 
-  const bot = createBot(config.botToken);
+  if (isSolanaConfigured()) {
+    const master = await getMasterKeypair();
+    if (master) {
+      console.log(
+        `Escrow SOL mainnet attivo. Master pubkey: ${master.publicKey.toBase58()}`,
+      );
+      console.log(
+        "⚠️ Hot wallet: tieni solo importi di test piccoli. Secret solo su Render env.",
+      );
+    }
+  } else {
+    console.warn(
+      "SOLANA_PRIVATE_KEY assente: /crea on-chain disabilitato finché non la imposti.",
+    );
+  }
+
+  const { bot, store } = createBot(config.botToken);
   const me = await bot.api.getMe();
   config.botUsername = me.username;
+
+  const watcher = startDepositWatcher(
+    store,
+    bot.api,
+    Number.isFinite(config.solanaWatchIntervalMs)
+      ? config.solanaWatchIntervalMs
+      : 20_000,
+  );
 
   const allowed_updates = [
     "message",
@@ -26,6 +55,17 @@ async function main(): Promise<void> {
   ] as const;
 
   console.log(`Bot avviato in polling: @${me.username} (id ${me.id})`);
+
+  const stop = async () => {
+    watcher.stop();
+    await bot.stop();
+  };
+  process.once("SIGINT", () => {
+    void stop().finally(() => process.exit(0));
+  });
+  process.once("SIGTERM", () => {
+    void stop().finally(() => process.exit(0));
+  });
 
   await bot.start({
     allowed_updates: [...allowed_updates],

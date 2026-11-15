@@ -3,7 +3,8 @@ import { config } from "../config.js";
 
 export function parseAmount(raw: string): string | null {
   const normalized = raw.trim().replace(",", ".");
-  if (!/^\d+(\.\d{1,8})?$/.test(normalized)) return null;
+  // SOL: fino a 9 decimali
+  if (!/^\d+(\.\d{1,9})?$/.test(normalized)) return null;
   const n = Number(normalized);
   if (!Number.isFinite(n) || n <= 0) return null;
   return normalized;

@@ -1,4 +1,5 @@
-# Blueprint Render.com — collega il repo e imposta TELEGRAM_BOT_TOKEN nel dashboard.
+# Blueprint Render.com — collega il repo e imposta i secret nel dashboard.
+# Consigliato: Web Service (healthz) oppure Background Worker; un solo processo polling.
 services:
   - type: web
     name: telegram-escrow-it
@@ -20,3 +21,10 @@ services:
         sync: false
       - key: TOS_URL
         sync: false
+      # Hot wallet Solana MAINNET — solo su Render, mai in git
+      - key: SOLANA_PRIVATE_KEY
+        sync: false
+      - key: SOLANA_RPC_URL
+        sync: false
+      - key: SOLANA_WATCH_INTERVAL_MS
+        value: "20000"

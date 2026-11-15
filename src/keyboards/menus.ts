@@ -43,7 +43,7 @@ export function groupActionsKeyboard(status: string): InlineKeyboard {
   const kb = new InlineKeyboard().text("📫 Indirizzo escrow", "addr").row();
 
   if (status === "awaiting_deposit") {
-    kb.text("💰 Segna depositato", "funded").row();
+    kb.text("💰 Verifica deposito", "funded").row();
   }
 
   if (

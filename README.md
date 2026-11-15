@@ -4,15 +4,23 @@ Bot Telegram di **escrow crypto** per il mercato italiano.
 
 - Buyer + seller creano un **gruppo privato** (max 2 persone), aggiungono il bot come **admin**, poi avviano il deal
 - L’**admin** di servizio può entrare solo in disputa
-- UI in italiano · solo crypto in MVP (asset placeholder: **USDT**)
+- UI in italiano · asset MVP: **SOL (Solana mainnet)** — soldi veri
+- Roadmap asset: SOL → LTC → ETH (niente USDT)
 
-Stack: **Node.js + TypeScript + [grammY](https://grammy.dev)** · store JSON (`data/deals.json`)
+Stack: **Node.js + TypeScript + [grammY](https://grammy.dev) + [@solana/web3.js](https://github.com/solana-foundation/solana-web3.js)** · store JSON (`data/deals.json`)
+
+## ⚠️ Sicurezza hot wallet
+
+- I fondi in escrow stanno su account **derivati** da una chiave master (`SOLANA_PRIVATE_KEY`)
+- È un modello **custodial** durante il deal: chi ha la chiave controlla i SOL
+- **Inizia con importi di test piccoli** (es. `0.01` SOL)
+- **Non** committare mai la chiave privata; mettila solo nelle env del servizio Render
 
 ## Requisiti
 
 - Node.js 20+
 - Bot da [@BotFather](https://t.me/BotFather) — bot **admin** nel gruppo escrow
-- `TELEGRAM_BOT_TOKEN` (mai committare il token)
+- `TELEGRAM_BOT_TOKEN` + `SOLANA_PRIVATE_KEY` (mai committare)
 
 ## Setup
 
@@ -21,16 +29,24 @@ git clone https://github.com/zfd2ndm6n9-ctrl/telegram-escrow-it.git
 cd telegram-escrow-it
 npm install
 cp .env.example .env
-# Imposta TELEGRAM_BOT_TOKEN e opzionalmente ADMIN_TELEGRAM_ID
+# Imposta TELEGRAM_BOT_TOKEN, SOLANA_PRIVATE_KEY, opzionalmente ADMIN_TELEGRAM_ID
+npm run solana:keygen   # genera keypair; salva secret offline / su Render
 ```
 
-### Variabili d'ambiente
+### Variabili d'ambiente (Render)
 
 | Variabile | Obbligatoria | Descrizione |
 |-----------|--------------|-------------|
-| `TELEGRAM_BOT_TOKEN` | sì | Token BotFather / secret Cursor |
-| `ADMIN_TELEGRAM_ID` | no | User id numerico admin (dispute + ingresso gruppo) |
+| `TELEGRAM_BOT_TOKEN` | sì | Token BotFather |
+| `SOLANA_PRIVATE_KEY` | sì (per escrow) | Secret hot wallet: **base58** o **JSON array** (64 byte). Solo env Render |
+| `SOLANA_RPC_URL` | no | RPC mainnet. Default pubblico `https://api.mainnet-beta.solana.com`. Consigliato: Helius / QuickNode / Alchemy |
+| `SOLANA_WATCH_INTERVAL_MS` | no | Poll depositi (default `20000`) |
+| `ADMIN_TELEGRAM_ID` | no | User id admin (dispute + force) |
+| `TOS_URL` | no | Link Termini |
 | `DATA_DIR` | no | Cartella store (default `data`) |
+| `PORT` | no | Se impostato: `GET /healthz` (Render/Fly) |
+
+Documentazione tecnica: [`docs/solana-escrow.md`](./docs/solana-escrow.md).
 
 ## Avvio (polling)
 
@@ -41,44 +57,55 @@ npm run build && npm start
 npm run build && npm run start:forever
 ```
 
-Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /healthz` per i healthcheck PaaS. Il bot resta in **long-polling** Telegram.
+Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /healthz`. Il bot resta in **long-polling** Telegram e avvia il **deposit watcher** SOL.
 
-### Deploy always-on
+### Deploy always-on (Render)
 
-Vedi la guida progetto `docs/hosting.md` (store Cursor) e i file in repo:
+1. Deploy da `main` (Web Service con healthz, oppure Background Worker)
+2. Imposta i secret **solo** sul servizio Render (Environment)
+3. All’avvio i log stampano la **pubkey master** (per fee di rete: lascia pochi SOL sulla master)
+4. Un solo processo `getUpdates` per token
 
-- `Dockerfile` / `Procfile` / `render.yaml` / `fly.toml`
-- Richiede account **Render / Railway / Fly** di Francesco + secret `TELEGRAM_BOT_TOKEN`
-
-La cloud VM Cursor **non** è hosting sempre acceso: può spegnersi con la sessione agent.
-
-## Flusso MVP
+## Flusso MVP (SOL mainnet)
 
 ### In privato
 
-1. `/start` → `/crea` (o «Crea escrow»)
-2. Scegli ruolo (*buyer* / *seller*) e importo USDT
-3. Un messaggio con *Passi*: crea gruppo (max 2) → pulsante **+ Aggiungi il bot a un gruppo +** → leggi i ToS → in disputa aggiungi il supporto
-4. Pulsante **📄 Leggi i Termini** (URL `TOS_URL` oppure “in arrivo”)
+1. `/start` → `/crea`
+2. Ruolo (*buyer* / *seller*) → importo **SOL** → tuo **wallet Solana**
+3. Crea gruppo (max 2) → aggiungi bot → ToS → in disputa il supporto
 
 ### Nel gruppo
 
-5. `/avvia` richiede bot admin con: *Elimina messaggi*, *Blocca utenti*, *Invita utenti* — altrimenti messaggio IT con cosa manca e **nessun escrow**
-6. Conferma controparte → indirizzo escrow **mock**, `/depositato`, `/pay_seller` / `/refund_buyer`, `/dispute`
+4. `/avvia` (bot admin con permessi) → conferma controparte → `/wallet` della controparte
+5. Buyer invia SOL all’**indirizzo escrow univoco** del deal
+6. Rilevamento automatico (o «Verifica deposito» / `/depositato`)
+7. `/pay_seller` o `/refund_buyer` (doppia conferma) → transfer on-chain
+8. `/dispute` → admin forza release/refund on-chain
 
 Altri: `/indirizzo`, `/stato`, `/miei` (privato), `/aiuto`
 
-### Protezioni base
+### Modello deposito
 
-- Dopo l’attivazione: kick utenti che non sono buyer/seller/admin
-- Nessun invite link controparte generato dal bot in setup
-- Messaggi in italiano
+- **Indirizzo univoco per deal** (HMAC dalla master key → keypair derivata)
+- Fee di rete pagate dalla **master** al payout (ricarica la master con poco SOL)
+- Alternative pooled+memo: più semplici ma più ambigue — non usate in questo MVP
 
-## Limiti dello scaffold
+## Test deal piccolo (mainnet)
 
-- Escrow address e payout sono **stub**
-- Store file-based
-- Niente fiat/SEPA
+1. `npm run solana:keygen` → salva secret su Render come `SOLANA_PRIVATE_KEY`
+2. Invia **~0.05 SOL** alla **pubkey master** (solo per fee tx)
+3. Deploy / restart del worker
+4. Su Telegram: `/crea` → buyer → `0.01` → tuo wallet → gruppo → `/avvia`
+5. Controparte conferma + `/wallet …`
+6. Invia `0.01 SOL` all’indirizzo mostrato da `/indirizzo`
+7. Attendi messaggio “deposito rilevato” (o «Verifica deposito»)
+8. Entrambe: `/pay_seller` → controlla signature su Solscan
+
+## Limiti
+
+- Hot wallet custodial (rischio chiave / exit)
+- Store file-based (su Render free il disco è ephemeral)
+- Niente LTC/ETH ancora; niente fiat/SEPA
 
 ## Licenza
 

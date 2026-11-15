@@ -72,9 +72,11 @@ export class DealStore {
     if (input.creatorRole === "buyer") {
       deal.buyerId = input.creatorId;
       deal.buyerUsername = input.creatorUsername;
+      deal.buyerWallet = input.creatorWallet;
     } else {
       deal.sellerId = input.creatorId;
       deal.sellerUsername = input.creatorUsername;
+      deal.sellerWallet = input.creatorWallet;
     }
 
     this.deals.set(deal.id, deal);
@@ -128,5 +130,9 @@ export class DealStore {
           d.creatorId === userId || d.buyerId === userId || d.sellerId === userId,
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  listByStatus(status: DealStatus): Deal[] {
+    return [...this.deals.values()].filter((d) => d.status === status);
   }
 }

@@ -9,6 +9,11 @@ import {
   isParty,
 } from "../services/deal-logic.js";
 import { createAdminInviteLink } from "../services/group-setup.js";
+import {
+  checkDealDeposit,
+  isValidSolAddress,
+  payoutDealSol,
+} from "../services/solana/index.js";
 import type { Deal } from "../types.js";
 
 function requireGroupDeal(ctx: BotContext): Deal | null {
@@ -22,8 +27,11 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   bot.command("indirizzo", async (ctx) => {
     const deal = requireGroupDeal(ctx);
     if (!deal) {
-      if (ctx.chat?.type === "private") await ctx.reply(it.onlyGroup, { parse_mode: "Markdown" });
-      else await ctx.reply(it.noDealInGroup);
+      if (ctx.chat?.type === "private") {
+        await ctx.reply(it.onlyGroup, { parse_mode: "Markdown" });
+      } else {
+        await ctx.reply(it.noDealInGroup);
+      }
       return;
     }
     await ctx.reply(it.depositAddress(deal), {
@@ -33,7 +41,11 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   });
 
   bot.command("depositato", async (ctx) => {
-    await markFunded(ctx);
+    await verifyDeposit(ctx);
+  });
+
+  bot.command("wallet", async (ctx) => {
+    await setWallet(ctx);
   });
 
   bot.command("stato", async (ctx) => {
@@ -72,7 +84,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
 
   bot.callbackQuery("funded", async (ctx) => {
     await ctx.answerCallbackQuery();
-    await markFunded(ctx);
+    await verifyDeposit(ctx);
   });
 
   bot.callbackQuery("pay_seller", async (ctx) => {
@@ -105,12 +117,54 @@ function formatStato(deal: Deal): string {
   return `*Deal #${deal.id}*
 • Stato: \`${deal.status}\`
 • Importo: *${deal.amount} ${deal.asset}*
-• Buyer: ${deal.buyerId ?? "—"}
-• Seller: ${deal.sellerId ?? "—"}
-• Escrow: \`${deal.escrowAddress}\``;
+• Buyer: ${deal.buyerId ?? "—"} · \`${deal.buyerWallet ?? "wallet?"}\`
+• Seller: ${deal.sellerId ?? "—"} · \`${deal.sellerWallet ?? "wallet?"}\`
+• Escrow: \`${deal.escrowAddress}\`
+• Deposit lamports: ${deal.depositLamports ?? "—"}
+• Payout tx: ${deal.payoutTxSig ? `\`${deal.payoutTxSig}\`` : "—"}`;
 }
 
-async function markFunded(ctx: BotContext): Promise<void> {
+async function setWallet(ctx: BotContext): Promise<void> {
+  const deal = requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    await ctx.reply(it.noDealInGroup);
+    return;
+  }
+  if (!isParty(deal, ctx.from.id)) {
+    await ctx.reply(it.notParty);
+    return;
+  }
+
+  const text = ctx.message?.text ?? "";
+  const parts = text.trim().split(/\s+/);
+  const address = parts.length >= 2 ? parts.slice(1).join("").trim() : "";
+  if (!address || !isValidSolAddress(address)) {
+    await ctx.reply(`Uso: \`/wallet IndirizzoSolana\`\n${it.invalidWallet}`, {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  let role: "buyer" | "seller";
+  const patch: Partial<Deal> = {};
+  if (deal.buyerId === ctx.from.id) {
+    patch.buyerWallet = address;
+    role = "buyer";
+  } else if (deal.sellerId === ctx.from.id) {
+    patch.sellerWallet = address;
+    role = "seller";
+  } else {
+    await ctx.reply(it.notParty);
+    return;
+  }
+
+  const updated = ctx.store.update(deal.id, patch)!;
+  await ctx.reply(it.walletSaved(updated, role, address), {
+    parse_mode: "Markdown",
+  });
+}
+
+async function verifyDeposit(ctx: BotContext): Promise<void> {
   const deal = requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
     await ctx.reply(it.noDealInGroup);
@@ -120,15 +174,78 @@ async function markFunded(ctx: BotContext): Promise<void> {
     await ctx.reply(it.notParty);
     return;
   }
-  if (deal.status !== "awaiting_deposit") {
+
+  // Admin: /depositato force → bypass on-chain (emergenza)
+  const raw = ctx.message?.text ?? "";
+  if (
+    isAdminUser(ctx.from.id) &&
+    deal.status === "awaiting_deposit" &&
+    /\bforce\b/i.test(raw)
+  ) {
+    const updated = ctx.store.setStatus(deal.id, "funded")!;
+    await ctx.reply(it.markFundedAdmin(updated), { parse_mode: "Markdown" });
+    return;
+  }
+
+  if (deal.status !== "awaiting_deposit" && deal.status !== "funded") {
     await ctx.reply(it.wrongStatus(deal.status));
     return;
   }
-  const updated = ctx.store.setStatus(deal.id, "funded")!;
-  await ctx.reply(it.markFundedDone(updated), {
-    parse_mode: "Markdown",
-    reply_markup: groupActionsKeyboard(updated.status),
-  });
+
+  const result = await checkDealDeposit(ctx.store, deal.id);
+  if (!result.ok) {
+    await ctx.reply(`Verifica deposito fallita: \`${result.error}\``, {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  const fresh = ctx.store.get(deal.id)!;
+  await ctx.reply(
+    it.depositCheckResult(fresh, result.balanceSol, result.funded),
+    {
+      parse_mode: "Markdown",
+      reply_markup: groupActionsKeyboard(fresh.status),
+    },
+  );
+}
+
+async function runPayout(
+  ctx: BotContext,
+  deal: Deal,
+  kind: "release" | "refund",
+): Promise<void> {
+  const dest = kind === "release" ? deal.sellerWallet : deal.buyerWallet;
+  const who = kind === "release" ? "seller" : "buyer";
+  if (!dest) {
+    await ctx.reply(it.needWallet(who), { parse_mode: "Markdown" });
+    return;
+  }
+
+  await ctx.reply(
+    kind === "release" ? it.releaseVote(deal, 0) : it.refundVote(deal, 0),
+    { parse_mode: "Markdown" },
+  );
+
+  const result = await payoutDealSol(deal.id, dest);
+  if (!result.ok) {
+    await ctx.reply(it.payoutFailed(deal, result.error), {
+      parse_mode: "Markdown",
+      reply_markup: groupActionsKeyboard(deal.status),
+    });
+    return;
+  }
+
+  const doneStatus = kind === "release" ? "released" : "refunded";
+  const updated = ctx.store.update(deal.id, {
+    status: doneStatus,
+    payoutTxSig: result.signature,
+  })!;
+
+  await ctx.reply(
+    it.payoutSuccess(updated, kind, result.signature, result.sol),
+    { parse_mode: "Markdown" },
+  );
 }
 
 async function handlePayOrRefund(
@@ -141,14 +258,8 @@ async function handlePayOrRefund(
     return;
   }
 
-  // Admin in disputa: forza esito
   if (deal.status === "disputed" && isAdminUser(ctx.from.id)) {
-    const doneStatus = kind === "release" ? "released" : "refunded";
-    const updated = ctx.store.setStatus(deal.id, doneStatus)!;
-    await ctx.reply(
-      kind === "release" ? it.adminForceRelease(updated) : it.adminForceRefund(updated),
-      { parse_mode: "Markdown" },
-    );
+    await runPayout(ctx, deal, kind);
     return;
   }
 
@@ -172,27 +283,38 @@ async function handlePayOrRefund(
     return;
   }
 
+  const dest = kind === "release" ? deal.sellerWallet : deal.buyerWallet;
+  if (!dest) {
+    await ctx.reply(it.needWallet(kind === "release" ? "seller" : "buyer"), {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
   const voteKey = kind === "release" ? "releaseVotes" : "refundVotes";
   const votes = addUniqueVote(deal[voteKey], ctx.from.id);
   const pendingStatus = kind === "release" ? "release_pending" : "refund_pending";
-  const doneStatus = kind === "release" ? "released" : "refunded";
   const done = votes.length >= 2;
 
-  const updated = ctx.store.update(deal.id, {
+  const pending = ctx.store.update(deal.id, {
     [voteKey]: votes,
-    status: done ? doneStatus : pendingStatus,
+    status: pendingStatus,
   })!;
 
-  const remaining = Math.max(0, 2 - votes.length);
-  const msg =
-    kind === "release"
-      ? it.releaseVote(updated, remaining)
-      : it.refundVote(updated, remaining);
+  if (!done) {
+    const remaining = Math.max(0, 2 - votes.length);
+    const msg =
+      kind === "release"
+        ? it.releaseVote(pending, remaining)
+        : it.refundVote(pending, remaining);
+    await ctx.reply(msg, {
+      parse_mode: "Markdown",
+      reply_markup: groupActionsKeyboard(pending.status),
+    });
+    return;
+  }
 
-  await ctx.reply(msg, {
-    parse_mode: "Markdown",
-    reply_markup: done ? undefined : groupActionsKeyboard(updated.status),
-  });
+  await runPayout(ctx, pending, kind);
 }
 
 export async function openDispute(ctx: BotContext): Promise<void> {
@@ -240,6 +362,8 @@ export async function openDispute(ctx: BotContext): Promise<void> {
     );
   } catch (err) {
     console.error("Notifica admin fallita:", err);
-    await ctx.reply("Disputa aperta ma non riesco a scrivere all'admin in privato (deve aver avviato il bot).");
+    await ctx.reply(
+      "Disputa aperta ma non riesco a scrivere all'admin in privato (deve aver avviato il bot).",
+    );
   }
 }

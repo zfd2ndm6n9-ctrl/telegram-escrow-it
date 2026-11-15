@@ -9,7 +9,12 @@ import { registerGroupLifecycleHandlers } from "./handlers/group-lifecycle.js";
 import { registerGroupCommandHandlers } from "./handlers/group-commands.js";
 import { it } from "./messages/it.js";
 
-export function createBot(token: string): Bot<BotContext> {
+export type CreatedBot = {
+  bot: Bot<BotContext>;
+  store: DealStore;
+};
+
+export function createBot(token: string): CreatedBot {
   const store = new DealStore(config.dataDir);
   const bot = new Bot<BotContext>(token);
 
@@ -42,5 +47,5 @@ export function createBot(token: string): Bot<BotContext> {
     await ctx.reply(it.unknownPrivate);
   });
 
-  return bot;
+  return { bot, store };
 }
