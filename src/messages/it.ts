@@ -5,6 +5,18 @@ function escMd(text: string): string {
   return text.replace(/([_*`\[])/g, "\\$1");
 }
 
+/** Buyer + importo + indirizzo escrow su riga propria in `code` (Copia su mobile). */
+function depositPrompt(deal: Deal): string {
+  const buyer = deal.buyerUsername
+    ? `@${deal.buyerUsername}`
+    : deal.buyerId
+      ? `\`${deal.buyerId}\``
+      : "Buyer";
+  return `${buyer}, paga *${deal.amount} ${deal.asset}* a questo indirizzo:
+
+\`${deal.escrowAddress}\``;
+}
+
 export const it = {
   welcome: `Ciao! Sono il bot di *escrow crypto* (Italia).
 
@@ -153,28 +165,8 @@ oppure incolla qui l'indirizzo.`;
   tosTooShort:
     "ToS troppo corti. Scrivi almeno qualche riga chiara sulle condizioni del deal.",
 
-  dealActivated: (deal: Deal) =>
-    `🤝 Deal *#${deal.id}* pronto per il deposito.
-
-• Buyer: ${deal.buyerUsername ? `@${deal.buyerUsername}` : deal.buyerId}
-• Seller: ${deal.sellerUsername ? `@${deal.sellerUsername}` : deal.sellerId}
-• Importo: *${deal.amount} ${deal.asset}* (Solana *mainnet*)
-• ToS: accettati
-• Wallet buyer: \`${deal.buyerWallet}\`
-• Wallet seller: \`${deal.sellerWallet}\`
-
-📫 *Indirizzo escrow* (unico per questo deal):
-\`${deal.escrowAddress}\`
-
-Invia *esattamente* \`${deal.amount} SOL\` (o un po' di più) a questo indirizzo.
-Il bot rileva il deposito in automatico (ogni ~20s). Oppure: «Verifica deposito».
-
-Poi: /pay_seller o /refund_buyer (doppia conferma).
-
-⚠️ Hot wallet custodial — importi di test piccoli. Verifica sempre l'indirizzo.`,
-
-  depositAddress: (deal: Deal) =>
-    `📫 *Indirizzo escrow SOL (mainnet)*\n\`${deal.escrowAddress}\`\n\nImporto atteso: *${deal.amount} ${deal.asset}*\n\n⚠️ Invia solo SOL su Solana mainnet. Niente token/USDT.`,
+  dealActivated: depositPrompt,
+  depositAddress: depositPrompt,
 
   depositDetected: (deal: Deal, balanceSol: string) =>
     `💰 Deposito *rilevato on-chain* sul deal *#${deal.id}*.
