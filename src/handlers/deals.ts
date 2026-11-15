@@ -1,0 +1,30 @@
+import type { Bot } from "grammy";
+import type { BotContext } from "../context.js";
+import { it, statusLabel } from "../messages/it.js";
+import { mainMenuKeyboard } from "../keyboards/menus.js";
+
+export function registerDealViewHandlers(bot: Bot<BotContext>): void {
+  const listDeals = async (ctx: BotContext) => {
+    if (ctx.chat?.type !== "private") {
+      await ctx.reply(it.onlyPrivate, { parse_mode: "Markdown" });
+      return;
+    }
+    if (!ctx.from) return;
+    const deals = ctx.store.listForUser(ctx.from.id);
+    if (deals.length === 0) {
+      await ctx.reply(it.noDeals, { reply_markup: mainMenuKeyboard() });
+      return;
+    }
+
+    const lines = deals.slice(0, 20).map((d) => {
+      return `• *#${d.id}* — ${d.amount} ${d.asset} — ${statusLabel(d.status)}`;
+    });
+    await ctx.reply(`*I tuoi deal*\n\n${lines.join("\n")}`, {
+      parse_mode: "Markdown",
+      reply_markup: mainMenuKeyboard(),
+    });
+  };
+
+  bot.command("miei", listDeals);
+  bot.hears("📋 I miei deal", listDeals);
+}

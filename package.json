@@ -1,0 +1,37 @@
+{
+  "name": "telegram-escrow-it",
+  "version": "1.0.0",
+  "description": "Bot Telegram escrow crypto per il mercato italiano",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "verify:getme": "tsx scripts/verify-getme.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zfd2ndm6n9-ctrl/telegram-escrow-it.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/zfd2ndm6n9-ctrl/telegram-escrow-it/issues"
+  },
+  "homepage": "https://github.com/zfd2ndm6n9-ctrl/telegram-escrow-it#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.10",
+    "grammy": "^1.46.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
