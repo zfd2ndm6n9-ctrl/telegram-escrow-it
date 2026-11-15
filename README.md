@@ -37,7 +37,20 @@ cp .env.example .env
 ```bash
 npm run dev      # sviluppo (tsx watch)
 npm run build && npm start
+# oppure con riavvio automatico:
+npm run build && npm run start:forever
 ```
+
+Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /healthz` per i healthcheck PaaS. Il bot resta in **long-polling** Telegram.
+
+### Deploy always-on
+
+Vedi la guida progetto `docs/hosting.md` (store Cursor) e i file in repo:
+
+- `Dockerfile` / `Procfile` / `render.yaml` / `fly.toml`
+- Richiede account **Render / Railway / Fly** di Francesco + secret `TELEGRAM_BOT_TOKEN`
+
+La cloud VM Cursor **non** è hosting sempre acceso: può spegnersi con la sessione agent.
 
 ## Flusso MVP
 

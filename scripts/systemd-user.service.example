@@ -1,0 +1,24 @@
+# Esempio unit systemd --user (VPS Linux stabile, NON la cloud VM Cursor).
+# Copia in ~/.config/systemd/user/telegram-escrow-it.service e adatta i path.
+#
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now telegram-escrow-it.service
+
+[Unit]
+Description=Telegram escrow IT bot (polling)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/telegram-escrow-it
+Environment=NODE_ENV=production
+Environment=PORT=8080
+Environment=DATA_DIR=/opt/telegram-escrow-it/data
+EnvironmentFile=-/opt/telegram-escrow-it/.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

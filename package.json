@@ -8,7 +8,8 @@
     "start": "node dist/index.js",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "verify:getme": "tsx scripts/verify-getme.ts"
+    "verify:getme": "tsx scripts/verify-getme.ts",
+    "start:forever": "bash scripts/run-forever.sh"
   },
   "repository": {
     "type": "git",

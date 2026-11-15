@@ -1,0 +1,22 @@
+# Blueprint Render.com — collega il repo e imposta TELEGRAM_BOT_TOKEN nel dashboard.
+services:
+  - type: web
+    name: telegram-escrow-it
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: DATA_DIR
+        value: data
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ADMIN_TELEGRAM_ID
+        sync: false
+      - key: TOS_URL
+        sync: false
