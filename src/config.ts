@@ -35,6 +35,13 @@ export const config = {
   dataDir: process.env.DATA_DIR?.trim() || "data",
   /** Impostato a runtime dopo getMe() */
   botUsername: undefined as string | undefined,
+  /**
+   * Account helper MTProto per creare i gruppi escrow (la Bot API non può).
+   * api_id / api_hash da https://my.telegram.org — session string da `npm run helper:login`.
+   */
+  telegramApiId: Number(process.env.TELEGRAM_API_ID?.trim() || "0") || undefined,
+  telegramApiHash: process.env.TELEGRAM_API_HASH?.trim() || undefined,
+  telegramHelperSession: process.env.TELEGRAM_HELPER_SESSION?.trim() || undefined,
 };
 
 export function assertConfig(): void {

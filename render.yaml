@@ -21,6 +21,13 @@ services:
         sync: false
       - key: TOS_URL
         sync: false
+      # Account helper MTProto (crea i gruppi). Solo su Render.
+      - key: TELEGRAM_API_ID
+        sync: false
+      - key: TELEGRAM_API_HASH
+        sync: false
+      - key: TELEGRAM_HELPER_SESSION
+        sync: false
       # Hot wallet Solana MAINNET — solo su Render, mai in git
       - key: SOLANA_PRIVATE_KEY
         sync: false

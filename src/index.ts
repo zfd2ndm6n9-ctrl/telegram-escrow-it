@@ -6,6 +6,11 @@ import {
   isSolanaConfigured,
   startDepositWatcher,
 } from "./services/solana/index.js";
+import {
+  getMtprotoHelper,
+  isMtprotoHelperConfigured,
+  stopMtprotoHelper,
+} from "./services/mtproto-helper.js";
 
 async function main(): Promise<void> {
   // Render Web Service: aprire PORT subito, prima di Telegram / assertConfig
@@ -39,6 +44,21 @@ async function main(): Promise<void> {
   const me = await bot.api.getMe();
   config.botUsername = me.username;
 
+  if (isMtprotoHelperConfigured()) {
+    try {
+      await getMtprotoHelper();
+    } catch (err) {
+      console.warn(
+        "Helper MTProto non disponibile all'avvio (creazione gruppi fallirà finché non è ok):",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  } else {
+    console.warn(
+      "TELEGRAM_API_ID / TELEGRAM_API_HASH / TELEGRAM_HELPER_SESSION assenti: il bot non può creare i gruppi escrow.",
+    );
+  }
+
   const watcher = startDepositWatcher(
     store,
     bot.api,
@@ -58,6 +78,7 @@ async function main(): Promise<void> {
 
   const stop = async () => {
     watcher.stop();
+    await stopMtprotoHelper();
     await bot.stop();
   };
   process.once("SIGINT", () => {

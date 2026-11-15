@@ -6,10 +6,13 @@ import {
   afterAmountKeyboard,
   assetKeyboard,
   cancelKeyboard,
+  groupInviteKeyboard,
   mainMenuKeyboard,
   roleKeyboard,
 } from "../keyboards/menus.js";
-import { parseAmount, startGroupPayload } from "../services/deal-logic.js";
+import { parseAmount } from "../services/deal-logic.js";
+import { createEscrowGroup } from "../services/group-creator.js";
+import { startDealInGroup } from "../services/group-setup.js";
 import {
   getDealEscrowAddress,
   isSolanaConfigured,
@@ -138,13 +141,54 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       const updated = ctx.store.update(deal.id, { escrowAddress })!;
       ctx.session.creating = undefined;
 
-      const username = config.botUsername ?? ctx.botUsername ?? "ESCROWITAbot";
-      const startGroupUrl = `https://t.me/${username}?startgroup=${startGroupPayload(updated.id)}`;
-
       await ctx.reply(it.afterAmountInstructions(updated), {
         parse_mode: "Markdown",
-        reply_markup: afterAmountKeyboard(startGroupUrl, config.tosUrl),
+        reply_markup: afterAmountKeyboard(config.tosUrl),
       });
+
+      const created = await createEscrowGroup({
+        deal: updated,
+        botApi: ctx.api,
+        creatorId: ctx.from.id,
+        creatorUsername: ctx.from.username,
+      });
+
+      if (!created.ok) {
+        await ctx.reply(it.groupCreateFailed(updated, created.error), {
+          parse_mode: "Markdown",
+          reply_markup: mainMenuKeyboard(),
+        });
+        return;
+      }
+
+      const withGroup =
+        ctx.store.update(updated.id, {
+          groupChatId: created.chatId,
+          groupInviteLink: created.inviteLink,
+        }) ?? updated;
+
+      const { deal: started, perms } = await startDealInGroup(
+        ctx.api,
+        ctx.store,
+        withGroup,
+        created.chatId,
+      );
+
+      if (!perms.ok) {
+        await ctx.reply(it.missingBotPerms(perms.missing), {
+          parse_mode: "Markdown",
+          reply_markup: groupInviteKeyboard(created.inviteLink, config.tosUrl),
+        });
+        return;
+      }
+
+      await ctx.reply(
+        it.groupReady(started, created.inviteLink, created.creatorInvited),
+        {
+          parse_mode: "Markdown",
+          reply_markup: groupInviteKeyboard(created.inviteLink, config.tosUrl),
+        },
+      );
     }
   });
 }

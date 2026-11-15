@@ -36,9 +36,20 @@ export function assetKeyboard(): Keyboard {
     .oneTime();
 }
 
-/** Post-importo: startgroup + ToS piattaforma (stesso messaggio). */
-export function afterAmountKeyboard(startGroupUrl: string, tosUrl?: string): InlineKeyboard {
-  const kb = new InlineKeyboard().url("+ Aggiungi il bot a un gruppo +", startGroupUrl).row();
+/** Post-importo / gruppo pronto: solo ToS piattaforma (niente “aggiungi il bot”). */
+export function afterAmountKeyboard(tosUrl?: string): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  if (tosUrl) {
+    kb.url("📄 Leggi i Termini", tosUrl);
+  } else {
+    kb.text("📄 Leggi i Termini", "tos");
+  }
+  return kb;
+}
+
+/** DM con link invito gruppo. */
+export function groupInviteKeyboard(inviteLink: string, tosUrl?: string): InlineKeyboard {
+  const kb = new InlineKeyboard().url("🔗 Apri il gruppo", inviteLink).row();
   if (tosUrl) {
     kb.url("📄 Leggi i Termini", tosUrl);
   } else {

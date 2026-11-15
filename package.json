@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "verify:getme": "tsx scripts/verify-getme.ts",
     "solana:keygen": "tsx scripts/generate-solana-keypair.ts",
+    "helper:login": "tsx scripts/helper-login.ts",
     "start:forever": "bash scripts/run-forever.sh"
   },
   "repository": {
@@ -31,7 +32,8 @@
     "@solana/web3.js": "^3.2.1",
     "bs58": "^6.0.0",
     "dotenv": "^18.0.10",
-    "grammy": "^1.46.0"
+    "grammy": "^1.46.0",
+    "teleproto": "^1.233.0"
   },
   "devDependencies": {
     "@types/bs58": "^4.0.4",

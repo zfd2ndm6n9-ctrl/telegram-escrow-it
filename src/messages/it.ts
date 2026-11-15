@@ -20,7 +20,7 @@ function depositPrompt(deal: Deal): string {
 export const it = {
   welcome: `Ciao, benvenuto su Escrowita.
 
-Tu e la controparte create un gruppo privato (max 2 persone), aggiungete il bot e rendetelo admin. Il deal si gestisce lì. In disputa: aggiungi il supporto.
+Dopo /crea il bot apre un *gruppo privato* del deal e ti manda il *link invito* da condividere con la controparte. In disputa: entra il supporto.
 
 Comandi (in privato):
 /crea — prepara un nuovo escrow
@@ -30,11 +30,9 @@ Comandi (in privato):
   help: `*Guida*
 
 1. In privato: /crea → ruolo (buyer/seller) → crypto (SOL/ETH/LTC) → importo (*niente wallet in DM*)
-2. Crea un gruppo privato e invita solo la controparte (max 2)
-3. Aggiungi il bot al gruppo (pulsante dopo /crea) → /avvia
-4. Controparte conferma il ruolo → *Stabiliamo i ToS* (creatore scrive, controparte conferma)
-5. Wallet *seller*, poi *buyer* (stessa crypto del deal)
-6. Indirizzo escrow + deposito → /pay_seller o /refund_buyer (doppia conferma)
+2. Il bot crea il gruppo e ti manda il *link invito* (condividilo con la controparte)
+3. Nel gruppo: conferma ruolo → *ToS del deal* → wallet seller poi buyer → deposito
+4. Indirizzo escrow + deposito → /pay_seller o /refund_buyer (doppia conferma)
 
 Asset: *SOL* live (mainnet). *ETH* e *LTC* presto disponibili. Niente USDT.`,
 
@@ -55,20 +53,32 @@ Asset: *SOL* live (mainnet). *ETH* e *LTC* presto disponibili. Niente USDT.`,
   cancelled: "Operazione annullata.",
   unknownPrivate: "Non ho capito. Usa /aiuto oppure i pulsanti del menu.",
 
-  /** Un solo messaggio post-importo: passi + pulsanti (bot / ToS piattaforma) */
+  /** Post-importo: deal pronto, gruppo in creazione (nessuno “crea gruppo / aggiungi bot”). */
   afterAmountInstructions: (deal: Deal) =>
     `✅ Deal *#${deal.id}* preparato.
 
 • Ruolo tuo: *${deal.creatorRole}*
 • Importo: *${deal.amount} ${deal.asset}*
 
-*Passi:*
-1. Crea un gruppo privato e invita solo la controparte (max 2 persone)
-2. Aggiungi il bot al gruppo con il pulsante qui sotto
-3. Nel gruppo: /avvia → conferma ruolo → *ToS del deal* → wallet seller poi buyer → deposito
-4. Se ci sono dispute, aggiungete il *supporto* al gruppo: sistemerà la situazione
+Sto creando il gruppo escrow…`,
 
-⚠️ I wallet si chiedono *solo nel gruppo*, dopo i ToS. Verifica sempre l'indirizzo escrow prima di inviare SOL.`,
+  groupReady: (deal: Deal, inviteLink: string, creatorInvited: boolean) =>
+    `✅ Gruppo escrow pronto per deal *#${deal.id}*.
+
+${creatorInvited ? "Ti ho già aggiunto al gruppo.\n" : ""}*Link invito* (max 2 persone — condividilo con la controparte):
+${inviteLink}
+
+Nel gruppo: la controparte conferma il ruolo → *ToS* → wallet seller poi buyer → deposito.
+In disputa entra il *supporto*.
+
+Verifica sempre l'indirizzo escrow prima di inviare ${deal.asset}.`,
+
+  groupCreateFailed: (deal: Deal, detail: string) =>
+    `❌ Deal *#${deal.id}* creato ma *non* riesco ad aprire il gruppo.
+
+\`${escMd(detail)}\`
+
+Avvisa l'admin (helper MTProto / permessi). Il deal resta in attesa di gruppo.`,
 
   tosComingSoon:
     "📄 *Termini di servizio* della piattaforma: in arrivo. I ToS *del singolo deal* si stabiliscono nel gruppo dopo la conferma del ruolo.",
@@ -223,7 +233,7 @@ Ora: /pay_seller oppure /refund_buyer — serve conferma di *entrambe* le parti.
   onlyPrivate: "Questo comando va usato in *chat privata* con il bot.",
   onlyGroup: "Questo comando va usato nel *gruppo escrow*.",
   noDealInGroup:
-    "Nessun deal da avviare. In privato col bot fai /crea, poi qui /avvia.",
+    "Nessun deal collegato. In privato col bot fai /crea (il bot apre il gruppo).",
   alreadyBound: "Questo gruppo è già collegato a un deal.",
   alreadyActivated: "Il deal in questo gruppo è già avviato.",
   counterpartIsCreator: "Il creatore del deal non può confermare come controparte.",
@@ -256,15 +266,15 @@ In gruppo: /pay_seller o /refund_buyer (potere admin in disputa).`,
   adminMissing: "Disputa registrata, ma ADMIN_TELEGRAM_ID non è configurato.",
 
   botAddedHint:
-    "Bot aggiunto. Chi ha preparato il deal in privato: invia /avvia per collegarlo a questo gruppo (dopo avermi reso admin).",
+    "Bot nel gruppo. Se il deal non è già partito, chi l'ha preparato in privato può usare /avvia.",
 
   groupTitle: (deal: Deal) => `Escrow #${deal.id} · ${deal.amount} ${deal.asset}`,
 } as const;
 
 export function statusLabel(status: Deal["status"]): string {
   const map: Record<Deal["status"], string> = {
-    awaiting_group: "crea gruppo + aggiungi bot",
-    awaiting_bot_admin: "promuovi il bot admin",
+    awaiting_group: "in attesa gruppo",
+    awaiting_bot_admin: "permessi bot incompleti",
     awaiting_counterpart: "in attesa conferma controparte",
     awaiting_tos: "in attesa ToS dal creatore",
     awaiting_tos_confirm: "in attesa conferma ToS",
