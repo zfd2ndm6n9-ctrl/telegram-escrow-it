@@ -15,8 +15,8 @@ export type DealStatus =
   | "disputed"
   | "cancelled";
 
-/** Roadmap: SOL (questo MVP) → LTC → ETH. Niente USDT. */
-export type Asset = "SOL";
+/** Roadmap: SOL live → LTC / ETH. Niente USDT. */
+export type Asset = "SOL" | "ETH" | "LTC";
 export type PartyRole = "buyer" | "seller";
 
 export interface Deal {

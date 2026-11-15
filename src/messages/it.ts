@@ -18,13 +18,9 @@ function depositPrompt(deal: Deal): string {
 }
 
 export const it = {
-  welcome: `Ciao! Sono il bot di *escrow crypto* (Italia).
+  welcome: `Ciao, benvenuto su Escrowita.
 
-Tu e la controparte create un *gruppo privato* (max 2 persone), aggiungete il bot al gruppo, poi gestite il deal lì.
-In caso di disputa va aggiunto il *supporto*.
-
-Asset MVP: *SOL (Solana mainnet)* — soldi veri.
-⚠️ Hot wallet custodial: inizia con importi di *test piccoli*.
+Tu e la controparte create un gruppo privato (max 2 persone), aggiungete il bot e rendetelo admin. Il deal si gestisce lì. In disputa: aggiungi il supporto.
 
 Comandi (in privato):
 /crea — prepara un nuovo escrow
@@ -33,16 +29,19 @@ Comandi (in privato):
 
   help: `*Guida*
 
-1. In privato: /crea → ruolo (buyer/seller) + importo SOL (*niente wallet in DM*)
+1. In privato: /crea → ruolo (buyer/seller) → crypto (SOL/ETH/LTC) → importo (*niente wallet in DM*)
 2. Crea un gruppo privato e invita solo la controparte (max 2)
 3. Aggiungi il bot al gruppo (pulsante dopo /crea) → /avvia
 4. Controparte conferma il ruolo → *Stabiliamo i ToS* (creatore scrive, controparte conferma)
 5. Wallet *seller*, poi *buyer* (stessa crypto del deal)
 6. Indirizzo escrow + deposito → /pay_seller o /refund_buyer (doppia conferma)
 
-Asset roadmap: *SOL* (ora) → LTC → ETH. Niente USDT.`,
+Asset: *SOL* live (mainnet). *ETH* e *LTC* presto disponibili. Niente USDT.`,
 
   askRole: "Che ruolo hai in questo deal?",
+  askAsset: "Con quale crypto vuoi fare l'escrow?",
+  assetComingSoon: (asset: string) =>
+    `*${asset}* sarà presto disponibile. Per ora scegli *SOL*.`,
   askAmount:
     "Quanto vuoi mettere in escrow? Importo in *SOL* (es. `0.01` o `0.05`).\n⚠️ Mainnet reale: usa importi di test piccoli.",
   askWallet:
