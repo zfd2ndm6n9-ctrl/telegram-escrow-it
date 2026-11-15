@@ -3,10 +3,15 @@ import type { Deal } from "../types.js";
 import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
 import {
+  counterpartConfirmKeyboard,
   groupActionsKeyboard,
   tosConfirmKeyboard,
 } from "../keyboards/menus.js";
-import { bothPartiesPresent, tosAccepted } from "./deal-logic.js";
+import {
+  bothPartiesPresent,
+  isPreDepositSetup,
+  tosAccepted,
+} from "./deal-logic.js";
 
 export type RequiredBotPerm =
   | "can_delete_messages"
@@ -74,7 +79,6 @@ export async function bindGroupToDeal(
       store.update(deal.id, {
         groupChatId: chatId,
         status: "awaiting_bot_admin",
-        groupInviteLink: undefined,
       }) ?? deal;
     return { deal: updated, perms };
   }
@@ -91,7 +95,6 @@ export async function bindGroupToDeal(
     store.update(deal.id, {
       groupChatId: chatId,
       status: nextStatus,
-      groupInviteLink: undefined,
     }) ?? deal;
 
   return { deal: updated, perms };
@@ -177,6 +180,50 @@ export async function createAdminInviteLink(
     console.warn("admin invite link failed:", err);
     return undefined;
   }
+}
+
+/**
+ * Avvio deal in un gruppo già creato/bound: chiede conferma controparte
+ * oppure riprende ToS/wallet se le parti ci sono già.
+ */
+export async function startDealInGroup(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+  chatId: number,
+): Promise<{ deal: Deal; started: boolean; perms: BotAdminCheck }> {
+  const { deal: bound, perms } = await bindGroupToDeal(api, store, deal, chatId);
+  if (!perms.ok) {
+    return { deal: bound, started: false, perms };
+  }
+
+  if (bothPartiesPresent(bound)) {
+    if (!tosAccepted(bound) && !isPreDepositSetup(bound.status)) {
+      const waitingTos = store.setStatus(bound.id, "awaiting_tos") ?? bound;
+      await postStabilizeTos(api, waitingTos);
+      return { deal: waitingTos, started: true, perms };
+    }
+    if (bound.status === "awaiting_tos") {
+      await postStabilizeTos(api, bound);
+      return { deal: bound, started: true, perms };
+    }
+    if (bound.status === "awaiting_tos_confirm" && bound.tosText) {
+      await postTosDraft(api, bound);
+      return { deal: bound, started: true, perms };
+    }
+    if (bound.status === "awaiting_seller_wallet") {
+      await postAskSellerWallet(api, bound);
+      return { deal: bound, started: true, perms };
+    }
+    return { deal: bound, started: true, perms };
+  }
+
+  const waiting = store.setStatus(bound.id, "awaiting_counterpart") ?? bound;
+  await api.sendMessage(chatId, it.askCounterpartConfirm(waiting), {
+    parse_mode: "Markdown",
+    reply_markup: counterpartConfirmKeyboard(waiting.id),
+  });
+  return { deal: waiting, started: true, perms };
 }
 
 export async function kickUnauthorized(

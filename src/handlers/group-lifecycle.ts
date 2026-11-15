@@ -10,18 +10,15 @@ import {
   parseStartGroupPayload,
   tosAccepted,
 } from "../services/deal-logic.js";
+import { hardenGroupPermissions } from "../services/group-creator.js";
 import {
-  bindGroupToDeal,
   checkRequiredBotAdminPerms,
   kickUnauthorized,
   postAskSellerWallet,
   postStabilizeTos,
-  postTosDraft,
+  startDealInGroup,
 } from "../services/group-setup.js";
-import {
-  counterpartConfirmKeyboard,
-  tosConfirmKeyboard,
-} from "../keyboards/menus.js";
+import { tosConfirmKeyboard } from "../keyboards/menus.js";
 
 const MIN_TOS_LENGTH = 20;
 
@@ -63,10 +60,23 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       status === "member" || status === "administrator" || status === "restricted";
     if (!joined) return;
 
-    // Non avviare il deal qui: solo hint. Setup solo con /avvia dopo admin + parti.
+    const already = ctx.store.findByGroupChatId(chat.id);
+    if (already) {
+      // Gruppo creato dal bot: già bound — rinforza permessi, niente hint legacy.
+      if (status === "administrator") {
+        await hardenGroupPermissions(ctx.api, chat.id);
+      }
+      console.log(`Bot in chat ${chat.id} (deal #${already.id} già collegato)`);
+      return;
+    }
+
+    // Legacy: bot aggiunto a un gruppo utente non ancora collegato.
     const pending = ctx.store.findAwaitingGroupByCreator(update.from.id);
     if (pending && pending.groupChatId == null) {
-      ctx.store.update(pending.id, { groupChatId: chat.id, status: "awaiting_bot_admin" });
+      ctx.store.update(pending.id, {
+        groupChatId: chat.id,
+        status: "awaiting_bot_admin",
+      });
     }
 
     await ctx.api.sendMessage(chat.id, it.botAddedHint);
@@ -74,8 +84,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
   });
 
   /**
-   * /avvia — chi ha creato il deal in DM collega il gruppo e chiede conferma controparte.
-   * Alias: /setup
+   * /avvia — fallback: collega un gruppo già esistente (o riprende lo start).
+   * Alias: /setup. Il path primario crea il gruppo dopo /crea.
    */
   const avvia = async (ctx: BotContext) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
@@ -102,7 +112,6 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         : ctx.store.findAwaitingGroupByCreator(ctx.from.id);
 
     if (!deal) {
-      // Altro membro con deal già bound
       if (existing) {
         if (existing.creatorId !== ctx.from.id) {
           await ctx.reply(it.notCreator);
@@ -125,7 +134,9 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    const { deal: bound, perms } = await bindGroupToDeal(
+    await hardenGroupPermissions(ctx.api, ctx.chat.id);
+
+    const { deal: started, perms } = await startDealInGroup(
       ctx.api,
       ctx.store,
       deal,
@@ -133,40 +144,20 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     );
 
     if (!perms.ok) {
-      await ctx.reply(it.missingBotPerms(perms.missing), { parse_mode: "Markdown" });
+      await ctx.reply(it.missingBotPerms(perms.missing), {
+        parse_mode: "Markdown",
+      });
       return;
     }
 
-    if (bothPartiesPresent(bound)) {
-      // Ruoli già noti (es. join): passa ai ToS, non allo escrow
-      if (!tosAccepted(bound) && !isPreDepositSetup(bound.status)) {
-        const waitingTos =
-          ctx.store.setStatus(bound.id, "awaiting_tos") ?? bound;
-        await postStabilizeTos(ctx.api, waitingTos);
-        return;
-      }
-      if (bound.status === "awaiting_tos") {
-        await postStabilizeTos(ctx.api, bound);
-        return;
-      }
-      if (bound.status === "awaiting_tos_confirm" && bound.tosText) {
-        await postTosDraft(ctx.api, bound);
-        return;
-      }
-      if (bound.status === "awaiting_seller_wallet") {
-        await postAskSellerWallet(ctx.api, bound);
-        return;
-      }
+    if (
+      bothPartiesPresent(started) &&
+      started.status !== "awaiting_counterpart" &&
+      !isPreDepositSetup(started.status) &&
+      tosAccepted(started)
+    ) {
       await ctx.reply(it.alreadyActivated);
-      return;
     }
-
-    const waiting =
-      ctx.store.setStatus(bound.id, "awaiting_counterpart") ?? bound;
-    await ctx.reply(it.askCounterpartConfirm(waiting), {
-      parse_mode: "Markdown",
-      reply_markup: counterpartConfirmKeyboard(waiting.id),
-    });
   };
 
   bot.command("avvia", avvia);
