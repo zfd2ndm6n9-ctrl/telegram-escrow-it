@@ -6,6 +6,9 @@ export const it = {
 Tu e la controparte create un *gruppo privato* (max 2 persone), aggiungete il bot al gruppo, poi gestite il deal lì.
 In caso di disputa va aggiunto il *supporto*.
 
+Asset MVP: *SOL (Solana mainnet)* — soldi veri.
+⚠️ Hot wallet custodial: inizia con importi di *test piccoli*.
+
 Comandi (in privato):
 /crea — prepara un nuovo escrow
 /miei — i tuoi deal
@@ -13,17 +16,26 @@ Comandi (in privato):
 
   help: `*Guida*
 
-1. In privato: /crea → ruolo (buyer/seller) + importo USDT
+1. In privato: /crea → ruolo (buyer/seller) + importo SOL + tuo wallet Solana
 2. Crea un gruppo privato e invita solo la controparte (max 2)
 3. Aggiungi il bot al gruppo (pulsante dopo /crea)
 4. Leggi i ToS prima di ogni deal
-5. Nel gruppo: comandi escrow; in disputa aggiungete il supporto
+5. Nel gruppo: deposito SOL → rilevamento automatico → /pay_seller o /refund_buyer (doppia conferma)
+6. Controparte: /wallet \`IndirizzoSolana\` per ricevere/rimborsare
 
-Asset MVP: USDT (placeholder).`,
+Asset roadmap: *SOL* (ora) → LTC → ETH. Niente USDT.`,
 
   askRole: "Che ruolo hai in questo deal?",
-  askAmount: "Quanto vuoi mettere in escrow? Importo in USDT (es. `100` o `50.5`).",
-  invalidAmount: "Importo non valido. Invia un numero positivo (es. `100` o `12.5`).",
+  askAmount:
+    "Quanto vuoi mettere in escrow? Importo in *SOL* (es. `0.01` o `0.05`).\n⚠️ Mainnet reale: usa importi di test piccoli.",
+  askWallet:
+    "Invia il tuo *indirizzo wallet Solana* (base58).\n• Se sei *buyer*: useremo questo indirizzo per un eventuale rimborso.\n• Se sei *seller*: qui riceverai il pagamento a rilascio.",
+  invalidAmount:
+    "Importo non valido. Invia un numero positivo in SOL (es. `0.01` o `0.05`).",
+  invalidWallet:
+    "Indirizzo Solana non valido. Incolla un indirizzo base58 (32–44 caratteri).",
+  solanaNotConfigured:
+    "Escrow SOL non configurato: manca `SOLANA_PRIVATE_KEY` sul worker. Avvisa l'admin.",
   cancelled: "Operazione annullata.",
   unknownPrivate: "Non ho capito. Usa /aiuto oppure i pulsanti del menu.",
 
@@ -33,12 +45,15 @@ Asset MVP: USDT (placeholder).`,
 
 • Ruolo tuo: *${deal.creatorRole}*
 • Importo: *${deal.amount} ${deal.asset}*
+• Tuo wallet: \`${deal.creatorRole === "buyer" ? deal.buyerWallet : deal.sellerWallet}\`
 
 *Passi:*
 1. Crea un gruppo privato e invita solo la controparte (max 2 persone)
 2. Aggiungi il bot al gruppo con il pulsante qui sotto
 3. Leggi i *ToS* prima di ogni deal
-4. Se ci sono dispute, aggiungete il *supporto* al gruppo: sistemerà la situazione`,
+4. Se ci sono dispute, aggiungete il *supporto* al gruppo: sistemerà la situazione
+
+⚠️ Verifica sempre l'indirizzo escrow *nel gruppo* prima di inviare SOL.`,
 
   tosComingSoon:
     "📄 *Termini di servizio*: in arrivo. Prima di ogni deal ti chiederemo di leggerli qui.",
@@ -77,40 +92,84 @@ Controparte: tocca il pulsante per confermare come *${role}*.
 (Devono esserci solo buyer + seller + bot — niente altri utenti.)`;
   },
 
+  askCounterpartWallet: (deal: Deal) =>
+    `✅ Ruolo confermato sul deal *#${deal.id}*.
+
+Ora invia il tuo wallet Solana con:
+\`/wallet IndirizzoSolanaTuo\`
+
+Poi il buyer deposita su l'indirizzo escrow del gruppo.`,
+
+  walletSaved: (deal: Deal, role: string, address: string) =>
+    `👛 Wallet *${role}* salvato per #${deal.id}:\n\`${address}\``,
+
   dealActivated: (deal: Deal) =>
     `🤝 Deal *#${deal.id}* avviato.
 
 • Buyer: ${deal.buyerUsername ? `@${deal.buyerUsername}` : deal.buyerId}
 • Seller: ${deal.sellerUsername ? `@${deal.sellerUsername}` : deal.sellerId}
-• Importo: *${deal.amount} ${deal.asset}*
+• Importo: *${deal.amount} ${deal.asset}* (Solana *mainnet*)
 
-Indirizzo escrow (mock MVP):
+📫 *Indirizzo escrow* (unico per questo deal):
 \`${deal.escrowAddress}\`
 
-Poi: «Segna depositato» / /depositato → /pay_seller o /refund_buyer (doppia conferma).`,
+Invia *esattamente* \`${deal.amount} SOL\` (o un po' di più) a questo indirizzo.
+Il bot rileva il deposito in automatico (ogni ~20s). Oppure: «Verifica deposito».
+
+Prima del payout: entrambe le parti devono avere un wallet con /wallet.
+Poi: /pay_seller o /refund_buyer (doppia conferma).
+
+⚠️ Hot wallet custodial — importi di test piccoli. Verifica sempre l'indirizzo.`,
 
   depositAddress: (deal: Deal) =>
-    `📫 *Indirizzo escrow* (mock MVP)\n\`${deal.escrowAddress}\`\n\nImporto: *${deal.amount} ${deal.asset}*`,
+    `📫 *Indirizzo escrow SOL (mainnet)*\n\`${deal.escrowAddress}\`\n\nImporto atteso: *${deal.amount} ${deal.asset}*\n\n⚠️ Invia solo SOL su Solana mainnet. Niente token/USDT.`,
 
-  markFundedDone: (deal: Deal) =>
-    `💰 Deposito segnato sul deal *#${deal.id}* (stub).
+  depositDetected: (deal: Deal, balanceSol: string) =>
+    `💰 Deposito *rilevato on-chain* sul deal *#${deal.id}*.
 
-Ora: /pay_seller oppure /refund_buyer — serve conferma di *entrambe* le parti.`,
+• Saldo escrow: *${balanceSol} SOL*
+• Atteso: *${deal.amount} SOL*
+
+Ora: /pay_seller oppure /refund_buyer — serve conferma di *entrambe* le parti.
+Assicurati che buyer e seller abbiano impostato /wallet.`,
+
+  depositCheckResult: (
+    deal: Deal,
+    balanceSol: string,
+    funded: boolean,
+  ) =>
+    funded
+      ? `✅ Deposito ok per #${deal.id}: saldo *${balanceSol} SOL* (atteso ${deal.amount}).`
+      : `⏳ Ancora in attesa per #${deal.id}.\nSaldo attuale: *${balanceSol} SOL* / atteso *${deal.amount} SOL*\nIndirizzo:\n\`${deal.escrowAddress}\``,
+
+  markFundedAdmin: (deal: Deal) =>
+    `💰 Admin ha forzato lo stato *funded* sul deal *#${deal.id}* (bypass on-chain).`,
 
   releaseVote: (deal: Deal, remaining: number) =>
     remaining > 0
       ? `Voto *pay_seller* registrato (#${deal.id}). Manca ${remaining} conferma.`
-      : `🔓 Deal *#${deal.id}* — fondi rilasciati al seller (stub, nessun transfer reale).`,
+      : `🔓 Deal *#${deal.id}* — rilascio al seller in corso on-chain…`,
 
   refundVote: (deal: Deal, remaining: number) =>
     remaining > 0
       ? `Voto *refund_buyer* registrato (#${deal.id}). Manca ${remaining} conferma.`
-      : `↩️ Deal *#${deal.id}* — rimborso al buyer (stub, nessun transfer reale).`,
+      : `↩️ Deal *#${deal.id}* — rimborso al buyer in corso on-chain…`,
+
+  payoutSuccess: (deal: Deal, kind: "release" | "refund", sig: string, sol: string) =>
+    kind === "release"
+      ? `🔓 *pay_seller* completato (#${deal.id}).\nInviati *${sol} SOL* a \`${deal.sellerWallet}\`\nTx: \`${sig}\``
+      : `↩️ *refund_buyer* completato (#${deal.id}).\nInviati *${sol} SOL* a \`${deal.buyerWallet}\`\nTx: \`${sig}\``,
+
+  payoutFailed: (deal: Deal, error: string) =>
+    `❌ Payout on-chain fallito per #${deal.id}:\n\`${error}\`\nLo stato del deal non è stato chiuso: riprova o apri /dispute.`,
+
+  needWallet: (who: "buyer" | "seller") =>
+    `Manca il wallet Solana del *${who}*. Impostalo con:\n\`/wallet IndirizzoSolana\``,
 
   adminForceRelease: (deal: Deal) =>
-    `🔓 Admin ha arbitrato: *pay_seller* su #${deal.id} (stub).`,
+    `🔓 Admin ha arbitrato: *pay_seller* su #${deal.id} — payout on-chain…`,
   adminForceRefund: (deal: Deal) =>
-    `↩️ Admin ha arbitrato: *refund_buyer* su #${deal.id} (stub).`,
+    `↩️ Admin ha arbitrato: *refund_buyer* su #${deal.id} — payout on-chain…`,
 
   wrongStatus: (status: string) =>
     `Azione non disponibile nello stato \`${status}\`.`,
@@ -143,6 +202,7 @@ Ora: /pay_seller oppure /refund_buyer — serve conferma di *entrambe* le parti.
     `🚨 Disputa deal #${deal.id}
 Da: ${fromUsername ? `@${fromUsername}` : fromId} (${fromId})
 Importo: ${deal.amount} ${deal.asset}
+Escrow: ${deal.escrowAddress}
 Stato: ${deal.status}
 Gruppo: ${deal.groupChatId ?? "n/d"}
 ${link ? `Link one-time admin:\n${link}` : "Nessun link (bot senza permesso invita)."}

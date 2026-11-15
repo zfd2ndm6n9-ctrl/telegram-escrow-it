@@ -190,6 +190,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       updated = ctx.store.setStatus(updated.id, "awaiting_deposit")!;
       await ctx.answerCallbackQuery({ text: "Confermato" });
       await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+      await ctx.reply(it.askCounterpartWallet(updated), { parse_mode: "Markdown" });
       await postDealActivated(ctx.api, updated);
       return;
     }

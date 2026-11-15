@@ -9,12 +9,21 @@ import {
   roleKeyboard,
 } from "../keyboards/menus.js";
 import { parseAmount, startGroupPayload } from "../services/deal-logic.js";
+import {
+  getDealEscrowAddress,
+  isSolanaConfigured,
+  isValidSolAddress,
+} from "../services/solana/index.js";
 import type { PartyRole } from "../types.js";
 
 export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
   const beginCreate = async (ctx: BotContext) => {
     if (ctx.chat?.type !== "private") {
       await ctx.reply(it.onlyPrivate, { parse_mode: "Markdown" });
+      return;
+    }
+    if (!isSolanaConfigured()) {
+      await ctx.reply(it.solanaNotConfigured);
       return;
     }
     ctx.session.creating = { step: "role" };
@@ -84,21 +93,59 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
         return;
       }
 
+      ctx.session.creating = { step: "wallet", role, amount };
+      await ctx.reply(it.askWallet, {
+        parse_mode: "Markdown",
+        reply_markup: cancelKeyboard(),
+      });
+      return;
+    }
+
+    if (creating.step === "wallet") {
+      if (!isValidSolAddress(text)) {
+        await ctx.reply(it.invalidWallet, {
+          parse_mode: "Markdown",
+          reply_markup: cancelKeyboard(),
+        });
+        return;
+      }
+
+      const role = creating.role;
+      const amount = creating.amount;
+      if (!role || !amount) {
+        ctx.session.creating = { step: "role" };
+        await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
+        return;
+      }
+
+      // Crea deal con id temporaneo per derivare address: generate id via store
+      // Prima creiamo con placeholder, poi aggiorniamo l'indirizzo derivato.
+      const placeholder = "PENDING_SOL_ESCROW";
       const deal = ctx.store.create({
         creatorId: ctx.from.id,
         creatorUsername: ctx.from.username,
         creatorRole: role,
         amount,
         asset: config.defaultAsset,
-        escrowAddress: config.mockEscrowAddress,
+        escrowAddress: placeholder,
+        creatorWallet: text.trim(),
       });
 
+      const escrowAddress = await getDealEscrowAddress(deal.id);
+      if (!escrowAddress) {
+        ctx.store.setStatus(deal.id, "cancelled");
+        ctx.session.creating = undefined;
+        await ctx.reply(it.solanaNotConfigured);
+        return;
+      }
+
+      const updated = ctx.store.update(deal.id, { escrowAddress })!;
       ctx.session.creating = undefined;
 
       const username = config.botUsername ?? ctx.botUsername ?? "ESCROWITAbot";
-      const startGroupUrl = `https://t.me/${username}?startgroup=${startGroupPayload(deal.id)}`;
+      const startGroupUrl = `https://t.me/${username}?startgroup=${startGroupPayload(updated.id)}`;
 
-      await ctx.reply(it.afterAmountInstructions(deal), {
+      await ctx.reply(it.afterAmountInstructions(updated), {
         parse_mode: "Markdown",
         reply_markup: afterAmountKeyboard(startGroupUrl, config.tosUrl),
       });

@@ -9,6 +9,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "verify:getme": "tsx scripts/verify-getme.ts",
+    "solana:keygen": "tsx scripts/generate-solana-keypair.ts",
     "start:forever": "bash scripts/run-forever.sh"
   },
   "repository": {
@@ -27,10 +28,13 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@solana/web3.js": "^3.2.1",
+    "bs58": "^6.0.0",
     "dotenv": "^18.0.10",
     "grammy": "^1.46.0"
   },
   "devDependencies": {
+    "@types/bs58": "^4.0.4",
     "@types/node": "^26.6.6",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"

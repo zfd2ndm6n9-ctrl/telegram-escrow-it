@@ -11,7 +11,8 @@ export type DealStatus =
   | "disputed"
   | "cancelled";
 
-export type Asset = "USDT";
+/** Roadmap: SOL (questo MVP) → LTC → ETH. Niente USDT. */
+export type Asset = "SOL";
 export type PartyRole = "buyer" | "seller";
 
 export interface Deal {
@@ -24,9 +25,14 @@ export interface Deal {
   buyerUsername?: string;
   sellerId?: number;
   sellerUsername?: string;
+  /** Indirizzo Solana del buyer (rimborso) */
+  buyerWallet?: string;
+  /** Indirizzo Solana del seller (rilascio) */
+  sellerWallet?: string;
   amount: string;
   asset: Asset;
   status: DealStatus;
+  /** Indirizzo deposito univoco (derivato) */
   escrowAddress: string;
   /** Chat id del gruppo escrow (negativo) */
   groupChatId?: number;
@@ -36,6 +42,11 @@ export interface Deal {
   releaseVotes: number[];
   /** Voti per /refund_buyer */
   refundVotes: number[];
+  /** Lamports rilevati al funding (stringa per JSON) */
+  depositLamports?: string;
+  depositDetectedAt?: string;
+  /** Signature payout on-chain */
+  payoutTxSig?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -47,4 +58,5 @@ export type CreateDealInput = {
   amount: string;
   asset: Asset;
   escrowAddress: string;
+  creatorWallet: string;
 };
