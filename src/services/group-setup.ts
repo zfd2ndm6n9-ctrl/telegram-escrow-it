@@ -1,4 +1,5 @@
 import type { Api } from "grammy";
+import { InlineKeyboard } from "grammy";
 import type { Deal } from "../types.js";
 import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
@@ -14,7 +15,37 @@ import {
   isPreDepositSetup,
   tosAccepted,
 } from "./deal-logic.js";
-import { sendTrackedPrompt } from "./prompt-cleanup.js";
+import { sendTrackedPrompt, upsertSetupMessage } from "./prompt-cleanup.js";
+
+/** Keyboard della card setup vivente (o vuota per togliere i pulsanti). */
+export function setupCardKeyboard(deal: Deal): InlineKeyboard {
+  if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
+    return counterpartConfirmKeyboard(deal.id);
+  }
+  if (deal.status === "awaiting_tos_confirm" && !tosAccepted(deal)) {
+    return tosConfirmKeyboard(deal.id);
+  }
+  if (
+    deal.status === "awaiting_amount_confirm" &&
+    deal.amount &&
+    !amountConfirmed(deal)
+  ) {
+    return amountConfirmKeyboard(deal.id);
+  }
+  return new InlineKeyboard();
+}
+
+/** Aggiorna (o crea) l'unico messaggio di setup del deal. */
+export async function refreshGroupSetupCard(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  return upsertSetupMessage(api, store, deal, it.groupSetupCard(deal), {
+    parse_mode: "Markdown",
+    reply_markup: setupCardKeyboard(deal),
+  });
+}
 
 export type RequiredBotPerm =
   | "can_delete_messages"
@@ -143,9 +174,7 @@ export async function postStabilizeTos(
   store: DealStore,
   deal: Deal,
 ): Promise<Deal> {
-  return sendTrackedPrompt(api, store, deal, it.stabilizeTos(deal), {
-    parse_mode: "Markdown",
-  });
+  return refreshGroupSetupCard(api, store, deal);
 }
 
 export async function postTosDraft(
@@ -154,10 +183,7 @@ export async function postTosDraft(
   deal: Deal,
 ): Promise<Deal> {
   if (!deal.tosText) return deal;
-  return sendTrackedPrompt(api, store, deal, it.tosDraftPosted(deal), {
-    parse_mode: "Markdown",
-    reply_markup: tosConfirmKeyboard(deal.id),
-  });
+  return refreshGroupSetupCard(api, store, deal);
 }
 
 export async function postAskTosConditions(
@@ -165,9 +191,7 @@ export async function postAskTosConditions(
   store: DealStore,
   deal: Deal,
 ): Promise<Deal> {
-  return sendTrackedPrompt(api, store, deal, it.askTosConditions(deal), {
-    parse_mode: "Markdown",
-  });
+  return refreshGroupSetupCard(api, store, deal);
 }
 
 export async function postAskAmount(
@@ -175,9 +199,7 @@ export async function postAskAmount(
   store: DealStore,
   deal: Deal,
 ): Promise<Deal> {
-  return sendTrackedPrompt(api, store, deal, it.askAmountGroup(deal), {
-    parse_mode: "Markdown",
-  });
+  return refreshGroupSetupCard(api, store, deal);
 }
 
 export async function postAmountProposed(
@@ -185,10 +207,7 @@ export async function postAmountProposed(
   store: DealStore,
   deal: Deal,
 ): Promise<Deal> {
-  return sendTrackedPrompt(api, store, deal, it.amountProposed(deal), {
-    parse_mode: "Markdown",
-    reply_markup: amountConfirmKeyboard(deal.id),
-  });
+  return refreshGroupSetupCard(api, store, deal);
 }
 
 export async function postAskSellerWallet(
@@ -305,16 +324,7 @@ export async function startDealInGroup(
   }
 
   const waiting = store.setStatus(bound.id, "awaiting_counterpart") ?? bound;
-  const posted = await sendTrackedPrompt(
-    api,
-    store,
-    waiting,
-    it.askCounterpartConfirm(waiting),
-    {
-      parse_mode: "Markdown",
-      reply_markup: counterpartConfirmKeyboard(waiting.id),
-    },
-  );
+  const posted = await refreshGroupSetupCard(api, store, waiting);
   return { deal: posted, started: true, perms };
 }
 

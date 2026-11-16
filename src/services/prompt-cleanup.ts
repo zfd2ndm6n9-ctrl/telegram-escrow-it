@@ -13,13 +13,16 @@ function promptIds(deal: Deal): number[] {
 
 function keptMessageIds(deal: Deal): Set<number> {
   const keep = new Set<number>();
+  if (deal.setupMessageId != null) {
+    keep.add(deal.setupMessageId);
+  }
   if (deal.tosAcceptedMessageId != null) {
     keep.add(deal.tosAcceptedMessageId);
   }
   return keep;
 }
 
-async function deleteMessageSafe(
+export async function deleteMessageSafe(
   api: Api,
   chatId: number,
   messageId: number,
@@ -29,6 +32,16 @@ async function deleteMessageSafe(
   } catch {
     // già eliminato o senza permesso
   }
+}
+
+function isNotModifiedError(err: unknown): boolean {
+  const msg =
+    err && typeof err === "object" && "description" in err
+      ? String((err as { description?: string }).description ?? "")
+      : err instanceof Error
+        ? err.message
+        : String(err);
+  return /message is not modified/i.test(msg);
 }
 
 /**
@@ -89,7 +102,7 @@ export function untrackPrompt(
 /**
  * Invia un prompt di stage nel gruppo, opzionalmente cancellando i precedenti.
  * Restituisce il deal aggiornato con il nuovo message_id tracciato.
- * I ToS accettati non vengono cancellati.
+ * La card setup (`setupMessageId` / ToS accettati) non viene cancellata.
  */
 export async function sendTrackedPrompt(
   api: Api,
@@ -107,6 +120,38 @@ export async function sendTrackedPrompt(
 
   const msg = await api.sendMessage(current.groupChatId, text, extra);
   return trackPrompt(store, current, msg.message_id);
+}
+
+/**
+ * Unico messaggio vivente di setup (counterpart → ToS → importo):
+ * edit in place se `setupMessageId` esiste, altrimenti send + salva id.
+ */
+export async function upsertSetupMessage(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+  text: string,
+  extra?: PromptExtra,
+): Promise<Deal> {
+  const chatId = deal.groupChatId;
+  if (chatId == null) return deal;
+
+  const msgId = deal.setupMessageId;
+  if (msgId != null) {
+    try {
+      await api.editMessageText(chatId, msgId, text, extra);
+      return deal;
+    } catch (err) {
+      if (isNotModifiedError(err)) return deal;
+      console.warn(
+        `edit setup msg ${msgId} in ${chatId} failed, re-sending:`,
+        err,
+      );
+    }
+  }
+
+  const msg = await api.sendMessage(chatId, text, extra);
+  return store.update(deal.id, { setupMessageId: msg.message_id }) ?? deal;
 }
 
 /**

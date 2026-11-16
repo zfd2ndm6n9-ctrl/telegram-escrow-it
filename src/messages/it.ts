@@ -1,11 +1,13 @@
 import type { Deal } from "../types.js";
 import {
   amountConfirmed,
+  bothPartiesPresent,
   escMd,
   formatTosBullets,
   mentionCounterpart,
   mentionPendingVoter,
   mentionUser,
+  tosAccepted,
 } from "../services/deal-logic.js";
 
 const STATUS_LABELS: Record<Deal["status"], string> = {
@@ -155,60 +157,80 @@ ${lines.join("\n")}
 Poi /avvia.`;
   },
 
-  askCounterpartConfirm: (deal: Deal) => {
-    const role = deal.creatorRole === "buyer" ? "seller" : "buyer";
-    // Controparte non ancora nota: resta la parola generica.
-    return `🔐 Deal *#${deal.id}* collegato.
+  /**
+   * Unica card di setup nel gruppo: evolve in place da deal collegato
+   * → ToS → importo (niente spam di messaggi intermedi).
+   */
+  groupSetupCard: (deal: Deal) => {
+    const header = `🔐 Deal *#${deal.id}* · *${deal.asset}*`;
 
-• Crypto: *${deal.asset}*
+    if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
+      const role = deal.creatorRole === "buyer" ? "seller" : "buyer";
+      return `${header}
+
 • Creatore: *${deal.creatorRole}*
 
 Controparte: conferma come *${role}*.
 Solo buyer + seller (+ bot).`;
-  },
+    }
 
-  stabilizeTos: (deal: Deal) => {
     const creator = mentionUser(
       deal.creatorUsername,
       deal.creatorId,
       "creatore",
     );
     const cp = mentionCounterpart(deal);
-    return `📜 *ToS del deal* — *#${deal.id}*
+    const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
 
-${creator}: invia il *Prodotto* (cosa si scambia).
-Poi chiederò le *Condizioni*.
+    const parts: string[] = [
+      header,
+      `• Creatore: *${deal.creatorRole}* · Buyer ${buyer} · Seller ${seller}`,
+    ];
 
-${cp}: conferma col pulsante dopo la proposta.`;
-  },
-
-  askTosConditions: (deal: Deal) => {
-    const creator = mentionUser(
-      deal.creatorUsername,
-      deal.creatorId,
-      "creatore",
-    );
-    return `✅ Prodotto salvato (#${deal.id}):
-• Prodotto: ${deal.tosProduct ? escMd(deal.tosProduct) : ""}
-
-${creator}: ora invia le *Condizioni* (tempi, regole, altro).`;
-  },
-
-  tosDraftPosted: (deal: Deal) => {
-    const cp = mentionCounterpart(deal);
-    return `📜 *ToS proposti* (#${deal.id}):
-
+    if (!tosAccepted(deal)) {
+      if (deal.status === "awaiting_tos_confirm" && (deal.tosText || deal.tosConditions)) {
+        parts.push(`📜 *ToS proposti*
 ${formatTosBullets(deal)}
 
 ${cp}: *Accetto i ToS*.
-Il creatore può sostituirli inviando un nuovo testo.`;
+Il creatore può sostituirli inviando un nuovo testo.`);
+      } else if (deal.tosProduct && !deal.tosConditions) {
+        parts.push(`📜 *ToS*
+${formatTosBullets(deal)}
+
+${creator}: ora invia le *Condizioni* (tempi, regole, altro).`);
+      } else {
+        parts.push(`📜 *ToS*
+${creator}: invia il *Prodotto* (cosa si scambia). Poi le *Condizioni*.
+${cp}: conferma col pulsante dopo la proposta.`);
+      }
+    } else {
+      parts.push(`📜 *ToS accettati*
+${formatTosBullets(deal)}`);
+
+      if (amountConfirmed(deal)) {
+        parts.push(
+          `💰 Importo fissato: *${deal.amount} ${deal.asset}*.\nProssimo: wallet — prima seller, poi buyer.`,
+        );
+      } else if (deal.amount && deal.status === "awaiting_amount_confirm") {
+        const votes = deal.amountVotes ?? [];
+        const progress =
+          votes.length < 2
+            ? `\nConferme: *${votes.length}/2* — aspetta ${mentionPendingVoter(deal, votes)}.`
+            : "";
+        parts.push(`💰 Importo proposto: *${deal.amount} ${deal.asset}*
+${buyer} e ${seller}: confermate entrambe.${progress}
+⚠️ Mainnet reale.`);
+      } else {
+        parts.push(`💰 *Importo*
+${buyer} e ${seller}: una parte propone (es. \`0.05\`), entrambe confermano.
+⚠️ Mainnet reale: importi di test piccoli.`);
+      }
+    }
+
+    return parts.join("\n\n");
   },
-
-  /** Messaggio ToS dopo accettazione (pinnato): senza riga «sostituirli». */
-  tosAcceptedPinned: (deal: Deal) =>
-    `📜 *ToS accettati* (#${deal.id}):
-
-${formatTosBullets(deal)}`,
 
   tosAccepted: (deal: Deal) =>
     `✅ ToS accettati (#${deal.id}).
@@ -217,32 +239,6 @@ Prossimo: importo *${deal.asset}* (conferma di entrambe le parti).`,
 
   tosLocked:
     "ToS già accettati: non si possono più modificare.",
-
-  askAmountGroup: (deal: Deal) => {
-    const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
-    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
-    return `💰 *Importo escrow* (#${deal.id}) — *${deal.asset}*
-
-${buyer} e ${seller}: una parte propone l'importo (es. \`0.05\`), entrambe confermano.
-⚠️ Mainnet reale: importi di test piccoli.`;
-  },
-
-  amountProposed: (deal: Deal) => {
-    const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
-    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
-    return `💰 Importo proposto (#${deal.id}): *${deal.amount} ${deal.asset}*
-
-${buyer} e ${seller}: confermate entrambe.
-⚠️ Mainnet reale.`;
-  },
-
-  amountConfirmedMsg: (deal: Deal) =>
-    `✅ Importo fissato (#${deal.id}): *${deal.amount} ${deal.asset}*.
-
-Prossimo: wallet *${deal.asset}* — prima seller, poi buyer.`,
-
-  amountNeedBoth: (deal: Deal, votes: number[]) =>
-    `Conferma importo *${votes.length}/2* (#${deal.id}: *${deal.amount} ${deal.asset}*). Aspetta ${mentionPendingVoter(deal, votes)}.`,
 
   askSellerWallet: (deal: Deal) => {
     const who = mentionUser(deal.sellerUsername, deal.sellerId, "seller");

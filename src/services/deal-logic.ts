@@ -47,15 +47,44 @@ export function escMd(text: string): string {
   return text.replace(/([_*`\[])/g, "\\$1");
 }
 
+/**
+ * Toglie un eventuale prefisso etichetta ripetuto dall'input utente
+ * (es. "prodotto: casa" → "casa") così i bullet non diventano
+ * «• Prodotto: prodotto: casa».
+ */
+export function stripRepeatedLabel(value: string, label: string): string {
+  const pattern = new RegExp(
+    `^(?:[•\\-*]\\s*)?${label}\\s*[:：\\-–—]\\s*`,
+    "i",
+  );
+  let current = value.trim();
+  for (let i = 0; i < 3; i++) {
+    const next = current.replace(pattern, "").trim();
+    if (next === current) break;
+    current = next;
+  }
+  return current.length > 0 ? current : value.trim();
+}
+
+/** Normalizza un campo ToS strutturato prima del persist. */
+export function normalizeTosField(
+  raw: string,
+  label: "Prodotto" | "Condizioni",
+): string {
+  return stripRepeatedLabel(raw, label);
+}
+
 /** Elenco puntato ToS da campi strutturati (o fallback su tosText). */
 export function formatTosBullets(deal: Deal): string {
   if (deal.tosProduct || deal.tosConditions) {
     const lines: string[] = [];
     if (deal.tosProduct) {
-      lines.push(`• Prodotto: ${escMd(deal.tosProduct)}`);
+      const product = stripRepeatedLabel(deal.tosProduct, "Prodotto");
+      lines.push(`• Prodotto: ${escMd(product)}`);
     }
     if (deal.tosConditions) {
-      lines.push(`• Condizioni: ${escMd(deal.tosConditions)}`);
+      const conditions = stripRepeatedLabel(deal.tosConditions, "Condizioni");
+      lines.push(`• Condizioni: ${escMd(conditions)}`);
     }
     return lines.join("\n");
   }
@@ -65,7 +94,9 @@ export function formatTosBullets(deal: Deal): string {
 
 /** Compone tosText persistito dall'elenco puntato. */
 export function composeTosText(product: string, conditions: string): string {
-  return `• Prodotto: ${product}\n• Condizioni: ${conditions}`;
+  const p = normalizeTosField(product, "Prodotto");
+  const c = normalizeTosField(conditions, "Condizioni");
+  return `• Prodotto: ${p}\n• Condizioni: ${c}`;
 }
 
 /** Stati precedenti al deposito escrow (ToS / importo / wallet ancora aperti). */
