@@ -81,6 +81,9 @@ export function normalizeTosField(
   return current;
 }
 
+/** Lunghezza minima per Prodotto / Tempi. */
+export const MIN_TOS_FIELD = 2;
+
 /** Prodotto + Prezzo + Tempi pronti per la conferma controparte. */
 export function termsReadyForConfirm(deal: Deal): boolean {
   return Boolean(
@@ -91,28 +94,25 @@ export function termsReadyForConfirm(deal: Deal): boolean {
   );
 }
 
-/** Elenco puntato termini da campi strutturati (o fallback su tosText). */
+/**
+ * Elenco puntato fisso Prodotto / Prezzo / Tempi.
+ * Campi vuoti → `—` (card sempre completa, niente Q&A a catena).
+ */
 export function formatTosBullets(deal: Deal): string {
-  if (deal.tosProduct || deal.amount || deal.tosConditions) {
-    const lines: string[] = [];
-    if (deal.tosProduct) {
-      const product = stripRepeatedLabel(deal.tosProduct, "Prodotto");
-      lines.push(`• Prodotto: ${escMd(product)}`);
-    }
-    if (deal.amount) {
-      lines.push(`• Prezzo: ${escMd(`${deal.amount} ${deal.asset}`)}`);
-    }
-    if (deal.tosConditions) {
-      const tempi = stripRepeatedLabel(
+  const product = deal.tosProduct
+    ? escMd(stripRepeatedLabel(deal.tosProduct, "Prodotto"))
+    : "—";
+  const price = deal.amount
+    ? escMd(`${deal.amount} ${deal.asset}`)
+    : "—";
+  const tempiRaw = deal.tosConditions
+    ? stripRepeatedLabel(
         stripRepeatedLabel(deal.tosConditions, "Tempi"),
         "Condizioni",
-      );
-      lines.push(`• Tempi: ${escMd(tempi)}`);
-    }
-    return lines.join("\n");
-  }
-  if (deal.tosText) return escMd(deal.tosText);
-  return "";
+      )
+    : "";
+  const tempi = tempiRaw ? escMd(tempiRaw) : "—";
+  return `• Prodotto: ${product}\n• Prezzo: ${price}\n• Tempi: ${tempi}`;
 }
 
 /** Compone tosText persistito dall'elenco puntato Prodotto / Prezzo / Tempi. */
@@ -125,6 +125,101 @@ export function composeTosText(
   const p = normalizeTosField(product, "Prodotto");
   const t = normalizeTosField(tempi, "Tempi");
   return `• Prodotto: ${p}\n• Prezzo: ${amount} ${asset}\n• Tempi: ${t}`;
+}
+
+function stripAssetSuffix(raw: string, asset: string): string {
+  return raw.replace(new RegExp(`\\s*${asset}\\s*$`, "i"), "").trim();
+}
+
+/**
+ * Estrae Prodotto / Prezzo / Tempi da etichette (anche con bullet).
+ * Restituisce null se manca anche un solo campo etichettato.
+ */
+function extractLabeledTerms(
+  text: string,
+): { product: string; price: string; tempi: string } | null {
+  const makeRe = (label: string) =>
+    new RegExp(
+      `(?:^|\\n)\\s*(?:[•\\-*]\\s*)?(?:${label})\\s*[:：\\-–—]\\s*(.+?)(?=(?:\\n\\s*(?:[•\\-*]\\s*)?(?:Prodotto|Prezzo|Tempi|Condizioni)\\s*[:：\\-–—])|$)`,
+      "is",
+    );
+
+  const productMatch = text.match(makeRe("Prodotto"));
+  const priceMatch = text.match(makeRe("Prezzo"));
+  const tempiMatch = text.match(makeRe("Tempi|Condizioni"));
+  if (!productMatch?.[1] || !priceMatch?.[1] || !tempiMatch?.[1]) {
+    return null;
+  }
+  return {
+    product: productMatch[1].trim(),
+    price: priceMatch[1].trim(),
+    tempi: tempiMatch[1].trim(),
+  };
+}
+
+export type ParseTermsResult =
+  | { ok: true; product: string; amount: string; tempi: string }
+  | { ok: false; reason: "format" | "price" | "short" };
+
+/**
+ * Una sola risposta = tre campi.
+ * Accetta: tre righe, `prodotto / prezzo / tempi`, oppure etichette.
+ */
+export function parseTermsProposal(
+  raw: string,
+  asset: Deal["asset"],
+): ParseTermsResult {
+  const text = raw.trim();
+  if (!text) return { ok: false, reason: "format" };
+
+  let product: string | undefined;
+  let priceRaw: string | undefined;
+  let tempi: string | undefined;
+
+  const labeled = extractLabeledTerms(text);
+  if (labeled) {
+    product = labeled.product;
+    priceRaw = labeled.price;
+    tempi = labeled.tempi;
+  } else {
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (lines.length >= 3) {
+      product = lines[0];
+      priceRaw = lines[1];
+      tempi = lines.slice(2).join(" ").trim();
+    } else {
+      const parts = text
+        .split(/\s*\/\s*/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      if (parts.length === 3) {
+        product = parts[0];
+        priceRaw = parts[1];
+        tempi = parts[2];
+      }
+    }
+  }
+
+  if (!product || !priceRaw || !tempi) {
+    return { ok: false, reason: "format" };
+  }
+
+  product = normalizeTosField(product, "Prodotto");
+  priceRaw = normalizeTosField(stripAssetSuffix(priceRaw, asset), "Prezzo");
+  tempi = normalizeTosField(tempi, "Tempi");
+
+  if (product.length < MIN_TOS_FIELD || tempi.length < MIN_TOS_FIELD) {
+    return { ok: false, reason: "short" };
+  }
+
+  const amount = parseAmount(priceRaw);
+  if (!amount) return { ok: false, reason: "price" };
+
+  return { ok: true, product, amount, tempi };
 }
 
 /** Stati precedenti al deposito escrow (termini / wallet ancora aperti). */

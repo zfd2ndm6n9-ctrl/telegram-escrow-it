@@ -9,9 +9,9 @@ import {
   isAllowedHuman,
   isParty,
   isPreDepositSetup,
-  normalizeTosField,
   parseAmount,
   parseStartGroupPayload,
+  parseTermsProposal,
   termsReadyForConfirm,
   tosAccepted,
 } from "../services/deal-logic.js";
@@ -33,8 +33,6 @@ import {
   untrackPrompt,
 } from "../services/prompt-cleanup.js";
 import { kickUnauthorizedBot } from "./group-hygiene.js";
-
-const MIN_TOS_FIELD = 2;
 
 function displayNameOf(user: {
   first_name?: string;
@@ -370,7 +368,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
-  // Opener scrive Prodotto → Prezzo → Tempi sulla stessa card
+  // Opener propone Prodotto + Prezzo + Tempi in un solo messaggio (card vivente)
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -477,80 +475,36 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Sostituzione pre-accettazione: riparte da Prodotto
-    if (current.status === "awaiting_tos_confirm") {
-      const product = normalizeTosField(text, "Prodotto");
-      if (product.length < MIN_TOS_FIELD) {
-        await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
-        return;
-      }
-      const updated = ctx.store.update(current.id, {
-        tosProduct: product,
-        tosConditions: undefined,
-        tosText: undefined,
-        tosAcceptedAt: undefined,
-        amount: "",
-        amountConfirmedAt: undefined,
-        status: "awaiting_tos",
-      })!;
-      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-      await refreshGroupSetupCard(ctx.api, ctx.store, updated);
-      return;
-    }
-
-    // awaiting_tos: Prodotto → Prezzo → Tempi
-    if (!current.tosProduct) {
-      const product = normalizeTosField(text, "Prodotto");
-      if (product.length < MIN_TOS_FIELD) {
-        await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
-        return;
-      }
-      const updated = ctx.store.update(current.id, {
-        tosProduct: product,
-        tosConditions: undefined,
-        tosText: undefined,
-        tosAcceptedAt: undefined,
-        amount: "",
-        amountConfirmedAt: undefined,
-      })!;
-      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-      await refreshGroupSetupCard(ctx.api, ctx.store, updated);
-      return;
-    }
-
-    if (!current.amount) {
-      const amount = parseAmount(normalizeTosField(text, "Prezzo"));
-      if (!amount) {
+    const parsed = parseTermsProposal(text, current.asset);
+    if (!parsed.ok) {
+      if (parsed.reason === "price") {
         await ctx.reply(it.invalidTermsPrice(current.asset), {
           parse_mode: "Markdown",
         });
         return;
       }
-      const updated = ctx.store.update(current.id, {
-        amount,
-        amountConfirmedAt: undefined,
-        amountVotes: [],
-      })!;
-      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-      await refreshGroupSetupCard(ctx.api, ctx.store, updated);
+      if (parsed.reason === "short") {
+        await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
+        return;
+      }
+      await ctx.reply(it.termsFormatHint, { parse_mode: "Markdown" });
       return;
     }
 
-    const tempi = normalizeTosField(text, "Tempi");
-    if (tempi.length < MIN_TOS_FIELD) {
-      await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
-      return;
-    }
     const tosText = composeTosText(
-      current.tosProduct,
-      current.amount,
+      parsed.product,
+      parsed.amount,
       current.asset,
-      tempi,
+      parsed.tempi,
     );
     const updated = ctx.store.update(current.id, {
-      tosConditions: tempi,
+      tosProduct: parsed.product,
+      amount: parsed.amount,
+      tosConditions: parsed.tempi,
       tosText,
       tosAcceptedAt: undefined,
+      amountConfirmedAt: undefined,
+      amountVotes: [],
       status: "awaiting_tos_confirm",
     })!;
 

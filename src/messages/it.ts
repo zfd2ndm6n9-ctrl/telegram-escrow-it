@@ -166,11 +166,11 @@ Poi /avvia.`;
   },
 
   /**
-   * Unica card termini nel gruppo: Prodotto → Prezzo → Tempi,
-   * poi Accetto della controparte (edit in place).
+   * Unica card vivente nel gruppo (elenco puntato).
+   * Buyer/Seller/Prodotto/Prezzo/Tempi; azione breve sotto; Accetto in button.
    */
   groupSetupCard: (deal: Deal) => {
-    const header = `🔐 Deal *#${deal.id}* · *${deal.asset}*`;
+    const header = `🔒 Deal *#${deal.id}* · *${deal.asset}*`;
 
     if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
       return `${header}
@@ -184,49 +184,25 @@ Invita la controparte; se è già nel gruppo, che scriva un messaggio, poi /avvi
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
 
-    const parts: string[] = [
-      header,
-      `• Buyer ${buyer} · Seller ${seller}`,
-    ];
+    const bullets = [
+      `• Buyer: ${buyer}`,
+      `• Seller: ${seller}`,
+      formatTosBullets(deal),
+    ].join("\n");
 
-    if (!tosAccepted(deal)) {
-      if (
-        deal.status === "awaiting_tos_confirm" &&
-        (deal.tosText || (deal.tosProduct && deal.amount && deal.tosConditions))
-      ) {
-        parts.push(`📜 *Termini proposti*
-${formatTosBullets(deal)}
-
-${cp}: *Accetto* per confermare.
-${opener} può sostituirli inviando un nuovo testo.`);
-      } else if (deal.tosProduct && deal.amount && !deal.tosConditions) {
-        parts.push(`📜 *Termini*
-${formatTosBullets(deal)}
-
-${opener}: ora invia i *Tempi* (scadenze, regole, altro).`);
-      } else if (deal.tosProduct && !deal.amount) {
-        parts.push(`📜 *Termini*
-${formatTosBullets(deal)}
-
-${opener}: ora invia il *Prezzo* (es. \`0.05\` — *${deal.asset}*).
-⚠️ Mainnet reale: importi di test piccoli.`);
-      } else {
-        parts.push(`📜 *Termini*
-${opener}: invia il *Prodotto* (cosa si scambia). Poi *Prezzo* e *Tempi*.
-${cp}: conferma con *Accetto* a proposta completa.`);
-      }
+    let action: string;
+    if (tosAccepted(deal)) {
+      action = `Prossimo: wallet — prima ${seller}, poi ${buyer}.`;
+    } else if (
+      deal.status === "awaiting_tos_confirm" &&
+      (deal.tosText || (deal.tosProduct && deal.amount && deal.tosConditions))
+    ) {
+      action = `${cp}: *Accetto* per confermare.`;
     } else {
-      parts.push(`📜 *Termini accettati*
-${formatTosBullets(deal)}`);
-
-      if (amountConfirmed(deal) || deal.amount) {
-        parts.push(
-          `Prossimo: wallet — prima ${seller}, poi ${buyer}.`,
-        );
-      }
+      action = `${opener}: invia *Prodotto*, *Prezzo* e *Tempi* in un solo messaggio (tre righe oppure \`prodotto / prezzo / tempi\`).`;
     }
 
-    return parts.join("\n\n");
+    return `${header}\n${bullets}\n\n${action}`;
   },
 
   autoBindTooMany:
@@ -277,9 +253,11 @@ Prossimo: wallet — prima seller, poi buyer.`,
   },
 
   tosTooShort:
-    "Troppo corto. Scrivi *Prodotto* o *Tempi* più chiari.",
+    "Troppo corto. Scrivi *Prodotto* e *Tempi* più chiari.",
 
-  tosProductSavedHint: "Prodotto ricevuto. Ora il Prezzo.",
+  /** Formato atteso: tre righe oppure prodotto / prezzo / tempi. */
+  termsFormatHint:
+    "Formato: tre righe (*Prodotto*, *Prezzo*, *Tempi*) oppure `prodotto / prezzo / tempi`.",
 
   invalidTermsPrice: (asset: string) =>
     `Prezzo non valido. Invia un numero positivo in *${asset}* (es. \`0.05\`).`,
