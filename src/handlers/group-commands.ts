@@ -1,7 +1,7 @@
 import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { config } from "../config.js";
-import { it } from "../messages/it.js";
+import { formatDealStatus, it } from "../messages/it.js";
 import { groupActionsKeyboard, mainMenuKeyboard } from "../keyboards/menus.js";
 import {
   addUniqueVote,
@@ -9,7 +9,15 @@ import {
   isParty,
   isPreDepositSetup,
 } from "../services/deal-logic.js";
-import { createAdminInviteLink, postAskBuyerWallet, postDealActivated } from "../services/group-setup.js";
+import {
+  createAdminInviteLink,
+  postAskBuyerWallet,
+  postDealActivated,
+} from "../services/group-setup.js";
+import {
+  clearBotPrompts,
+  replaceStatusMessage,
+} from "../services/prompt-cleanup.js";
 import {
   checkDealDeposit,
   isValidSolAddress,
@@ -71,22 +79,17 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.noDealInGroup);
       return;
     }
-    await ctx.reply(formatStato(deal), {
+    await replaceStatusMessage(ctx.api, ctx.store, deal, formatDealStatus(deal), {
       parse_mode: "Markdown",
       reply_markup: groupActionsKeyboard(deal.status),
     });
   });
 
-  bot.command("pay_seller", async (ctx) => {
+  bot.command(["pay_seller", "payseller", "release"], async (ctx) => {
     await handlePayOrRefund(ctx, "release");
   });
 
-  /** Alias CoinXpert-style */
-  bot.command("release", async (ctx) => {
-    await handlePayOrRefund(ctx, "release");
-  });
-
-  bot.command("refund_buyer", async (ctx) => {
+  bot.command(["refund_buyer", "refundbuyer"], async (ctx) => {
     await handlePayOrRefund(ctx, "refund");
   });
 
@@ -148,7 +151,9 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       return;
     }
     await ctx.answerCallbackQuery();
-    await ctx.reply(formatStato(deal), { parse_mode: "Markdown" });
+    await replaceStatusMessage(ctx.api, ctx.store, deal, formatDealStatus(deal), {
+      parse_mode: "Markdown",
+    });
   });
 
   // Incolla wallet in chiaro durante awaiting_*_wallet
@@ -178,18 +183,6 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     }
     await applyWallet(ctx, deal, text);
   });
-}
-
-function formatStato(deal: Deal): string {
-  return `*Deal #${deal.id}*
-• Stato: \`${deal.status}\`
-• Importo: *${deal.amount} ${deal.asset}*
-• Buyer: ${deal.buyerId ?? "—"} · \`${deal.buyerWallet ?? "wallet?"}\`
-• Seller: ${deal.sellerId ?? "—"} · \`${deal.sellerWallet ?? "wallet?"}\`
-• ToS: ${deal.tosAcceptedAt ? "accettati" : deal.tosText ? "in conferma" : "—"}
-• Escrow: \`${deal.escrowAddress}\`
-• Deposit lamports: ${deal.depositLamports ?? "—"}
-• Payout tx: ${deal.payoutTxSig ? `\`${deal.payoutTxSig}\`` : "—"}`;
 }
 
 async function setWallet(ctx: BotContext): Promise<void> {
@@ -243,7 +236,7 @@ async function applyWallet(
     await ctx.reply(it.walletSaved(updated, "seller", address), {
       parse_mode: "Markdown",
     });
-    await postAskBuyerWallet(ctx.api, updated);
+    await postAskBuyerWallet(ctx.api, ctx.store, updated);
     return;
   }
 
@@ -259,7 +252,7 @@ async function applyWallet(
     await ctx.reply(it.walletSaved(updated, "buyer", address), {
       parse_mode: "Markdown",
     });
-    await postDealActivated(ctx.api, updated);
+    await postDealActivated(ctx.api, ctx.store, updated);
     return;
   }
 
@@ -307,8 +300,12 @@ async function verifyDeposit(ctx: BotContext): Promise<void> {
     deal.status === "awaiting_deposit" &&
     /\bforce\b/i.test(raw)
   ) {
-    const updated = ctx.store.setStatus(deal.id, "funded")!;
-    await ctx.reply(it.markFundedAdmin(updated), { parse_mode: "Markdown" });
+    let updated = ctx.store.setStatus(deal.id, "funded")!;
+    updated = await clearBotPrompts(ctx.api, ctx.store, updated);
+    await ctx.reply(it.markFundedAdmin(updated), {
+      parse_mode: "Markdown",
+      reply_markup: groupActionsKeyboard(updated.status),
+    });
     return;
   }
 
@@ -317,6 +314,7 @@ async function verifyDeposit(ctx: BotContext): Promise<void> {
     return;
   }
 
+  const wasAwaiting = deal.status === "awaiting_deposit";
   const result = await checkDealDeposit(ctx.store, deal.id);
   if (!result.ok) {
     await ctx.reply(`Verifica deposito fallita: \`${result.error}\``, {
@@ -325,7 +323,10 @@ async function verifyDeposit(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const fresh = ctx.store.get(deal.id)!;
+  let fresh = ctx.store.get(deal.id)!;
+  if (wasAwaiting && result.funded) {
+    fresh = await clearBotPrompts(ctx.api, ctx.store, fresh);
+  }
   await ctx.reply(
     it.depositCheckResult(fresh, result.balanceSol, result.funded),
     {
@@ -362,10 +363,11 @@ async function runPayout(
   }
 
   const doneStatus = kind === "release" ? "released" : "refunded";
-  const updated = ctx.store.update(deal.id, {
+  let updated = ctx.store.update(deal.id, {
     status: doneStatus,
     payoutTxSig: result.signature,
   })!;
+  updated = await clearBotPrompts(ctx.api, ctx.store, updated);
 
   await ctx.reply(
     it.payoutSuccess(updated, kind, result.signature, result.sol),
@@ -432,10 +434,9 @@ async function handlePayOrRefund(
       kind === "release"
         ? it.releaseVote(pending, remaining)
         : it.refundVote(pending, remaining);
-    await ctx.reply(msg, {
-      parse_mode: "Markdown",
-      reply_markup: groupActionsKeyboard(pending.status),
-    });
+    // Togli prompt con tastiere pay_seller accumulate; conferma 1/2 senza nuovi bottoni.
+    await clearBotPrompts(ctx.api, ctx.store, pending);
+    await ctx.reply(msg, { parse_mode: "Markdown" });
     return;
   }
 

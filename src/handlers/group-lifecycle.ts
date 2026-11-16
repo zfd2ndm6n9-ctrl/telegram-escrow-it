@@ -16,9 +16,9 @@ import {
   kickUnauthorized,
   postAskSellerWallet,
   postStabilizeTos,
+  postTosDraft,
   startDealInGroup,
 } from "../services/group-setup.js";
-import { tosConfirmKeyboard } from "../keyboards/menus.js";
 import { kickUnauthorizedBot } from "./group-hygiene.js";
 
 const MIN_TOS_LENGTH = 20;
@@ -104,14 +104,15 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     if (!ctx.from) return;
 
     const existing = ctx.store.findByGroupChatId(ctx.chat.id);
+    // Già collegato e oltre il bind: niente seconda card completa.
     if (
       existing &&
-      bothPartiesPresent(existing) &&
-      existing.status !== "awaiting_counterpart" &&
       existing.status !== "awaiting_bot_admin" &&
       existing.status !== "awaiting_group"
     ) {
-      await ctx.reply(it.alreadyActivated);
+      await ctx.reply(it.alreadyLinkedShort(existing), {
+        parse_mode: "Markdown",
+      });
       return;
     }
 
@@ -230,7 +231,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       updated = ctx.store.setStatus(updated.id, "awaiting_tos")!;
       await ctx.answerCallbackQuery({ text: "Confermato" });
       await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
-      await postStabilizeTos(ctx.api, updated);
+      await postStabilizeTos(ctx.api, ctx.store, updated);
       return;
     }
 
@@ -280,8 +281,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     await ctx.answerCallbackQuery({ text: "ToS accettati" });
     await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
-    await ctx.reply(it.tosAccepted(updated), { parse_mode: "Markdown" });
-    await postAskSellerWallet(ctx.api, updated);
+    await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
   // Creatore scrive i ToS (o li aggiorna prima della conferma)
@@ -358,10 +358,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       status: "awaiting_tos_confirm",
     })!;
 
-    await ctx.reply(it.tosDraftPosted(updated), {
-      parse_mode: "Markdown",
-      reply_markup: tosConfirmKeyboard(updated.id),
-    });
+    await postTosDraft(ctx.api, ctx.store, updated);
   });
 
   bot.on("chat_member", async (ctx) => {

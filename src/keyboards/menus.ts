@@ -97,8 +97,8 @@ export function groupActionsKeyboard(status: string): InlineKeyboard {
     status === "refund_pending" ||
     status === "disputed"
   ) {
-    kb.text("🔓 pay_seller", "pay_seller")
-      .text("↩️ refund_buyer", "refund_buyer")
+    kb.text("🔓 Paga seller", "pay_seller")
+      .text("↩️ Rimborsa buyer", "refund_buyer")
       .row();
   }
 

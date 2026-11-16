@@ -12,6 +12,7 @@ import {
   isPreDepositSetup,
   tosAccepted,
 } from "./deal-logic.js";
+import { sendTrackedPrompt } from "./prompt-cleanup.js";
 
 export type RequiredBotPerm =
   | "can_delete_messages"
@@ -128,38 +129,54 @@ function resolveBoundStatus(deal: Deal): Deal["status"] {
   return "awaiting_deposit";
 }
 
-export async function postStabilizeTos(api: Api, deal: Deal): Promise<void> {
-  if (deal.groupChatId == null) return;
-  await api.sendMessage(deal.groupChatId, it.stabilizeTos(deal), {
+export async function postStabilizeTos(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  return sendTrackedPrompt(api, store, deal, it.stabilizeTos(deal), {
     parse_mode: "Markdown",
   });
 }
 
-export async function postTosDraft(api: Api, deal: Deal): Promise<void> {
-  if (deal.groupChatId == null || !deal.tosText) return;
-  await api.sendMessage(deal.groupChatId, it.tosDraftPosted(deal), {
+export async function postTosDraft(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  if (!deal.tosText) return deal;
+  return sendTrackedPrompt(api, store, deal, it.tosDraftPosted(deal), {
     parse_mode: "Markdown",
     reply_markup: tosConfirmKeyboard(deal.id),
   });
 }
 
-export async function postAskSellerWallet(api: Api, deal: Deal): Promise<void> {
-  if (deal.groupChatId == null) return;
-  await api.sendMessage(deal.groupChatId, it.askSellerWallet(deal), {
+export async function postAskSellerWallet(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  return sendTrackedPrompt(api, store, deal, it.askSellerWallet(deal), {
     parse_mode: "Markdown",
   });
 }
 
-export async function postAskBuyerWallet(api: Api, deal: Deal): Promise<void> {
-  if (deal.groupChatId == null) return;
-  await api.sendMessage(deal.groupChatId, it.askBuyerWallet(deal), {
+export async function postAskBuyerWallet(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  return sendTrackedPrompt(api, store, deal, it.askBuyerWallet(deal), {
     parse_mode: "Markdown",
   });
 }
 
-export async function postDealActivated(api: Api, deal: Deal): Promise<void> {
-  if (deal.groupChatId == null) return;
-  await api.sendMessage(deal.groupChatId, it.dealActivated(deal), {
+export async function postDealActivated(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  return sendTrackedPrompt(api, store, deal, it.dealActivated(deal), {
     parse_mode: "Markdown",
     reply_markup: groupActionsKeyboard(deal.status),
   });
@@ -200,30 +217,40 @@ export async function startDealInGroup(
   if (bothPartiesPresent(bound)) {
     if (!tosAccepted(bound) && !isPreDepositSetup(bound.status)) {
       const waitingTos = store.setStatus(bound.id, "awaiting_tos") ?? bound;
-      await postStabilizeTos(api, waitingTos);
-      return { deal: waitingTos, started: true, perms };
+      const posted = await postStabilizeTos(api, store, waitingTos);
+      return { deal: posted, started: true, perms };
     }
     if (bound.status === "awaiting_tos") {
-      await postStabilizeTos(api, bound);
-      return { deal: bound, started: true, perms };
+      const posted = await postStabilizeTos(api, store, bound);
+      return { deal: posted, started: true, perms };
     }
     if (bound.status === "awaiting_tos_confirm" && bound.tosText) {
-      await postTosDraft(api, bound);
-      return { deal: bound, started: true, perms };
+      const posted = await postTosDraft(api, store, bound);
+      return { deal: posted, started: true, perms };
     }
     if (bound.status === "awaiting_seller_wallet") {
-      await postAskSellerWallet(api, bound);
-      return { deal: bound, started: true, perms };
+      const posted = await postAskSellerWallet(api, store, bound);
+      return { deal: posted, started: true, perms };
+    }
+    if (bound.status === "awaiting_buyer_wallet") {
+      const posted = await postAskBuyerWallet(api, store, bound);
+      return { deal: posted, started: true, perms };
     }
     return { deal: bound, started: true, perms };
   }
 
   const waiting = store.setStatus(bound.id, "awaiting_counterpart") ?? bound;
-  await api.sendMessage(chatId, it.askCounterpartConfirm(waiting), {
-    parse_mode: "Markdown",
-    reply_markup: counterpartConfirmKeyboard(waiting.id),
-  });
-  return { deal: waiting, started: true, perms };
+  const posted = await sendTrackedPrompt(
+    api,
+    store,
+    waiting,
+    it.askCounterpartConfirm(waiting),
+    {
+      parse_mode: "Markdown",
+      reply_markup: counterpartConfirmKeyboard(waiting.id),
+    },
+  );
+  return { deal: posted, started: true, perms };
 }
 
 export async function kickUnauthorized(

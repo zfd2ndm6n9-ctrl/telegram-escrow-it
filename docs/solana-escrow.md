@@ -24,8 +24,9 @@
 2. Per deal `id`: `HMAC-SHA256(masterSecret, "telegram-escrow-it:deal:"+id)` → 32 byte seed → keypair
 3. Buyer invia SOL a quell’indirizzo
 4. Watcher (~20s) o `/depositato` (verifica saldo) → `funded` se saldo ≥ importo
-5. Dual-confirm `/pay_seller` / `/refund_buyer` (o admin in disputa) → transfer **intero saldo** deal → wallet seller/buyer
+5. Dual-confirm `/pay_seller` (alias `/payseller`) / `/refund_buyer` (alias `/refundbuyer`) (o admin in disputa) → transfer **intero saldo** deal → wallet seller/buyer
 6. **Fee di rete** pagate dalla **master** (`feePayer`): ricarica la master con poco SOL (es. 0.05)
+7. Payout: `getLatestBlockhash("confirmed")` + stesso `preflightCommitment`, con retry su #7050008 (Blockhash not found)
 
 ## Avviso rischio
 

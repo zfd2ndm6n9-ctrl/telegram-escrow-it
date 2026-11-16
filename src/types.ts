@@ -58,6 +58,13 @@ export interface Deal {
   depositDetectedAt?: string;
   /** Signature payout on-chain */
   payoutTxSig?: string;
+  /**
+   * Message id dei prompt di stage del bot nel gruppo (ToS/wallet/deposit/…).
+   * Cancellabili all’avanzamento; non sono evidenze utente.
+   */
+  botPromptIds?: number[];
+  /** Ultimo messaggio /stato del bot (sostituito al prossimo /stato). */
+  lastStatusMessageId?: number;
   createdAt: string;
   updatedAt: string;
 }
