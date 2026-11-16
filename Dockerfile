@@ -12,8 +12,9 @@ ENV NODE_ENV=production
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-# Persistenza deal su volume (monta /app/data in produzione)
-RUN mkdir -p /app/data
+# Persistenza deal: monta un volume persistente su /app/data (o imposta DATA_DIR).
+# Su Render blueprint: disk → /var/data e DATA_DIR=/var/data.
+RUN mkdir -p /app/data /var/data
 EXPOSE 8080
 ENV PORT=8080
 ENV DATA_DIR=/app/data

@@ -11,6 +11,8 @@
     "verify:getme": "tsx scripts/verify-getme.ts",
     "solana:keygen": "tsx scripts/generate-solana-keypair.ts",
     "helper:login": "tsx scripts/helper-login.ts",
+    "recover:escrow": "tsx src/cli/recover-escrow.ts",
+    "recover:escrow:prod": "node dist/cli/recover-escrow.js",
     "start:forever": "bash scripts/run-forever.sh"
   },
   "repository": {

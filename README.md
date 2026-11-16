@@ -44,7 +44,7 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `SOLANA_WATCH_INTERVAL_MS` | no | Poll depositi (default `20000`) |
 | `ADMIN_TELEGRAM_ID` | no | User id admin (dispute + force) |
 | `TOS_URL` | no | Link Termini |
-| `DATA_DIR` | no | Cartella store (default `data`) |
+| `DATA_DIR` | sì in prod | Store deal. Render: `/var/data` su Persistent Disk (starter+). Default `data` |
 | `PORT` | no | Se impostato: `GET /healthz` (Render/Fly) |
 | `TELEGRAM_BOT_CREATES_GROUPS` | no | `1` per tentare create automatica gruppo (default off) |
 | `TELEGRAM_API_ID` / `HASH` / `HELPER_SESSION` | no | Solo con gate sopra; altrimenti soft-fallback manuale |
@@ -112,10 +112,24 @@ Altri: `/indirizzo`, `/stato`, `/blockchain`, `/menu`, `/miei` (privato), `/aiut
 7. Invia `0.01 SOL` all’indirizzo mostrato da `/indirizzo`
 8. Attendi “deposito rilevato” → entrambe `/payseller` (o pulsante *Paga seller*)
 
+### Persistenza e recovery
+
+- Su Render serve **Persistent Disk** + `DATA_DIR=/var/data` (vedi `render.yaml`): senza volume i deal spariscono al redeploy, i fondi restano sull’escrow derivato.
+- Recovery one-shot (stessa master key, senza ricreare il deal Telegram):
+
+```bash
+npm run recover:escrow -- --deal 82978c05
+npm run recover:escrow -- --deal 82978c05 --to seller --execute
+```
+
+- Admin in gruppo: `/ripristina 82978c05` · `/admin_payout 82978c05 seller`
+
+Dettagli: [`docs/solana-escrow.md`](./docs/solana-escrow.md).
+
 ## Limiti
 
 - Hot wallet custodial (rischio chiave / exit)
-- Store file-based (su Render free il disco è ephemeral)
+- Store file-based: senza Persistent Disk su Render i deal non sopravvivono al redeploy
 - Niente LTC/ETH ancora; niente fiat/SEPA
 - Niente partial pay / community / marketplace
 

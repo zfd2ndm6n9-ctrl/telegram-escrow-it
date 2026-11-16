@@ -257,6 +257,23 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
   adminForceRefund: (deal: Deal) =>
     `↩️ Admin: *refund_buyer* su #${deal.id}…`,
 
+  adminOnly: "Solo admin.",
+
+  ripristinaUsage:
+    "Uso: `/ripristina <dealId>` nel gruppo escrow (solo admin).\nEs: `/ripristina 82978c05`",
+
+  ripristinaUnknown: (dealId: string) =>
+    `Nessun profilo orfano per *#${dealId}*. Usa \`npm run recover:escrow\` oppure aggiungi il profilo.`,
+
+  ripristinaMismatch: (dealId: string, expected: string, derived: string) =>
+    `❌ Escrow derivato diverso dall'atteso per *#${dealId}*.\nAtteso: \`${expected}\`\nDerivato: \`${derived}\`\nNon procedere: verifica che la master key su Render sia quella originale.`,
+
+  ripristinaOk: (deal: Deal, balanceSol: string) =>
+    `✅ Deal *#${deal.id}* ricollegato a questo gruppo.\nStato: \`${deal.status}\` · saldo escrow ~*${balanceSol} SOL*\nSeller: \`${deal.sellerWallet}\`\nBuyer: \`${deal.buyerWallet}\`\nPoi: /payseller o /refundbuyer (o /admin_payout).`,
+
+  adminPayoutUsage:
+    "Uso (solo admin): `/admin_payout <dealId> seller|buyer`\nEs: `/admin_payout 82978c05 seller`",
+
   wrongStatus: (status: string) =>
     `Azione non disponibile in \`${status}\`.`,
 
