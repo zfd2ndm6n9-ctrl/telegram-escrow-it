@@ -38,25 +38,35 @@ export interface Deal {
   buyerWallet?: string;
   /** Indirizzo Solana del seller (rilascio) */
   sellerWallet?: string;
-  /** Termini del deal (Prodotto / Prezzo / Tempi) proposti nel gruppo */
+  /** Termini del deal (elenco Prodotto / Prezzo € / Tempi / Condizioni) */
   tosText?: string;
   /** Campo strutturato: Prodotto */
   tosProduct?: string;
   /**
-   * Campo strutturato: Tempi (timing/condizioni).
+   * Prezzo commerciale in EUR (display, es. `5` o `12,50`).
+   * Non è l'importo on-chain: quello resta in `amount`.
+   */
+  priceEur?: string;
+  /**
+   * Campo strutturato: Tempi (consegna / scadenza).
    * Nome storico `tosConditions`; in UI è etichettato «Tempi».
    */
   tosConditions?: string;
+  /** Campo opzionale: Condizioni / note extra (vuoto → — in card) */
+  tosNotes?: string;
   /** Quando la controparte ha accettato la card termini */
   tosAcceptedAt?: string;
   /**
-   * Importo escrow (stringa decimale). Impostato dal proponente
-   * nella card termini (campo Prezzo); confermato con l'Accetto unico.
+   * Importo escrow on-chain (stringa decimale nell'asset del deal).
+   * Opzionale nei termini liberi; se manca, chiesto dopo Accetto in un messaggio.
    */
   amount: string;
   /** @deprecated Legacy dual-confirm importo; non usato nel flusso termini unificato */
   amountVotes?: number[];
-  /** Quando l'importo è fissato (insieme all'Accetto termini) */
+  /**
+   * Quando l'importo crypto è fissato (con Accetto se già nei termini,
+   * oppure subito dopo la risposta all'ask post-Accetto).
+   */
   amountConfirmedAt?: string;
   /**
    * Utenti umani già visti in questo gruppo (join / messaggi).

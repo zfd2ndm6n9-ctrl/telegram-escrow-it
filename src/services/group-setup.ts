@@ -315,12 +315,13 @@ function resolveBoundStatus(deal: Deal): Deal["status"] {
   if (!tosAccepted(deal)) {
     return termsReadyForConfirm(deal) ? "awaiting_tos_confirm" : "awaiting_tos";
   }
-  if (!amountConfirmed(deal) && deal.amount) {
+  if (!amountConfirmed(deal) && deal.amount && deal.status === "awaiting_amount_confirm") {
     // Legacy mid-flight: importo proposto ma non ancora «fissato»
     return "awaiting_amount_confirm";
   }
   if (!amountConfirmed(deal)) {
-    return "awaiting_tos";
+    // Post-Accetto: manca ancora l'importo escrow on-chain
+    return "awaiting_amount";
   }
   if (!deal.sellerWallet) return "awaiting_seller_wallet";
   if (!deal.buyerWallet) return "awaiting_buyer_wallet";
@@ -438,7 +439,7 @@ export type StartDealResult = {
 
 /**
  * Avvio deal in un gruppo già creato/bound: auto-bind controparte,
- * poi card elenco puntato Prodotto/Prezzo/Tempi (niente conferma ruolo).
+ * poi card elenco puntato Prodotto/Prezzo€/Tempi/Condizioni (niente conferma ruolo).
  */
 export async function startDealInGroup(
   api: Api,
