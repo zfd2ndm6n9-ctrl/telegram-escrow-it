@@ -1,14 +1,12 @@
 import type { Deal } from "../types.js";
 import {
+  amountConfirmed,
+  escMd,
+  formatTosBullets,
   mentionCounterpart,
   mentionPendingVoter,
   mentionUser,
 } from "../services/deal-logic.js";
-
-/** Escape minimo per testo utente in Markdown legacy Telegram. */
-function escMd(text: string): string {
-  return text.replace(/([_*`\[])/g, "\\$1");
-}
 
 const STATUS_LABELS: Record<Deal["status"], string> = {
   awaiting_group: "in attesa gruppo",
@@ -16,6 +14,8 @@ const STATUS_LABELS: Record<Deal["status"], string> = {
   awaiting_counterpart: "in attesa conferma controparte",
   awaiting_tos: "in attesa ToS dal creatore",
   awaiting_tos_confirm: "in attesa conferma ToS",
+  awaiting_amount: "in attesa importo",
+  awaiting_amount_confirm: "in attesa conferma importo",
   awaiting_seller_wallet: "in attesa wallet seller",
   awaiting_buyer_wallet: "in attesa wallet buyer",
   awaiting_deposit: "in attesa deposito",
@@ -27,6 +27,13 @@ const STATUS_LABELS: Record<Deal["status"], string> = {
   disputed: "in disputa",
   cancelled: "annullato",
 };
+
+function amountLine(deal: Deal): string {
+  if (amountConfirmed(deal) || deal.amount) {
+    return `• Importo: *${deal.amount} ${deal.asset}*`;
+  }
+  return `• Crypto: *${deal.asset}* · importo da confermare nel gruppo`;
+}
 
 /** Buyer + importo + indirizzo escrow su riga propria in `code` (Copia su mobile). */
 function depositPrompt(deal: Deal): string {
@@ -50,9 +57,9 @@ Escrow crypto tra due parti già d'accordo.
 
   help: `*Guida Escrowita*
 
-1. In privato: /crea → ruolo → crypto → importo
-2. Crea un *gruppo privato*, aggiungi il bot come *admin*, poi /avvia
-3. Nel gruppo: conferma ruolo → ToS → wallet seller poi buyer → deposito
+1. In privato: /crea → ruolo → crypto
+2. Crea un *gruppo privato*, aggiungi il bot, poi /avvia
+3. Nel gruppo: conferma → ToS → importo (entrambi) → wallet → deposito
 4. /pay_seller (o /payseller) · /refund_buyer (o /refundbuyer) — doppia conferma
 
 Asset: *SOL* live. *ETH* e *LTC* presto.
@@ -82,37 +89,37 @@ In dubbio: /dispute o /support.`,
   askAmount:
     "Quanto vuoi mettere in escrow? Importo in *SOL* (es. `0.01`).\n⚠️ Mainnet reale: usa importi di test piccoli.",
   askWallet:
-    "Invia il tuo *indirizzo wallet Solana* (base58).",
+    "Invia `/wallet` seguito dal tuo indirizzo Solana.",
   invalidAmount:
     "Importo non valido. Invia un numero positivo in SOL (es. `0.01`).",
   invalidWallet:
-    "Indirizzo Solana non valido. Incolla un indirizzo base58.",
+    "Indirizzo Solana non valido. Usa `/wallet` seguito dall'indirizzo base58.",
   solanaNotConfigured:
     "Escrow SOL non configurato sul server. Avvisa il supporto.",
   cancelled: "Operazione annullata.",
   unknownPrivate: "Non ho capito. Usa /menu oppure /aiuto.",
 
-  /** Post-importo: istruzioni gruppo manuale. */
+  /** Post-crea (senza importo in DM): istruzioni gruppo manuale. */
   afterAmountInstructions: (deal: Deal) =>
     `✅ Deal *#${deal.id}* pronto.
 
 • Ruolo: *${deal.creatorRole}*
-• Importo: *${deal.amount} ${deal.asset}*
+• Crypto: *${deal.asset}*
 
 Ora:
 1. Crea un *gruppo privato*
-2. Aggiungi questo bot come *amministratore*
+2. Aggiungi questo bot al gruppo
 3. Nel gruppo: /avvia
 
-Poi invita solo la controparte.`,
+Poi invita l'altra parte.`,
 
   groupReady: (deal: Deal, inviteLink: string, creatorInvited: boolean) =>
     `✅ Gruppo escrow pronto per deal *#${deal.id}*.
 
-${creatorInvited ? "Ti ho già aggiunto al gruppo.\n" : ""}*Link invito* (max 2 — condividilo con la controparte):
+${creatorInvited ? "Ti ho già aggiunto al gruppo.\n" : ""}*Link invito* (max 2 — condividilo con l'altra parte):
 ${inviteLink}
 
-Nel gruppo: conferma ruolo → ToS → wallet → deposito.
+Nel gruppo: conferma ruolo → ToS → importo → wallet → deposito.
 Verifica sempre l'indirizzo escrow nei messaggi del bot.`,
 
   groupCreateFailed: (deal: Deal, detail: string) =>
@@ -120,7 +127,7 @@ Verifica sempre l'indirizzo escrow nei messaggi del bot.`,
 
 \`${escMd(detail)}\`
 
-Usa il percorso manuale: crea un gruppo privato → aggiungi il bot admin → /avvia.`,
+Usa il percorso manuale: crea un gruppo privato → aggiungi il bot → /avvia.`,
 
   tosComingSoon:
     "📄 Termini della piattaforma: in arrivo. I ToS del deal si fissano nel gruppo.",
@@ -153,7 +160,7 @@ Poi /avvia.`;
     // Controparte non ancora nota: resta la parola generica.
     return `🔐 Deal *#${deal.id}* collegato.
 
-• Importo: *${deal.amount} ${deal.asset}*
+• Crypto: *${deal.asset}*
 • Creatore: *${deal.creatorRole}*
 
 Controparte: conferma come *${role}*.
@@ -169,34 +176,82 @@ Solo buyer + seller (+ bot).`;
     const cp = mentionCounterpart(deal);
     return `📜 *ToS del deal* — *#${deal.id}*
 
-${creator}: scrivi qui i termini (cosa, tempi, condizioni).
+${creator}: invia il *Prodotto* (cosa si scambia).
+Poi chiederò le *Condizioni*.
 
-${cp}: conferma col pulsante. Poi i wallet.`;
+${cp}: conferma col pulsante dopo la proposta.`;
+  },
+
+  askTosConditions: (deal: Deal) => {
+    const creator = mentionUser(
+      deal.creatorUsername,
+      deal.creatorId,
+      "creatore",
+    );
+    return `✅ Prodotto salvato (#${deal.id}):
+• Prodotto: ${deal.tosProduct ? escMd(deal.tosProduct) : ""}
+
+${creator}: ora invia le *Condizioni* (tempi, regole, altro).`;
   },
 
   tosDraftPosted: (deal: Deal) => {
     const cp = mentionCounterpart(deal);
     return `📜 *ToS proposti* (#${deal.id}):
 
-${escMd(deal.tosText ?? "")}
+${formatTosBullets(deal)}
 
 ${cp}: *Accetto i ToS*.
 Il creatore può sostituirli inviando un nuovo testo.`;
   },
 
+  /** Messaggio ToS dopo accettazione (pinnato): senza riga «sostituirli». */
+  tosAcceptedPinned: (deal: Deal) =>
+    `📜 *ToS accettati* (#${deal.id}):
+
+${formatTosBullets(deal)}`,
+
   tosAccepted: (deal: Deal) =>
     `✅ ToS accettati (#${deal.id}).
 
+Prossimo: importo *${deal.asset}* (conferma di entrambe le parti).`,
+
+  tosLocked:
+    "ToS già accettati: non si possono più modificare.",
+
+  askAmountGroup: (deal: Deal) => {
+    const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    return `💰 *Importo escrow* (#${deal.id}) — *${deal.asset}*
+
+${buyer} e ${seller}: una parte propone l'importo (es. \`0.05\`), entrambe confermano.
+⚠️ Mainnet reale: importi di test piccoli.`;
+  },
+
+  amountProposed: (deal: Deal) => {
+    const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    return `💰 Importo proposto (#${deal.id}): *${deal.amount} ${deal.asset}*
+
+${buyer} e ${seller}: confermate entrambe.
+⚠️ Mainnet reale.`;
+  },
+
+  amountConfirmedMsg: (deal: Deal) =>
+    `✅ Importo fissato (#${deal.id}): *${deal.amount} ${deal.asset}*.
+
 Prossimo: wallet *${deal.asset}* — prima seller, poi buyer.`,
+
+  amountNeedBoth: (deal: Deal, votes: number[]) =>
+    `Conferma importo *${votes.length}/2* (#${deal.id}: *${deal.amount} ${deal.asset}*). Aspetta ${mentionPendingVoter(deal, votes)}.`,
 
   askSellerWallet: (deal: Deal) => {
     const who = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
-    return `👛 *Seller* (${who}): wallet *${deal.asset}* con \`/wallet Indirizzo\` oppure incolla l'indirizzo.`;
+    return `👛 *Seller* (${who}): invia \`/wallet\` seguito dal tuo indirizzo *${deal.asset}*.`;
   },
 
   askBuyerWallet: (deal: Deal) => {
     const who = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
-    return `👛 *Buyer* (${who}): wallet *${deal.asset}* con \`/wallet Indirizzo\` oppure incolla l'indirizzo.`;
+    return `👛 *Buyer* (${who}): invia \`/wallet\` seguito dal tuo indirizzo *${deal.asset}*.`;
   },
 
   walletSaved: (deal: Deal, role: string, address: string) =>
@@ -211,7 +266,7 @@ Prossimo: wallet *${deal.asset}* — prima seller, poi buyer.`,
   },
 
   notReadyForDeposit:
-    "L'indirizzo escrow appare dopo ToS e wallet di seller e buyer.",
+    "L'indirizzo escrow appare dopo ToS, importo e wallet di seller e buyer.",
 
   onlyCreatorWritesTos: (deal: Deal) => {
     const cp = mentionCounterpart(deal);
@@ -219,7 +274,9 @@ Prossimo: wallet *${deal.asset}* — prima seller, poi buyer.`,
   },
 
   tosTooShort:
-    "ToS troppo corti. Scrivi condizioni chiare in qualche riga.",
+    "Troppo corto. Scrivi un *Prodotto* o delle *Condizioni* più chiare.",
+
+  tosProductSavedHint: "Prodotto ricevuto. Ora le Condizioni.",
 
   dealActivated: depositPrompt,
   depositAddress: depositPrompt,
@@ -305,6 +362,8 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
   tosCreatorCannotAccept: (deal: Deal) =>
     `I ToS li accetta ${mentionCounterpart(deal)}.`,
   tosAlreadyAccepted: "ToS già accettati.",
+  amountAlreadyConfirmed: "Importo già confermato.",
+  amountOnlyParties: "Solo buyer e seller confermano l'importo.",
 
   kickedExtra: (userId: number) =>
     `🚫 \`${userId}\` rimosso: ammessi solo buyer, seller e (in disputa) supporto.`,
@@ -344,7 +403,7 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
   ) =>
     `🚨 Disputa deal #${deal.id}
 Da: ${fromUsername ? `@${fromUsername}` : fromId} (${fromId})
-Importo: ${deal.amount} ${deal.asset}
+Importo: ${deal.amount || "n/d"} ${deal.asset}
 Escrow: ${deal.escrowAddress}
 Stato: ${deal.status}
 Gruppo: ${deal.groupChatId ?? "n/d"}
@@ -357,7 +416,10 @@ In gruppo: /pay_seller o /refund_buyer (potere admin in disputa).`,
   botAddedHint:
     "Bot nel gruppo. Chi ha preparato il deal in privato: /avvia (servono i permessi admin).",
 
-  groupTitle: (deal: Deal) => `Escrow #${deal.id} · ${deal.amount} ${deal.asset}`,
+  groupTitle: (deal: Deal) =>
+    deal.amount
+      ? `Escrow #${deal.id} · ${deal.amount} ${deal.asset}`
+      : `Escrow #${deal.id}`,
 } as const;
 
 export function statusLabel(status: Deal["status"]): string {
@@ -378,7 +440,7 @@ export function formatDealStatus(deal: Deal): string {
       : "—";
   const lines = [
     `*#${deal.id}* — ${STATUS_LABELS[deal.status]}`,
-    `• ${deal.amount} ${deal.asset}`,
+    amountLine(deal),
     `• Buyer ${buyer} · Seller ${seller}`,
     `• Escrow: \`${deal.escrowAddress}\``,
   ];

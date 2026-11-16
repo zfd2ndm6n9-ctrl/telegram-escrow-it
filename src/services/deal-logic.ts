@@ -37,11 +37,44 @@ export function tosAccepted(deal: Deal): boolean {
   return Boolean(deal.tosText && deal.tosAcceptedAt);
 }
 
-/** Stati precedenti al deposito escrow (ToS / wallet ancora aperti). */
+/** Importo fissato da entrambe le parti nel gruppo. */
+export function amountConfirmed(deal: Deal): boolean {
+  return Boolean(deal.amount && deal.amountConfirmedAt);
+}
+
+/** Escape minimo per testo utente in Markdown legacy Telegram. */
+export function escMd(text: string): string {
+  return text.replace(/([_*`\[])/g, "\\$1");
+}
+
+/** Elenco puntato ToS da campi strutturati (o fallback su tosText). */
+export function formatTosBullets(deal: Deal): string {
+  if (deal.tosProduct || deal.tosConditions) {
+    const lines: string[] = [];
+    if (deal.tosProduct) {
+      lines.push(`• Prodotto: ${escMd(deal.tosProduct)}`);
+    }
+    if (deal.tosConditions) {
+      lines.push(`• Condizioni: ${escMd(deal.tosConditions)}`);
+    }
+    return lines.join("\n");
+  }
+  if (deal.tosText) return escMd(deal.tosText);
+  return "";
+}
+
+/** Compone tosText persistito dall'elenco puntato. */
+export function composeTosText(product: string, conditions: string): string {
+  return `• Prodotto: ${product}\n• Condizioni: ${conditions}`;
+}
+
+/** Stati precedenti al deposito escrow (ToS / importo / wallet ancora aperti). */
 export function isPreDepositSetup(status: Deal["status"]): boolean {
   return (
     status === "awaiting_tos" ||
     status === "awaiting_tos_confirm" ||
+    status === "awaiting_amount" ||
+    status === "awaiting_amount_confirm" ||
     status === "awaiting_seller_wallet" ||
     status === "awaiting_buyer_wallet"
   );

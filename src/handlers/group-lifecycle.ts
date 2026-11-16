@@ -2,11 +2,15 @@ import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { it } from "../messages/it.js";
 import {
+  addUniqueVote,
+  amountConfirmed,
   assignJoiningParty,
   bothPartiesPresent,
+  composeTosText,
   isAllowedHuman,
   isParty,
   isPreDepositSetup,
+  parseAmount,
   parseStartGroupPayload,
   tosAccepted,
 } from "../services/deal-logic.js";
@@ -14,9 +18,13 @@ import { hardenGroupPermissions } from "../services/group-creator.js";
 import {
   checkRequiredBotAdminPerms,
   kickUnauthorized,
+  postAmountProposed,
+  postAskAmount,
   postAskSellerWallet,
+  postAskTosConditions,
   postStabilizeTos,
   postTosDraft,
+  refreshGroupTitle,
   startDealInGroup,
 } from "../services/group-setup.js";
 import {
@@ -25,7 +33,7 @@ import {
 } from "../services/prompt-cleanup.js";
 import { kickUnauthorizedBot } from "./group-hygiene.js";
 
-const MIN_TOS_LENGTH = 20;
+const MIN_TOS_FIELD = 2;
 
 function displayNameOf(user: {
   first_name?: string;
@@ -168,7 +176,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       bothPartiesPresent(started) &&
       started.status !== "awaiting_counterpart" &&
       !isPreDepositSetup(started.status) &&
-      tosAccepted(started)
+      tosAccepted(started) &&
+      amountConfirmed(started)
     ) {
       await ctx.reply(it.alreadyActivated);
     }
@@ -242,7 +251,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await ctx.answerCallbackQuery({ text: "Ok" });
   });
 
-  // Controparte accetta i ToS → wallet seller
+  // Controparte accetta i ToS → importo (poi wallet)
   bot.callbackQuery(/^tosok:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     const deal = ctx.store.get(dealId);
@@ -283,25 +292,96 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     const tosMsgId = ctx.callbackQuery.message?.message_id;
     let updated = ctx.store.update(deal.id, {
       tosAcceptedAt: new Date().toISOString(),
-      status: "awaiting_seller_wallet",
+      status: "awaiting_amount",
       ...(tosMsgId != null ? { tosAcceptedMessageId: tosMsgId } : {}),
     })!;
 
-    // I ToS accettati restano in chat: toglili dai prompt cancellabili e pinnalli.
+    // I ToS accettati restano in chat: toglili dai prompt cancellabili, riscrivi senza
+    // «il creatore può sostituirli», e pinnalli.
     if (tosMsgId != null) {
       updated = untrackPrompt(ctx.store, updated, tosMsgId);
-      if (ctx.chat) {
-        await pinAcceptedTos(ctx.api, ctx.chat.id, tosMsgId);
+      try {
+        await ctx.api.editMessageText(
+          ctx.chat.id,
+          tosMsgId,
+          it.tosAcceptedPinned(updated),
+          { parse_mode: "Markdown" },
+        );
+      } catch (err) {
+        console.warn(`edit accepted ToS msg ${tosMsgId} failed:`, err);
       }
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(
+        () => undefined,
+      );
+      await pinAcceptedTos(ctx.api, ctx.chat.id, tosMsgId);
+    } else {
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(
+        () => undefined,
+      );
     }
 
     await ctx.answerCallbackQuery({ text: "ToS accettati" });
-    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
-    // Hygiene successiva (wallet/deposit) non cancella tosAcceptedMessageId.
+    // Hygiene successiva non cancella tosAcceptedMessageId.
+    await postAskAmount(ctx.api, ctx.store, updated);
+  });
+
+  // Dual-confirm importo → wallet seller
+  bot.callbackQuery(/^amtok:(.+)$/, async (ctx) => {
+    const dealId = ctx.match![1];
+    const deal = ctx.store.get(dealId);
+    if (!deal || !ctx.from || !ctx.chat) {
+      await ctx.answerCallbackQuery({ text: "Deal non trovato" });
+      return;
+    }
+    if (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup") {
+      await ctx.answerCallbackQuery({ text: "Solo in gruppo" });
+      return;
+    }
+    if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
+      await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
+      return;
+    }
+    if (!deal.amount || deal.status !== "awaiting_amount_confirm") {
+      await ctx.answerCallbackQuery({ text: "Nessun importo" });
+      return;
+    }
+    if (amountConfirmed(deal)) {
+      await ctx.answerCallbackQuery({ text: "Già confermato" });
+      await ctx.reply(it.amountAlreadyConfirmed);
+      return;
+    }
+    if (!isParty(deal, ctx.from.id)) {
+      await ctx.answerCallbackQuery({ text: "Non sei parte" });
+      await ctx.reply(it.amountOnlyParties);
+      return;
+    }
+
+    const votes = addUniqueVote(deal.amountVotes ?? [], ctx.from.id);
+    if (votes.length < 2) {
+      ctx.store.update(deal.id, { amountVotes: votes });
+      await ctx.answerCallbackQuery({ text: `Confermato ${votes.length}/2` });
+      await ctx.reply(it.amountNeedBoth(deal, votes), {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+
+    let updated = ctx.store.update(deal.id, {
+      amountVotes: votes,
+      amountConfirmedAt: new Date().toISOString(),
+      status: "awaiting_seller_wallet",
+    })!;
+
+    await ctx.answerCallbackQuery({ text: "Importo ok" });
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(
+      () => undefined,
+    );
+    await refreshGroupTitle(ctx.api, updated);
+    await ctx.reply(it.amountConfirmedMsg(updated), { parse_mode: "Markdown" });
     await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
-  // Creatore scrive i ToS (o li aggiorna prima della conferma)
+  // Creatore scrive i ToS strutturati; parti propongono importo
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -347,11 +427,47 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
+    // Importo: entrambe le parti possono proporre (dopo ToS)
+    if (
+      deal.status === "awaiting_amount" ||
+      deal.status === "awaiting_amount_confirm"
+    ) {
+      if (!isParty(deal, ctx.from.id)) {
+        await next();
+        return;
+      }
+      const amount = parseAmount(text);
+      if (!amount) {
+        // Non interferire con chat libera se non è un importo
+        if (deal.status === "awaiting_amount") {
+          await ctx.reply(it.invalidAmount, { parse_mode: "Markdown" });
+          return;
+        }
+        await next();
+        return;
+      }
+
+      const updated = ctx.store.update(deal.id, {
+        amount,
+        amountVotes: [ctx.from.id],
+        amountConfirmedAt: undefined,
+        status: "awaiting_amount_confirm",
+      })!;
+      await postAmountProposed(ctx.api, ctx.store, updated);
+      return;
+    }
+
     if (
       deal.status !== "awaiting_tos" &&
       deal.status !== "awaiting_tos_confirm"
     ) {
       await next();
+      return;
+    }
+
+    // Dopo accettazione i ToS sono bloccati (status non è più awaiting_tos*).
+    if (tosAccepted(deal)) {
+      await ctx.reply(it.tosLocked);
       return;
     }
 
@@ -366,13 +482,40 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    if (text.length < MIN_TOS_LENGTH) {
-      await ctx.reply(it.tosTooShort);
+    if (text.length < MIN_TOS_FIELD) {
+      await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
       return;
     }
 
+    // Sostituzione pre-accettazione: riparte da Prodotto.
+    if (deal.status === "awaiting_tos_confirm") {
+      const updated = ctx.store.update(deal.id, {
+        tosProduct: text,
+        tosConditions: undefined,
+        tosText: undefined,
+        tosAcceptedAt: undefined,
+        status: "awaiting_tos",
+      })!;
+      await postAskTosConditions(ctx.api, ctx.store, updated);
+      return;
+    }
+
+    // awaiting_tos: prima Prodotto, poi Condizioni
+    if (!deal.tosProduct) {
+      const updated = ctx.store.update(deal.id, {
+        tosProduct: text,
+        tosConditions: undefined,
+        tosText: undefined,
+        tosAcceptedAt: undefined,
+      })!;
+      await postAskTosConditions(ctx.api, ctx.store, updated);
+      return;
+    }
+
+    const tosText = composeTosText(deal.tosProduct, text);
     const updated = ctx.store.update(deal.id, {
-      tosText: text,
+      tosConditions: text,
+      tosText,
       tosAcceptedAt: undefined,
       status: "awaiting_tos_confirm",
     })!;
