@@ -5,6 +5,24 @@ function escMd(text: string): string {
   return text.replace(/([_*`\[])/g, "\\$1");
 }
 
+const STATUS_LABELS: Record<Deal["status"], string> = {
+  awaiting_group: "in attesa gruppo",
+  awaiting_bot_admin: "permessi bot incompleti",
+  awaiting_counterpart: "in attesa conferma controparte",
+  awaiting_tos: "in attesa ToS dal creatore",
+  awaiting_tos_confirm: "in attesa conferma ToS",
+  awaiting_seller_wallet: "in attesa wallet seller",
+  awaiting_buyer_wallet: "in attesa wallet buyer",
+  awaiting_deposit: "in attesa deposito",
+  funded: "fondato",
+  release_pending: "pay_seller in corso",
+  refund_pending: "refund in corso",
+  released: "rilasciato",
+  refunded: "rimborsato",
+  disputed: "in disputa",
+  cancelled: "annullato",
+};
+
 /** Buyer + importo + indirizzo escrow su riga propria in `code` (Copia su mobile). */
 function depositPrompt(deal: Deal): string {
   const buyer = deal.buyerUsername
@@ -34,7 +52,7 @@ Escrow crypto tra due parti già d'accordo.
 1. In privato: /crea → ruolo → crypto → importo
 2. Crea un *gruppo privato*, aggiungi il bot come *admin*, poi /avvia
 3. Nel gruppo: conferma ruolo → ToS → wallet seller poi buyer → deposito
-4. /pay_seller o /refund_buyer (doppia conferma)
+4. /pay_seller (o /payseller) · /refund_buyer (o /refundbuyer) — doppia conferma
 
 Asset: *SOL* live. *ETH* e *LTC* presto.
 In dubbio: /dispute o /support.`,
@@ -51,7 +69,7 @@ In dubbio: /dispute o /support.`,
 /stato — stato deal
 /indirizzo — indirizzo escrow
 /depositato — verifica deposito
-/pay_seller · /refund_buyer — doppia conferma
+/payseller · /refundbuyer — doppia conferma
 /blockchain — link tx
 /dispute · /support
 /menu — questo elenco`,
@@ -197,12 +215,9 @@ Prossimo: wallet *${deal.asset}* — prima seller, poi buyer.`,
   depositAddress: depositPrompt,
 
   depositDetected: (deal: Deal, balanceSol: string) =>
-    `💰 Deposito rilevato (#${deal.id}).
+    `💰 Deal *#${deal.id}* fondato (*${balanceSol} SOL*).
 
-• Saldo: *${balanceSol} SOL*
-• Atteso: *${deal.amount} SOL*
-
-Ora: /pay_seller o /refund_buyer — conferma di *entrambe* le parti.`,
+Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
 
   depositCheckResult: (
     deal: Deal,
@@ -210,29 +225,29 @@ Ora: /pay_seller o /refund_buyer — conferma di *entrambe* le parti.`,
     funded: boolean,
   ) =>
     funded
-      ? `✅ Deposito ok (#${deal.id}): *${balanceSol} SOL*.`
-      : `⏳ In attesa (#${deal.id}).\nSaldo: *${balanceSol} SOL* / *${deal.amount} SOL*\n\`${deal.escrowAddress}\``,
+      ? `✅ #${deal.id} fondato: *${balanceSol} SOL*.`
+      : `⏳ #${deal.id}: *${balanceSol}* / *${deal.amount} SOL*\n\`${deal.escrowAddress}\``,
 
   markFundedAdmin: (deal: Deal) =>
-    `💰 Admin: stato *funded* forzato su #${deal.id}.`,
+    `💰 Admin: #${deal.id} forzato a *funded*.`,
 
   releaseVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `Voto *pay_seller* (#${deal.id}). Manca ${remaining} conferma.`
-      : `🔓 #${deal.id} — rilascio al seller…`,
+      ? `Conferma *1/2* — *pay_seller* (#${deal.id}). Aspetta la controparte.`
+      : `🔓 Rilascio al seller in corso (#${deal.id})…`,
 
   refundVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `Voto *refund_buyer* (#${deal.id}). Manca ${remaining} conferma.`
-      : `↩️ #${deal.id} — rimborso al buyer…`,
+      ? `Conferma *1/2* — *refund_buyer* (#${deal.id}). Aspetta la controparte.`
+      : `↩️ Rimborso al buyer in corso (#${deal.id})…`,
 
   payoutSuccess: (deal: Deal, kind: "release" | "refund", sig: string, sol: string) =>
     kind === "release"
-      ? `🔓 *pay_seller* ok (#${deal.id}).\n*${sol} SOL* → \`${deal.sellerWallet}\`\nTx: \`${sig}\`\n/blockchain per il link.`
-      : `↩️ *refund_buyer* ok (#${deal.id}).\n*${sol} SOL* → \`${deal.buyerWallet}\`\nTx: \`${sig}\`\n/blockchain per il link.`,
+      ? `✅ *Rilascio completato* (#${deal.id}).\n*${sol} SOL* → seller \`${deal.sellerWallet}\`\nTx: \`${sig}\``
+      : `✅ *Rimborso completato* (#${deal.id}).\n*${sol} SOL* → buyer \`${deal.buyerWallet}\`\nTx: \`${sig}\``,
 
   payoutFailed: (deal: Deal, error: string) =>
-    `❌ Payout fallito (#${deal.id}):\n\`${error}\`\nRiprova o /dispute.`,
+    `❌ Payout non riuscito (#${deal.id}).\n${error}`,
 
   needWallet: (who: "buyer" | "seller") =>
     `Manca il wallet del *${who}*. Usa \`/wallet Indirizzo\`.`,
@@ -255,6 +270,9 @@ Ora: /pay_seller o /refund_buyer — conferma di *entrambe* le parti.`,
     "Nessun deal collegato. In privato: /crea → poi qui /avvia.",
   alreadyBound: "Questo gruppo è già collegato a un deal.",
   alreadyActivated: "Il deal in questo gruppo è già avviato.",
+  /** /avvia ripetuto su deal già collegato: niente seconda card. */
+  alreadyLinkedShort: (deal: Deal) =>
+    `Deal *#${deal.id}* già collegato — \`${STATUS_LABELS[deal.status]}\`. Usa /stato.`,
   counterpartIsCreator: "Il creatore non può confermare come controparte.",
   counterpartTaken: "La controparte è già confermata.",
   tosCreatorCannotAccept: "I ToS li accetta la controparte.",
@@ -315,22 +333,29 @@ In gruppo: /pay_seller o /refund_buyer (potere admin in disputa).`,
 } as const;
 
 export function statusLabel(status: Deal["status"]): string {
-  const map: Record<Deal["status"], string> = {
-    awaiting_group: "in attesa gruppo",
-    awaiting_bot_admin: "permessi bot incompleti",
-    awaiting_counterpart: "in attesa conferma controparte",
-    awaiting_tos: "in attesa ToS dal creatore",
-    awaiting_tos_confirm: "in attesa conferma ToS",
-    awaiting_seller_wallet: "in attesa wallet seller",
-    awaiting_buyer_wallet: "in attesa wallet buyer",
-    awaiting_deposit: "in attesa deposito",
-    funded: "fondato",
-    release_pending: "pay_seller in corso",
-    refund_pending: "refund in corso",
-    released: "rilasciato",
-    refunded: "rimborsato",
-    disputed: "in disputa",
-    cancelled: "annullato",
-  };
-  return map[status];
+  return STATUS_LABELS[status];
+}
+
+/** /stato e callback: corto, senza wall di lamports. */
+export function formatDealStatus(deal: Deal): string {
+  const buyer = deal.buyerUsername
+    ? `@${deal.buyerUsername}`
+    : deal.buyerId
+      ? String(deal.buyerId)
+      : "—";
+  const seller = deal.sellerUsername
+    ? `@${deal.sellerUsername}`
+    : deal.sellerId
+      ? String(deal.sellerId)
+      : "—";
+  const lines = [
+    `*#${deal.id}* — ${STATUS_LABELS[deal.status]}`,
+    `• ${deal.amount} ${deal.asset}`,
+    `• Buyer ${buyer} · Seller ${seller}`,
+    `• Escrow: \`${deal.escrowAddress}\``,
+  ];
+  if (deal.payoutTxSig) {
+    lines.push(`• Tx: \`${deal.payoutTxSig}\``);
+  }
+  return lines.join("\n");
 }

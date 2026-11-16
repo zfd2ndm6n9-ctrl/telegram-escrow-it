@@ -14,6 +14,7 @@ export async function loadMasterKeypair(
     throw new Error("SOLANA_PRIVATE_KEY vuota");
   }
 
+  // web3.js v3: fromSeed / fromSecretKey sono async
   if (trimmed.startsWith("[")) {
     const arr = JSON.parse(trimmed) as unknown;
     if (!Array.isArray(arr) || arr.length < 32) {
@@ -23,10 +24,10 @@ export async function loadMasterKeypair(
     }
     const bytes = Uint8Array.from(arr.map((n) => Number(n)));
     if (bytes.length === 32) {
-      return Keypair.fromSeed(bytes);
+      return await Keypair.fromSeed(bytes);
     }
     if (bytes.length === 64) {
-      return Keypair.fromSecretKey(bytes);
+      return await Keypair.fromSecretKey(bytes);
     }
     throw new Error(
       `SOLANA_PRIVATE_KEY JSON: lunghezza ${bytes.length}, attesi 32 o 64 byte`,
@@ -35,10 +36,10 @@ export async function loadMasterKeypair(
 
   const decoded = bs58.decode(trimmed);
   if (decoded.length === 32) {
-    return Keypair.fromSeed(decoded);
+    return await Keypair.fromSeed(decoded);
   }
   if (decoded.length === 64) {
-    return Keypair.fromSecretKey(decoded);
+    return await Keypair.fromSecretKey(decoded);
   }
   throw new Error(
     `SOLANA_PRIVATE_KEY base58: lunghezza ${decoded.length}, attesi 32 o 64 byte`,
@@ -57,5 +58,5 @@ export async function deriveDealKeypair(
     .update(`telegram-escrow-it:deal:${dealId}`)
     .digest()
     .subarray(0, 32);
-  return Keypair.fromSeed(seed);
+  return await Keypair.fromSeed(seed);
 }

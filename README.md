@@ -85,7 +85,7 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
 8. Rilevamento automatico (o `/depositato`)
-9. `/pay_seller` o `/refund_buyer` (doppia conferma) → transfer on-chain
+9. `/pay_seller` (alias `/payseller`, `/release`) o `/refund_buyer` (alias `/refundbuyer`) — doppia conferma → transfer on-chain
 10. `/dispute` / `/support` → admin forza release/refund on-chain
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/menu`, `/miei` (privato), `/aiuto`
@@ -110,7 +110,7 @@ Altri: `/indirizzo`, `/stato`, `/blockchain`, `/menu`, `/miei` (privato), `/aiut
 5. Crea gruppo privato → aggiungi bot admin → `/avvia` → invita controparte
 6. Controparte conferma → creatore scrive ToS → Accetta → `/wallet` seller poi buyer
 7. Invia `0.01 SOL` all’indirizzo mostrato da `/indirizzo`
-8. Attendi “deposito rilevato” → entrambe `/pay_seller`
+8. Attendi “deposito rilevato” → entrambe `/payseller` (o pulsante *Paga seller*)
 
 ## Limiti
 

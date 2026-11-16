@@ -2,6 +2,7 @@ import type { Api } from "grammy";
 import type { DealStore } from "../../store/deals.js";
 import { it } from "../../messages/it.js";
 import { groupActionsKeyboard } from "../../keyboards/menus.js";
+import { sendTrackedPrompt } from "../prompt-cleanup.js";
 import { solToLamports, lamportsToSolString } from "./amounts.js";
 import { getEscrowBalanceLamports } from "./transfer.js";
 import { isSolanaConfigured } from "./client.js";
@@ -68,8 +69,10 @@ export function startDepositWatcher(
 
         if (updated.groupChatId != null) {
           try {
-            await api.sendMessage(
-              updated.groupChatId,
+            await sendTrackedPrompt(
+              api,
+              store,
+              updated,
               it.depositDetected(updated, lamportsToSolString(balance)),
               {
                 parse_mode: "Markdown",

@@ -65,6 +65,7 @@ export class DealStore {
       escrowAddress: input.escrowAddress,
       releaseVotes: [],
       refundVotes: [],
+      botPromptIds: [],
       createdAt: ts,
       updatedAt: ts,
     };
