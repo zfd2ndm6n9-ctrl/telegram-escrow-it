@@ -61,10 +61,21 @@ export interface Deal {
   /**
    * Message id dei prompt di stage del bot nel gruppo (ToS/wallet/deposit/…).
    * Cancellabili all’avanzamento; non sono evidenze utente.
+   * Non include `tosAcceptedMessageId` (ToS accettati restano in chat).
    */
   botPromptIds?: number[];
+  /**
+   * Messaggio ToS accettati (testo termini + conferma). Non cancellare in hygiene;
+   * preferibilmente pinnato nel gruppo.
+   */
+  tosAcceptedMessageId?: number;
   /** Ultimo messaggio /stato del bot (sostituito al prossimo /stato). */
   lastStatusMessageId?: number;
+  /**
+   * Ultima risposta effimera da pulsanti deposito (indirizzo / verifica / disputa / …).
+   * Sostituita al click successivo così non si accumulano risposte.
+   */
+  lastActionReplyId?: number;
   createdAt: string;
   updatedAt: string;
 }

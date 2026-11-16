@@ -1,4 +1,9 @@
 import type { Deal } from "../types.js";
+import {
+  mentionCounterpart,
+  mentionPendingVoter,
+  mentionUser,
+} from "../services/deal-logic.js";
 
 /** Escape minimo per testo utente in Markdown legacy Telegram. */
 function escMd(text: string): string {
@@ -25,11 +30,7 @@ const STATUS_LABELS: Record<Deal["status"], string> = {
 
 /** Buyer + importo + indirizzo escrow su riga propria in `code` (Copia su mobile). */
 function depositPrompt(deal: Deal): string {
-  const buyer = deal.buyerUsername
-    ? `@${deal.buyerUsername}`
-    : deal.buyerId
-      ? `\`${deal.buyerId}\``
-      : "Buyer";
+  const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "Buyer");
   return `${buyer}, paga *${deal.amount} ${deal.asset}* a questo indirizzo:
 
 \`${deal.escrowAddress}\`
@@ -149,6 +150,7 @@ Poi /avvia.`;
 
   askCounterpartConfirm: (deal: Deal) => {
     const role = deal.creatorRole === "buyer" ? "seller" : "buyer";
+    // Controparte non ancora nota: resta la parola generica.
     return `🔐 Deal *#${deal.id}* collegato.
 
 • Importo: *${deal.amount} ${deal.asset}*
@@ -158,20 +160,29 @@ Controparte: conferma come *${role}*.
 Solo buyer + seller (+ bot).`;
   },
 
-  stabilizeTos: (deal: Deal) =>
-    `📜 *ToS del deal* — *#${deal.id}*
+  stabilizeTos: (deal: Deal) => {
+    const creator = mentionUser(
+      deal.creatorUsername,
+      deal.creatorId,
+      "creatore",
+    );
+    const cp = mentionCounterpart(deal);
+    return `📜 *ToS del deal* — *#${deal.id}*
 
-@${deal.creatorUsername ?? deal.creatorId}: scrivi qui i termini (cosa, tempi, condizioni).
+${creator}: scrivi qui i termini (cosa, tempi, condizioni).
 
-La controparte conferma col pulsante. Poi i wallet.`,
+${cp}: conferma col pulsante. Poi i wallet.`;
+  },
 
-  tosDraftPosted: (deal: Deal) =>
-    `📜 *ToS proposti* (#${deal.id}):
+  tosDraftPosted: (deal: Deal) => {
+    const cp = mentionCounterpart(deal);
+    return `📜 *ToS proposti* (#${deal.id}):
 
 ${escMd(deal.tosText ?? "")}
 
-Controparte: *Accetto i ToS*.
-Il creatore può sostituirli inviando un nuovo testo.`,
+${cp}: *Accetto i ToS*.
+Il creatore può sostituirli inviando un nuovo testo.`;
+  },
 
   tosAccepted: (deal: Deal) =>
     `✅ ToS accettati (#${deal.id}).
@@ -179,34 +190,33 @@ Il creatore può sostituirli inviando un nuovo testo.`,
 Prossimo: wallet *${deal.asset}* — prima seller, poi buyer.`,
 
   askSellerWallet: (deal: Deal) => {
-    const who = deal.sellerUsername
-      ? `@${deal.sellerUsername}`
-      : deal.sellerId
-        ? `\`${deal.sellerId}\``
-        : "seller";
+    const who = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
     return `👛 *Seller* (${who}): wallet *${deal.asset}* con \`/wallet Indirizzo\` oppure incolla l'indirizzo.`;
   },
 
   askBuyerWallet: (deal: Deal) => {
-    const who = deal.buyerUsername
-      ? `@${deal.buyerUsername}`
-      : deal.buyerId
-        ? `\`${deal.buyerId}\``
-        : "buyer";
+    const who = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
     return `👛 *Buyer* (${who}): wallet *${deal.asset}* con \`/wallet Indirizzo\` oppure incolla l'indirizzo.`;
   },
 
   walletSaved: (deal: Deal, role: string, address: string) =>
     `👛 Wallet *${role}* salvato (#${deal.id}):\n\`${address}\``,
 
-  walletWrongTurn: (expected: "seller" | "buyer") =>
-    `Ora tocca al *${expected}* impostare il wallet.`,
+  walletWrongTurn: (deal: Deal, expected: "seller" | "buyer") => {
+    const who =
+      expected === "seller"
+        ? mentionUser(deal.sellerUsername, deal.sellerId, "seller")
+        : mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    return `Ora tocca a ${who} impostare il wallet.`;
+  },
 
   notReadyForDeposit:
     "L'indirizzo escrow appare dopo ToS e wallet di seller e buyer.",
 
-  onlyCreatorWritesTos:
-    "Solo chi ha creato il deal scrive i ToS. Controparte: usa il pulsante.",
+  onlyCreatorWritesTos: (deal: Deal) => {
+    const cp = mentionCounterpart(deal);
+    return `Solo chi ha creato il deal scrive i ToS. ${cp}: usa il pulsante.`;
+  },
 
   tosTooShort:
     "ToS troppo corti. Scrivi condizioni chiare in qualche riga.",
@@ -233,12 +243,12 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
 
   releaseVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `Conferma *1/2* — *pay_seller* (#${deal.id}). Aspetta la controparte.`
+      ? `Conferma *1/2* — *pay_seller* (#${deal.id}). Aspetta ${mentionPendingVoter(deal, deal.releaseVotes)}.`
       : `🔓 Rilascio al seller in corso (#${deal.id})…`,
 
   refundVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `Conferma *1/2* — *refund_buyer* (#${deal.id}). Aspetta la controparte.`
+      ? `Conferma *1/2* — *refund_buyer* (#${deal.id}). Aspetta ${mentionPendingVoter(deal, deal.refundVotes)}.`
       : `↩️ Rimborso al buyer in corso (#${deal.id})…`,
 
   payoutSuccess: (deal: Deal, kind: "release" | "refund", sig: string, sol: string) =>
@@ -292,7 +302,8 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
     `Deal *#${deal.id}* già collegato — \`${STATUS_LABELS[deal.status]}\`. Usa /stato.`,
   counterpartIsCreator: "Il creatore non può confermare come controparte.",
   counterpartTaken: "La controparte è già confermata.",
-  tosCreatorCannotAccept: "I ToS li accetta la controparte.",
+  tosCreatorCannotAccept: (deal: Deal) =>
+    `I ToS li accetta ${mentionCounterpart(deal)}.`,
   tosAlreadyAccepted: "ToS già accettati.",
 
   kickedExtra: (userId: number) =>

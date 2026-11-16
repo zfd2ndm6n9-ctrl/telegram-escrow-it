@@ -56,6 +56,67 @@ export function counterpartRole(role: PartyRole): PartyRole {
   return role === "buyer" ? "seller" : "buyer";
 }
 
+/** Parte opposta al creatore (seller se creator=buyer e viceversa). */
+export function counterpartParty(deal: Deal): {
+  id?: number;
+  username?: string;
+  displayName?: string;
+  role: PartyRole;
+} {
+  const role = counterpartRole(deal.creatorRole);
+  if (role === "buyer") {
+    return {
+      id: deal.buyerId,
+      username: deal.buyerUsername,
+      displayName: deal.buyerDisplayName,
+      role,
+    };
+  }
+  return {
+    id: deal.sellerId,
+    username: deal.sellerUsername,
+    displayName: deal.sellerDisplayName,
+    role,
+  };
+}
+
+/**
+ * Mention Telegram: `@username` se c’è, altrimenti id in code, altrimenti fallback
+ * (es. «controparte» solo se l’id non è ancora noto).
+ */
+export function mentionUser(
+  username?: string,
+  userId?: number,
+  fallback = "controparte",
+): string {
+  if (username) return `@${username}`;
+  if (userId != null) return `\`${userId}\``;
+  return fallback;
+}
+
+export function mentionCounterpart(
+  deal: Deal,
+  fallback = "controparte",
+): string {
+  const cp = counterpartParty(deal);
+  return mentionUser(cp.username, cp.id, fallback);
+}
+
+/** Parte del deal non ancora presente nei voti (per «aspetta @user»). */
+export function mentionPendingVoter(
+  deal: Deal,
+  votes: number[],
+  fallback = "controparte",
+): string {
+  if (deal.buyerId != null && !votes.includes(deal.buyerId)) {
+    return mentionUser(deal.buyerUsername, deal.buyerId, fallback);
+  }
+  if (deal.sellerId != null && !votes.includes(deal.sellerId)) {
+    return mentionUser(deal.sellerUsername, deal.sellerId, fallback);
+  }
+  return fallback;
+}
+
 export function assignJoiningParty(
   deal: Deal,
   userId: number,
