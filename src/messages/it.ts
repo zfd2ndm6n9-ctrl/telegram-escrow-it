@@ -7,8 +7,20 @@ import {
   mentionCounterpart,
   mentionPendingVoter,
   mentionUser,
+  missingEssentialTerms,
   tosAccepted,
+  type EssentialTermsField,
 } from "../services/deal-logic.js";
+
+const ESSENTIAL_LABELS: Record<EssentialTermsField, string> = {
+  product: "Prodotto",
+  price: "Prezzo",
+  tempi: "Tempi",
+};
+
+function formatMissingList(fields: EssentialTermsField[]): string {
+  return fields.map((f) => `*${ESSENTIAL_LABELS[f]}*`).join(", ");
+}
 
 const STATUS_LABELS: Record<Deal["status"], string> = {
   awaiting_group: "in attesa gruppo",
@@ -69,7 +81,7 @@ Escrow crypto tra due parti già d'accordo.
 
 1. In privato: /crea → ruolo (buyer/seller) → crypto
 2. Crea un *gruppo privato*, aggiungi bot + controparte, poi /avvia
-3. Nel gruppo: termini (Prodotto/Prezzo/Tempi) → Accetto → wallet → deposito
+3. Nel gruppo: termini (messaggio libero) → Accetto → importo escrow se manca → wallet → deposito
 4. /pay_seller (o /payseller) · /refund_buyer (o /refundbuyer) — doppia conferma
 
 Asset: *SOL* live. *ETH* e *LTC* presto.
@@ -167,7 +179,7 @@ Poi /avvia.`;
 
   /**
    * Unica card vivente nel gruppo (elenco puntato).
-   * Buyer/Seller/Prodotto/Prezzo/Tempi; azione breve sotto; Accetto in button.
+   * Buyer/Seller/Prodotto/Prezzo€/Tempi/Condizioni; azione breve sotto; Accetto in button.
    */
   groupSetupCard: (deal: Deal) => {
     const header = `🔒 Deal *#${deal.id}* · *${deal.asset}*`;
@@ -191,15 +203,27 @@ Invita la controparte; se è già nel gruppo, che scriva un messaggio, poi /avvi
     ].join("\n");
 
     let action: string;
-    if (tosAccepted(deal)) {
+    if (
+      tosAccepted(deal) &&
+      (deal.status === "awaiting_amount" ||
+        (!amountConfirmed(deal) && !deal.amount))
+    ) {
+      action = `${opener}: invia l'importo escrow in *${deal.asset}* (es. \`0.05\`).`;
+    } else if (tosAccepted(deal)) {
       action = `Prossimo: wallet — prima ${seller}, poi ${buyer}.`;
     } else if (
       deal.status === "awaiting_tos_confirm" &&
-      (deal.tosText || (deal.tosProduct && deal.amount && deal.tosConditions))
+      (deal.tosText ||
+        (deal.tosProduct && deal.priceEur && deal.tosConditions))
     ) {
       action = `${cp}: *Accetto* per confermare.`;
     } else {
-      action = `${opener}: invia *Prodotto*, *Prezzo* e *Tempi* in un solo messaggio (tre righe oppure \`prodotto / prezzo / tempi\`).`;
+      const missing = missingEssentialTerms(deal);
+      if (missing.length > 0 && missing.length < 3) {
+        action = `${opener}: manca ancora ${formatMissingList(missing)}.`;
+      } else {
+        action = `${opener}: invia i termini in un unico messaggio.`;
+      }
     }
 
     return `${header}\n${bullets}\n\n${action}`;
@@ -255,12 +279,20 @@ Prossimo: wallet — prima seller, poi buyer.`,
   tosTooShort:
     "Troppo corto. Scrivi *Prodotto* e *Tempi* più chiari.",
 
-  /** Formato atteso: tre righe oppure prodotto / prezzo / tempi. */
-  termsFormatHint:
-    "Formato: tre righe (*Prodotto*, *Prezzo*, *Tempi*) oppure `prodotto / prezzo / tempi`.",
+  /** Fallback raro: messaggio senza campi riconoscibili. */
+  termsNeedEssentials:
+    "Non ho trovato abbastanza. Indica almeno *Prodotto*, *Prezzo* (€) e *Tempi* nello stesso messaggio.",
 
-  invalidTermsPrice: (asset: string) =>
-    `Prezzo non valido. Invia un numero positivo in *${asset}* (es. \`0.05\`).`,
+  invalidTermsPrice:
+    "Prezzo non valido. Usa un importo in *euro* (es. `5`, `5€`, `12,50`).",
+
+  askEscrowAmount: (deal: Deal) => {
+    const opener = openerMention(deal);
+    return `${opener}: invia l'importo escrow in *${deal.asset}* (es. \`0.05\`).`;
+  },
+
+  invalidEscrowAmount: (asset: string) =>
+    `Importo escrow non valido. Invia un numero positivo in *${asset}* (es. \`0.05\`).`,
 
   dealActivated: depositPrompt,
   depositAddress: depositPrompt,

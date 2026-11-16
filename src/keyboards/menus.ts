@@ -68,12 +68,12 @@ export function counterpartConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo", `cp:${dealId}`);
 }
 
-/** Accetto unico sulla card Prodotto / Prezzo / Tempi. */
+/** Accetto unico sulla card termini (Prezzo = EUR commerciale). */
 export function tosConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Accetto", `tosok:${dealId}`);
 }
 
-/** @deprecated Dual-confirm importo rimosso: Prezzo è nella card termini. */
+/** @deprecated Dual-confirm importo rimosso; crypto amount dopo Accetto se manca. */
 export function amountConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo importo", `amtok:${dealId}`);
 }

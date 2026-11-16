@@ -258,7 +258,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await refreshGroupSetupCard(ctx.api, ctx.store, current);
   });
 
-  // Controparte Accetta termini → lock + pin → wallet seller
+  // Controparte Accetta termini → lock + pin → (importo escrow se manca) → wallet seller
   bot.callbackQuery(/^tosok:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     const deal = ctx.store.get(dealId);
@@ -299,10 +299,18 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     const tosMsgId =
       ctx.callbackQuery.message?.message_id ?? deal.setupMessageId;
     const now = new Date().toISOString();
+    const cryptoReady = Boolean(deal.amount && parseAmount(deal.amount));
     let updated = ctx.store.update(deal.id, {
       tosAcceptedAt: now,
-      amountConfirmedAt: now,
-      status: "awaiting_seller_wallet",
+      ...(cryptoReady
+        ? {
+            amountConfirmedAt: now,
+            status: "awaiting_seller_wallet" as const,
+          }
+        : {
+            amountConfirmedAt: undefined,
+            status: "awaiting_amount" as const,
+          }),
       ...(tosMsgId != null
         ? {
             setupMessageId: deal.setupMessageId ?? tosMsgId,
@@ -319,7 +327,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await ctx.answerCallbackQuery({ text: "Termini accettati" });
     await refreshGroupTitle(ctx.api, updated);
     updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
-    await postAskSellerWallet(ctx.api, ctx.store, updated);
+    if (cryptoReady) {
+      await postAskSellerWallet(ctx.api, ctx.store, updated);
+    } else {
+      await ctx.reply(it.askEscrowAmount(updated), { parse_mode: "Markdown" });
+    }
   });
 
   // Legacy dual-confirm importo (deal mid-flight pre-unificazione)
@@ -421,7 +433,34 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     let current = trackSeenGroupUser(ctx.store, deal, ctx.from.id);
 
-    // Legacy: importo dual-confirm mid-flight
+    // Post-Accetto: un messaggio per l'importo escrow crypto (se non nei termini)
+    if (current.status === "awaiting_amount" && tosAccepted(current)) {
+      if (!isParty(current, ctx.from.id)) {
+        await next();
+        return;
+      }
+      const amount = parseAmount(text);
+      if (!amount) {
+        await ctx.reply(it.invalidEscrowAmount(current.asset), {
+          parse_mode: "Markdown",
+        });
+        return;
+      }
+
+      let updated = ctx.store.update(current.id, {
+        amount,
+        amountVotes: [ctx.from.id],
+        amountConfirmedAt: new Date().toISOString(),
+        status: "awaiting_seller_wallet",
+      })!;
+      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+      await refreshGroupTitle(ctx.api, updated);
+      updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
+      await postAskSellerWallet(ctx.api, ctx.store, updated);
+      return;
+    }
+
+    // Legacy: importo dual-confirm mid-flight (pre-unificazione)
     if (
       current.status === "awaiting_amount" ||
       current.status === "awaiting_amount_confirm"
@@ -478,29 +517,76 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     const parsed = parseTermsProposal(text, current.asset);
     if (!parsed.ok) {
       if (parsed.reason === "price") {
-        await ctx.reply(it.invalidTermsPrice(current.asset), {
-          parse_mode: "Markdown",
-        });
+        await ctx.reply(it.invalidTermsPrice, { parse_mode: "Markdown" });
         return;
       }
       if (parsed.reason === "short") {
         await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
         return;
       }
-      await ctx.reply(it.termsFormatHint, { parse_mode: "Markdown" });
+
+      // Best-effort: salva i pezzi trovati, aggiorna la card, chiedi solo cosa manca
+      const p = parsed.partial;
+      const hasAny =
+        Boolean(p.product) ||
+        Boolean(p.priceEur) ||
+        Boolean(p.tempi) ||
+        Boolean(p.notes) ||
+        Boolean(p.cryptoAmount);
+
+      if (!hasAny) {
+        await ctx.reply(it.termsNeedEssentials, { parse_mode: "Markdown" });
+        return;
+      }
+
+      const product = p.product ?? current.tosProduct;
+      const priceEur = p.priceEur ?? current.priceEur;
+      const tempi = p.tempi ?? current.tosConditions;
+      const notes = p.notes ?? current.tosNotes;
+      const cryptoAmount =
+        p.cryptoAmount ?? (current.amount ? current.amount : undefined);
+
+      const ready = Boolean(product && priceEur && tempi);
+      const tosText = ready
+        ? composeTosText(product!, priceEur!, tempi!, notes)
+        : [
+            `• Prodotto: ${product ?? "—"}`,
+            `• Prezzo: ${priceEur ? `${priceEur} €` : "—"}`,
+            `• Tempi: ${tempi ?? "—"}`,
+            `• Condizioni: ${notes?.trim() || "—"}`,
+          ].join("\n");
+
+      const merged = ctx.store.update(current.id, {
+        ...(product ? { tosProduct: product } : {}),
+        ...(priceEur ? { priceEur } : {}),
+        ...(tempi ? { tosConditions: tempi } : {}),
+        ...(notes ? { tosNotes: notes } : {}),
+        ...(cryptoAmount ? { amount: cryptoAmount } : {}),
+        tosText,
+        tosAcceptedAt: undefined,
+        amountConfirmedAt: undefined,
+        amountVotes: [],
+        status: ready ? "awaiting_tos_confirm" : "awaiting_tos",
+      })!;
+
+      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+      // Solo edit card (action line chiede ciò che manca) — niente loop errori formato
+      await refreshGroupSetupCard(ctx.api, ctx.store, merged);
       return;
     }
 
     const tosText = composeTosText(
       parsed.product,
-      parsed.amount,
-      current.asset,
+      parsed.priceEur,
       parsed.tempi,
+      parsed.notes,
     );
     const updated = ctx.store.update(current.id, {
       tosProduct: parsed.product,
-      amount: parsed.amount,
+      priceEur: parsed.priceEur,
       tosConditions: parsed.tempi,
+      tosNotes: parsed.notes,
+      ...(parsed.cryptoAmount ? { amount: parsed.cryptoAmount } : {}),
       tosText,
       tosAcceptedAt: undefined,
       amountConfirmedAt: undefined,
