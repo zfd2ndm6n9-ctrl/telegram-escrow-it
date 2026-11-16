@@ -18,7 +18,7 @@ import {
 } from "./deal-logic.js";
 import { sendTrackedPrompt, upsertSetupMessage } from "./prompt-cleanup.js";
 
-/** Keyboard della card termini (Accetto solo a proposta completa). */
+/** Keyboard della card setup (Accetto solo a proposta completa). */
 export function setupCardKeyboard(deal: Deal): InlineKeyboard {
   if (
     deal.status === "awaiting_tos_confirm" &&
@@ -438,7 +438,7 @@ export type StartDealResult = {
 
 /**
  * Avvio deal in un gruppo già creato/bound: auto-bind controparte,
- * poi card termini Prodotto/Prezzo/Tempi (niente conferma ruolo).
+ * poi card elenco puntato Prodotto/Prezzo/Tempi (niente conferma ruolo).
  */
 export async function startDealInGroup(
   api: Api,
