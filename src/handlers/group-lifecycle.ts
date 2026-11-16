@@ -19,6 +19,10 @@ import {
   postTosDraft,
   startDealInGroup,
 } from "../services/group-setup.js";
+import {
+  pinAcceptedTos,
+  untrackPrompt,
+} from "../services/prompt-cleanup.js";
 import { kickUnauthorizedBot } from "./group-hygiene.js";
 
 const MIN_TOS_LENGTH = 20;
@@ -265,7 +269,9 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
     if (ctx.from.id === deal.creatorId) {
       await ctx.answerCallbackQuery({ text: "Solo controparte" });
-      await ctx.reply(it.tosCreatorCannotAccept);
+      await ctx.reply(it.tosCreatorCannotAccept(deal), {
+        parse_mode: "Markdown",
+      });
       return;
     }
     if (!isParty(deal, ctx.from.id)) {
@@ -274,13 +280,24 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    const updated = ctx.store.update(deal.id, {
+    const tosMsgId = ctx.callbackQuery.message?.message_id;
+    let updated = ctx.store.update(deal.id, {
       tosAcceptedAt: new Date().toISOString(),
       status: "awaiting_seller_wallet",
+      ...(tosMsgId != null ? { tosAcceptedMessageId: tosMsgId } : {}),
     })!;
+
+    // I ToS accettati restano in chat: toglili dai prompt cancellabili e pinnalli.
+    if (tosMsgId != null) {
+      updated = untrackPrompt(ctx.store, updated, tosMsgId);
+      if (ctx.chat) {
+        await pinAcceptedTos(ctx.api, ctx.chat.id, tosMsgId);
+      }
+    }
 
     await ctx.answerCallbackQuery({ text: "ToS accettati" });
     await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+    // Hygiene successiva (wallet/deposit) non cancella tosAcceptedMessageId.
     await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
@@ -340,7 +357,9 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     if (ctx.from.id !== deal.creatorId) {
       if (deal.status === "awaiting_tos") {
-        await ctx.reply(it.onlyCreatorWritesTos);
+        await ctx.reply(it.onlyCreatorWritesTos(deal), {
+          parse_mode: "Markdown",
+        });
         return;
       }
       await next();

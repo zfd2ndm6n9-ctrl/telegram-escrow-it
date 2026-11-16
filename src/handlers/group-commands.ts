@@ -16,6 +16,8 @@ import {
 } from "../services/group-setup.js";
 import {
   clearBotPrompts,
+  clearEphemeralReplies,
+  replaceActionReply,
   replaceStatusMessage,
 } from "../services/prompt-cleanup.js";
 import { getOrphanProfile } from "../services/orphan-profiles.js";
@@ -64,9 +66,8 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.notReadyForDeposit);
       return;
     }
-    await ctx.reply(it.depositAddress(deal), {
+    await replaceActionReply(ctx.api, ctx.store, deal, it.depositAddress(deal), {
       parse_mode: "Markdown",
-      reply_markup: groupActionsKeyboard(deal.status),
     });
   });
 
@@ -139,12 +140,15 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       return;
     }
     await ctx.answerCallbackQuery();
-    await ctx.reply(it.depositAddress(deal), { parse_mode: "Markdown" });
+    // Sostituisce verifica/stato/disputa precedenti: resta solo Indirizzo escrow.
+    await replaceActionReply(ctx.api, ctx.store, deal, it.depositAddress(deal), {
+      parse_mode: "Markdown",
+    });
   });
 
   bot.callbackQuery("funded", async (ctx) => {
     await ctx.answerCallbackQuery();
-    await verifyDeposit(ctx);
+    await verifyDeposit(ctx, { ephemeral: true });
   });
 
   bot.callbackQuery("pay_seller", async (ctx) => {
@@ -159,7 +163,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
 
   bot.callbackQuery("dispute", async (ctx) => {
     await ctx.answerCallbackQuery();
-    await openDispute(ctx);
+    await openDispute(ctx, { ephemeral: true });
   });
 
   bot.callbackQuery("stato", async (ctx) => {
@@ -244,7 +248,9 @@ async function applyWallet(
   // Dopo ToS: ordine fisso seller → buyer
   if (deal.status === "awaiting_seller_wallet") {
     if (!isSeller) {
-      await ctx.reply(it.walletWrongTurn("seller"), { parse_mode: "Markdown" });
+      await ctx.reply(it.walletWrongTurn(deal, "seller"), {
+        parse_mode: "Markdown",
+      });
       return;
     }
     const updated = ctx.store.update(deal.id, {
@@ -260,7 +266,9 @@ async function applyWallet(
 
   if (deal.status === "awaiting_buyer_wallet") {
     if (!isBuyer) {
-      await ctx.reply(it.walletWrongTurn("buyer"), { parse_mode: "Markdown" });
+      await ctx.reply(it.walletWrongTurn(deal, "buyer"), {
+        parse_mode: "Markdown",
+      });
       return;
     }
     const updated = ctx.store.update(deal.id, {
@@ -295,7 +303,10 @@ async function applyWallet(
   });
 }
 
-async function verifyDeposit(ctx: BotContext): Promise<void> {
+async function verifyDeposit(
+  ctx: BotContext,
+  opts?: { ephemeral?: boolean },
+): Promise<void> {
   const deal = requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
     await ctx.reply(it.noDealInGroup);
@@ -311,6 +322,25 @@ async function verifyDeposit(ctx: BotContext): Promise<void> {
     return;
   }
 
+  const replyResult = async (
+    current: Deal,
+    text: string,
+    withKeyboard: boolean,
+  ): Promise<void> => {
+    const extra = {
+      parse_mode: "Markdown" as const,
+      ...(withKeyboard
+        ? { reply_markup: groupActionsKeyboard(current.status) }
+        : {}),
+    };
+    if (opts?.ephemeral) {
+      await replaceActionReply(ctx.api, ctx.store, current, text, extra);
+      return;
+    }
+    await clearEphemeralReplies(ctx.api, ctx.store, current);
+    await ctx.reply(text, extra);
+  };
+
   // Admin: /depositato force → bypass on-chain (emergenza)
   const raw = ctx.message?.text ?? "";
   if (
@@ -320,10 +350,7 @@ async function verifyDeposit(ctx: BotContext): Promise<void> {
   ) {
     let updated = ctx.store.setStatus(deal.id, "funded")!;
     updated = await clearBotPrompts(ctx.api, ctx.store, updated);
-    await ctx.reply(it.markFundedAdmin(updated), {
-      parse_mode: "Markdown",
-      reply_markup: groupActionsKeyboard(updated.status),
-    });
+    await replyResult(updated, it.markFundedAdmin(updated), true);
     return;
   }
 
@@ -335,9 +362,11 @@ async function verifyDeposit(ctx: BotContext): Promise<void> {
   const wasAwaiting = deal.status === "awaiting_deposit";
   const result = await checkDealDeposit(ctx.store, deal.id);
   if (!result.ok) {
-    await ctx.reply(`Verifica deposito fallita: \`${result.error}\``, {
-      parse_mode: "Markdown",
-    });
+    await replyResult(
+      deal,
+      `Verifica deposito fallita: \`${result.error}\``,
+      false,
+    );
     return;
   }
 
@@ -345,12 +374,10 @@ async function verifyDeposit(ctx: BotContext): Promise<void> {
   if (wasAwaiting && result.funded) {
     fresh = await clearBotPrompts(ctx.api, ctx.store, fresh);
   }
-  await ctx.reply(
+  await replyResult(
+    fresh,
     it.depositCheckResult(fresh, result.balanceSol, result.funded),
-    {
-      parse_mode: "Markdown",
-      reply_markup: groupActionsKeyboard(fresh.status),
-    },
+    true,
   );
 }
 
@@ -511,7 +538,10 @@ async function replyBlockchain(ctx: BotContext): Promise<void> {
   await ctx.reply(it.blockchainLink(deal, url), { parse_mode: "Markdown" });
 }
 
-export async function openDispute(ctx: BotContext): Promise<void> {
+export async function openDispute(
+  ctx: BotContext,
+  opts?: { ephemeral?: boolean },
+): Promise<void> {
   const deal = requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
     await ctx.reply(it.noDealInGroup);
@@ -537,7 +567,15 @@ export async function openDispute(ctx: BotContext): Promise<void> {
     adminInviteLink: adminLink,
   })!;
 
-  await ctx.reply(it.disputeOpened(updated), { parse_mode: "Markdown" });
+  const opened = it.disputeOpened(updated);
+  if (opts?.ephemeral) {
+    await replaceActionReply(ctx.api, ctx.store, updated, opened, {
+      parse_mode: "Markdown",
+    });
+  } else {
+    await clearEphemeralReplies(ctx.api, ctx.store, updated);
+    await ctx.reply(opened, { parse_mode: "Markdown" });
+  }
 
   if (!config.adminTelegramId) {
     await ctx.reply(it.adminMissing);
