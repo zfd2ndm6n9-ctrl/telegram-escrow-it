@@ -45,7 +45,7 @@ export function createBot(token: string): CreatedBot {
   // Solo in privato: messaggio sconosciuto (non spammare i gruppi)
   bot.on("message:text", async (ctx) => {
     if (ctx.chat?.type !== "private") return;
-    if (ctx.session.creating) return;
+    if (ctx.session.creating || ctx.session.termsQa) return;
     await ctx.reply(it.unknownPrivate);
   });
 

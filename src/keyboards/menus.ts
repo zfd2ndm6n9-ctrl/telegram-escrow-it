@@ -68,7 +68,7 @@ export function counterpartConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo", `cp:${dealId}`);
 }
 
-/** Accetto unico sulla card termini (Prezzo = EUR commerciale). */
+/** Accetto unico sulla card termini (buyer conferma Prodotto/Prezzo€/Condizioni). */
 export function tosConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Accetto", `tosok:${dealId}`);
 }
