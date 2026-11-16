@@ -27,8 +27,11 @@ export interface Deal {
   creatorRole: PartyRole;
   buyerId?: number;
   buyerUsername?: string;
+  /** first_name Telegram visto all'assegnazione / ultimo check (anti-impersonation) */
+  buyerDisplayName?: string;
   sellerId?: number;
   sellerUsername?: string;
+  sellerDisplayName?: string;
   /** Indirizzo Solana del buyer (rimborso) */
   buyerWallet?: string;
   /** Indirizzo Solana del seller (rilascio) */
@@ -62,6 +65,7 @@ export interface Deal {
 export type CreateDealInput = {
   creatorId: number;
   creatorUsername?: string;
+  creatorDisplayName?: string;
   creatorRole: PartyRole;
   amount: string;
   asset: Asset;

@@ -230,11 +230,13 @@ export async function kickUnauthorized(
   api: Api,
   chatId: number,
   userId: number,
+  opts?: { silent?: boolean; notice?: string },
 ): Promise<void> {
   try {
     await api.banChatMember(chatId, userId);
     await api.unbanChatMember(chatId, userId);
-    await api.sendMessage(chatId, it.kickedExtra(userId), {
+    if (opts?.silent) return;
+    await api.sendMessage(chatId, opts?.notice ?? it.kickedExtra(userId), {
       parse_mode: "Markdown",
     });
   } catch (err) {
