@@ -10,6 +10,7 @@ import {
   isAllowedHuman,
   isParty,
   isPreDepositSetup,
+  normalizeTosField,
   parseAmount,
   parseStartGroupPayload,
   tosAccepted,
@@ -19,15 +20,15 @@ import {
   checkRequiredBotAdminPerms,
   kickUnauthorized,
   postAmountProposed,
-  postAskAmount,
   postAskSellerWallet,
   postAskTosConditions,
-  postStabilizeTos,
   postTosDraft,
+  refreshGroupSetupCard,
   refreshGroupTitle,
   startDealInGroup,
 } from "../services/group-setup.js";
 import {
+  deleteMessageSafe,
   pinAcceptedTos,
   untrackPrompt,
 } from "../services/prompt-cleanup.js";
@@ -235,16 +236,19 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
+    const setupMsgId = ctx.callbackQuery.message?.message_id;
     let updated = ctx.store.update(deal.id, {
       ...(patch ?? {}),
       groupChatId: ctx.chat.id,
+      ...(setupMsgId != null && deal.setupMessageId == null
+        ? { setupMessageId: setupMsgId }
+        : {}),
     })!;
 
     if (bothPartiesPresent(updated)) {
       updated = ctx.store.setStatus(updated.id, "awaiting_tos")!;
       await ctx.answerCallbackQuery({ text: "Confermato" });
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
-      await postStabilizeTos(ctx.api, ctx.store, updated);
+      await refreshGroupSetupCard(ctx.api, ctx.store, updated);
       return;
     }
 
@@ -289,40 +293,27 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    const tosMsgId = ctx.callbackQuery.message?.message_id;
+    const tosMsgId =
+      ctx.callbackQuery.message?.message_id ?? deal.setupMessageId;
     let updated = ctx.store.update(deal.id, {
       tosAcceptedAt: new Date().toISOString(),
       status: "awaiting_amount",
-      ...(tosMsgId != null ? { tosAcceptedMessageId: tosMsgId } : {}),
+      ...(tosMsgId != null
+        ? {
+            setupMessageId: deal.setupMessageId ?? tosMsgId,
+            tosAcceptedMessageId: tosMsgId,
+          }
+        : {}),
     })!;
 
-    // I ToS accettati restano in chat: toglili dai prompt cancellabili, riscrivi senza
-    // «il creatore può sostituirli», e pinnalli.
+    // Stessa card: ToS accettati + istruzioni importo; pin; resta protetta in hygiene.
     if (tosMsgId != null) {
       updated = untrackPrompt(ctx.store, updated, tosMsgId);
-      try {
-        await ctx.api.editMessageText(
-          ctx.chat.id,
-          tosMsgId,
-          it.tosAcceptedPinned(updated),
-          { parse_mode: "Markdown" },
-        );
-      } catch (err) {
-        console.warn(`edit accepted ToS msg ${tosMsgId} failed:`, err);
-      }
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(
-        () => undefined,
-      );
       await pinAcceptedTos(ctx.api, ctx.chat.id, tosMsgId);
-    } else {
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(
-        () => undefined,
-      );
     }
 
     await ctx.answerCallbackQuery({ text: "ToS accettati" });
-    // Hygiene successiva non cancella tosAcceptedMessageId.
-    await postAskAmount(ctx.api, ctx.store, updated);
+    await refreshGroupSetupCard(ctx.api, ctx.store, updated);
   });
 
   // Dual-confirm importo → wallet seller
@@ -358,11 +349,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     const votes = addUniqueVote(deal.amountVotes ?? [], ctx.from.id);
     if (votes.length < 2) {
-      ctx.store.update(deal.id, { amountVotes: votes });
+      const waiting =
+        ctx.store.update(deal.id, { amountVotes: votes }) ?? deal;
       await ctx.answerCallbackQuery({ text: `Confermato ${votes.length}/2` });
-      await ctx.reply(it.amountNeedBoth(deal, votes), {
-        parse_mode: "Markdown",
-      });
+      await refreshGroupSetupCard(ctx.api, ctx.store, waiting);
       return;
     }
 
@@ -373,11 +363,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     })!;
 
     await ctx.answerCallbackQuery({ text: "Importo ok" });
-    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(
-      () => undefined,
-    );
     await refreshGroupTitle(ctx.api, updated);
-    await ctx.reply(it.amountConfirmedMsg(updated), { parse_mode: "Markdown" });
+    updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
     await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
@@ -453,6 +440,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         amountConfirmedAt: undefined,
         status: "awaiting_amount_confirm",
       })!;
+      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
       await postAmountProposed(ctx.api, ctx.store, updated);
       return;
     }
@@ -489,37 +477,55 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     // Sostituzione pre-accettazione: riparte da Prodotto.
     if (deal.status === "awaiting_tos_confirm") {
+      const product = normalizeTosField(text, "Prodotto");
+      if (product.length < MIN_TOS_FIELD) {
+        await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
+        return;
+      }
       const updated = ctx.store.update(deal.id, {
-        tosProduct: text,
+        tosProduct: product,
         tosConditions: undefined,
         tosText: undefined,
         tosAcceptedAt: undefined,
         status: "awaiting_tos",
       })!;
+      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
       await postAskTosConditions(ctx.api, ctx.store, updated);
       return;
     }
 
     // awaiting_tos: prima Prodotto, poi Condizioni
     if (!deal.tosProduct) {
+      const product = normalizeTosField(text, "Prodotto");
+      if (product.length < MIN_TOS_FIELD) {
+        await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
+        return;
+      }
       const updated = ctx.store.update(deal.id, {
-        tosProduct: text,
+        tosProduct: product,
         tosConditions: undefined,
         tosText: undefined,
         tosAcceptedAt: undefined,
       })!;
+      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
       await postAskTosConditions(ctx.api, ctx.store, updated);
       return;
     }
 
-    const tosText = composeTosText(deal.tosProduct, text);
+    const conditions = normalizeTosField(text, "Condizioni");
+    if (conditions.length < MIN_TOS_FIELD) {
+      await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
+      return;
+    }
+    const tosText = composeTosText(deal.tosProduct, conditions);
     const updated = ctx.store.update(deal.id, {
-      tosConditions: text,
+      tosConditions: conditions,
       tosText,
       tosAcceptedAt: undefined,
       status: "awaiting_tos_confirm",
     })!;
 
+    await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
     await postTosDraft(ctx.api, ctx.store, updated);
   });
 

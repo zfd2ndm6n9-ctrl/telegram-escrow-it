@@ -73,13 +73,18 @@ export interface Deal {
   /** Signature payout on-chain */
   payoutTxSig?: string;
   /**
-   * Message id dei prompt di stage del bot nel gruppo (ToS/wallet/deposit/…).
+   * Message id dei prompt di stage del bot nel gruppo (wallet/deposit/…).
    * Cancellabili all’avanzamento; non sono evidenze utente.
-   * Non include `tosAcceptedMessageId` (ToS accettati restano in chat).
+   * Non include `setupMessageId` / `tosAcceptedMessageId` (card setup vivente).
    */
   botPromptIds?: number[];
   /**
-   * Messaggio ToS accettati (testo termini + conferma). Non cancellare in hygiene;
+   * Unico messaggio di setup nel gruppo (deal collegato → ToS → importo).
+   * Aggiornato in place con editMessageText; non cancellare in hygiene.
+   */
+  setupMessageId?: number;
+  /**
+   * Messaggio ToS accettati (di solito = setupMessageId). Non cancellare in hygiene;
    * preferibilmente pinnato nel gruppo.
    */
   tosAcceptedMessageId?: number;
