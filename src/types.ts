@@ -64,18 +64,18 @@ export interface Deal {
   tosAcceptedAt?: string;
   /**
    * Importo escrow on-chain (stringa decimale nell'asset del deal).
-   * Chiesto dopo Accetto in un messaggio dedicato.
+   * Fissato dopo Accetto convertendo `priceEur` → SOL (niente seconda domanda prezzo).
    */
   amount: string;
   /** @deprecated Legacy dual-confirm importo; non usato nel flusso termini unificato */
   amountVotes?: number[];
   /**
-   * Quando l'importo crypto è fissato (subito dopo la risposta all'ask post-Accetto).
+   * Quando l'importo crypto è fissato (conversione €→SOL all'Accetto, o legacy).
    */
   amountConfirmedAt?: string;
   /**
-   * Utenti umani già visti in questo gruppo (join / messaggi).
-   * Serve ad auto-assegnare la controparte su /avvia (Bot API senza lista membri).
+   * Utenti umani già visti in questo gruppo (join / messaggi / /avvia).
+   * Serve ad auto-assegnare la controparte (Bot API senza lista membri completa).
    */
   seenGroupUserIds?: number[];
   asset: Asset;

@@ -112,14 +112,16 @@ function displayNameFromUser(user: {
 }
 
 /**
- * Scopre gli altri umani nel gruppo (non opener, non bot).
- * Bot API non elenca i membri: usa admin + seenGroupUserIds (+ getChatMember).
+ * Scopre gli altri umani nel gruppo (non opener/creator, non bot).
+ * Bot API non elenca tutti i membri: usa getChatAdministrators + getChatMember
+ * su seenIds / candidateIds noti (join, /avvia, party già bound).
  */
 export async function discoverOtherHumans(
   api: Api,
   chatId: number,
   openerId: number,
   seenIds: number[] = [],
+  candidateIds: number[] = [],
 ): Promise<{ others: HumanMember[]; memberCount: number; botId: number }> {
   const me = await api.getMe();
   const botId = me.id;
@@ -156,7 +158,8 @@ export async function discoverOtherHumans(
     console.warn(`getChatAdministrators ${chatId} failed:`, err);
   }
 
-  for (const userId of seenIds) {
+  const probeIds = [...new Set([...seenIds, ...candidateIds])];
+  for (const userId of probeIds) {
     if (userId === openerId || userId === botId || byId.has(userId)) continue;
     try {
       const member = await api.getChatMember(chatId, userId);
@@ -190,6 +193,8 @@ export function trackSeenGroupUser(
 
 /**
  * Assegna automaticamente la controparte (ruolo opposto al DM).
+ * `runnerId` = chi ha lanciato /avvia (o chi è appena entrato): se non è il creator
+ * e lo slot è libero, viene bound subito senza aspettare un messaggio.
  * Fallisce se 0 o >1 altri umani riconoscibili, o se il gruppo ha troppi membri.
  */
 export async function autoBindCounterpart(
@@ -197,6 +202,11 @@ export async function autoBindCounterpart(
   store: DealStore,
   deal: Deal,
   chatId: number,
+  opts?: {
+    runnerId?: number;
+    runnerUsername?: string;
+    runnerDisplayName?: string;
+  },
 ): Promise<
   | { ok: true; deal: Deal }
   | { ok: false; reason: AutoBindFailure; deal: Deal }
@@ -207,12 +217,51 @@ export async function autoBindCounterpart(
 
   const openerId = deal.creatorId;
   let current = trackSeenGroupUser(store, deal, openerId);
+  if (opts?.runnerId != null) {
+    current = trackSeenGroupUser(store, current, opts.runnerId);
+  }
 
+  // Chi lancia /avvia (o join) ed è la controparte: bind immediato.
+  if (
+    opts?.runnerId != null &&
+    opts.runnerId !== openerId &&
+    !bothPartiesPresent(current)
+  ) {
+    const patch = assignJoiningParty(
+      current,
+      opts.runnerId,
+      opts.runnerUsername,
+      opts.runnerDisplayName,
+    );
+    if (
+      patch &&
+      (patch.buyerId === opts.runnerId || patch.sellerId === opts.runnerId)
+    ) {
+      const seen =
+        rememberSeenUser(current, opts.runnerId) ?? current.seenGroupUserIds;
+      current =
+        store.update(current.id, {
+          ...patch,
+          ...(seen ? { seenGroupUserIds: seen } : {}),
+        }) ?? current;
+      if (bothPartiesPresent(current)) {
+        return { ok: true, deal: current };
+      }
+    }
+  }
+
+  const knownPartyIds = [current.buyerId, current.sellerId].filter(
+    (id): id is number => id != null,
+  );
   const { others, memberCount } = await discoverOtherHumans(
     api,
     chatId,
     openerId,
     current.seenGroupUserIds ?? [],
+    [
+      ...knownPartyIds,
+      ...(opts?.runnerId != null ? [opts.runnerId] : []),
+    ],
   );
 
   // > buyer + seller + bot
@@ -225,6 +274,7 @@ export async function autoBindCounterpart(
   }
 
   if (others.length === 0) {
+    // Membri presenti ma non ancora risolvibili via Bot API
     const reason: AutoBindFailure =
       memberCount >= 3 ? "need_message" : "none";
     return { ok: false, reason, deal: current };
@@ -487,6 +537,11 @@ export async function startDealInGroup(
   store: DealStore,
   deal: Deal,
   chatId: number,
+  opts?: {
+    runnerId?: number;
+    runnerUsername?: string;
+    runnerDisplayName?: string;
+  },
 ): Promise<StartDealResult> {
   const { deal: bound, perms } = await bindGroupToDeal(api, store, deal, chatId);
   if (!perms.ok) {
@@ -494,12 +549,16 @@ export async function startDealInGroup(
   }
 
   let current = trackSeenGroupUser(store, bound, bound.creatorId);
+  if (opts?.runnerId != null) {
+    current = trackSeenGroupUser(store, current, opts.runnerId);
+  }
 
   if (!bothPartiesPresent(current)) {
-    const bind = await autoBindCounterpart(api, store, current, chatId);
+    const bind = await autoBindCounterpart(api, store, current, chatId, opts);
     if (!bind.ok) {
       const waiting =
         store.setStatus(bind.deal.id, "awaiting_counterpart") ?? bind.deal;
+      await refreshGroupSetupCard(api, store, waiting).catch(() => undefined);
       return {
         deal: waiting,
         started: false,

@@ -168,6 +168,24 @@ export class DealStore {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   }
 
+  /**
+   * Deal in attesa di gruppo/bind dove `userId` è creator, buyer o seller.
+   * Consente /avvia anche alla controparte (non solo al DM opener).
+   */
+  findAwaitingGroupByParty(userId: number): Deal | undefined {
+    return [...this.deals.values()]
+      .filter(
+        (d) =>
+          (d.creatorId === userId ||
+            d.buyerId === userId ||
+            d.sellerId === userId) &&
+          (d.status === "awaiting_group" ||
+            d.status === "awaiting_bot_admin" ||
+            d.status === "awaiting_counterpart"),
+      )
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  }
+
   listForUser(userId: number): Deal[] {
     return [...this.deals.values()]
       .filter(

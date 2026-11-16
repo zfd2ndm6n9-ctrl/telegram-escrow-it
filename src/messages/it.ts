@@ -44,9 +44,12 @@ const STATUS_LABELS: Record<Deal["status"], string> = {
 
 function amountLine(deal: Deal): string {
   if (amountConfirmed(deal) || deal.amount) {
-    return `• Importo: *${deal.amount} ${deal.asset}*`;
+    return `• Escrow: *${deal.amount} ${deal.asset}*`;
   }
-  return `• Crypto: *${deal.asset}* · importo da confermare nel gruppo`;
+  if (deal.priceEur) {
+    return `• Prezzo: *${deal.priceEur} €* · escrow SOL al Accetto`;
+  }
+  return `• Crypto: *${deal.asset}*`;
 }
 
 /** Buyer + importo + indirizzo escrow su riga propria in `code` (Copia su mobile). */
@@ -73,7 +76,7 @@ Escrow crypto tra due parti già d'accordo.
 
 1. In privato: /crea → ruolo (buyer/seller) → crypto
 2. Il *seller* risponde a 3 domande in DM (Prodotto, Prezzo €, Condizioni)
-3. Gruppo privato → bot admin → /avvia → card Accetto → importo escrow → wallet → deposito
+3. Gruppo privato → bot admin → /avvia (buyer o seller) → card Accetto → wallet → deposito
 4. /pay_seller (o /payseller) · /refund_buyer (o /refundbuyer) — doppia conferma
 
 Asset: *SOL* live. *ETH* e *LTC* presto.
@@ -169,7 +172,7 @@ Poi invita l'altra parte.`;
 ${creatorInvited ? "Ti ho già aggiunto al gruppo.\n" : ""}*Link invito* (max 2 — condividilo con l'altra parte):
 ${inviteLink}
 
-Nel gruppo: /avvia → termini (DM seller) → Accetto → wallet → deposito.
+Nel gruppo: /avvia (buyer o seller) → Accetto → wallet → deposito.
 Verifica sempre l'indirizzo escrow nei messaggi del bot.`,
 
   groupCreateFailed: (deal: Deal, detail: string) =>
@@ -207,16 +210,20 @@ Poi /avvia.`;
 
   /**
    * Unica card vivente nel gruppo (elenco puntato).
-   * Buyer/Seller/Prodotto/Prezzo€/Condizioni; azione breve sotto; Accetto in button.
+   * Buyer/Seller/Prodotto/Prezzo€/Condizioni; solo l'azione corrente sotto; Accetto in button.
    */
   groupSetupCard: (deal: Deal) => {
-    const header = `🔒 Deal *#${deal.id}* · *${deal.asset}*`;
+    const solHint =
+      deal.amount && amountConfirmed(deal)
+        ? ` · *${deal.amount} ${deal.asset}*`
+        : "";
+    const header = `🔒 Deal *#${deal.id}* · *${deal.asset}*${solHint}`;
 
     if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
       return `${header}
 
 Ruoli automatici: *buyer* + *seller* (+ bot).
-Invita la controparte; se è già nel gruppo, che scriva un messaggio, poi /avvia.`;
+Invita la controparte nel gruppo, poi /avvia.`;
     }
 
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
@@ -228,15 +235,10 @@ Invita la controparte; se è già nel gruppo, che scriva un messaggio, poi /avvi
       formatTosBullets(deal),
     ].join("\n");
 
-    let action: string;
-    if (
-      tosAccepted(deal) &&
-      (deal.status === "awaiting_amount" ||
-        (!amountConfirmed(deal) && !deal.amount))
-    ) {
-      action = `Invia l'importo escrow in *${deal.asset}* (es. \`0.05\`).`;
-    } else if (tosAccepted(deal)) {
-      action = `Prossimo: wallet — prima ${seller}, poi ${buyer}.`;
+    let action: string | null = null;
+    if (tosAccepted(deal)) {
+      // Wallet / deposito: istruzioni in messaggi dedicati — niente spoiler qui.
+      action = null;
     } else if (
       deal.status === "awaiting_tos_confirm" &&
       termsReadyForConfirm(deal)
@@ -251,7 +253,9 @@ Invita la controparte; se è già nel gruppo, che scriva un messaggio, poi /avvi
       }
     }
 
-    return `${header}\n${bullets}\n\n${action}`;
+    return action
+      ? `${header}\n${bullets}\n\n${action}`
+      : `${header}\n${bullets}`;
   },
 
   autoBindTooMany:
@@ -260,16 +264,24 @@ Invita la controparte; se è già nel gruppo, che scriva un messaggio, poi /avvi
   autoBindNone:
     "Manca la controparte. Invitala nel gruppo, poi /avvia.",
 
+  /** Controparte in gruppo ma non ancora visibile alle API bot. */
   autoBindNeedMessage:
-    "Controparte non ancora riconosciuta. Che scriva un messaggio nel gruppo, poi /avvia.",
+    "Controparte ancora non riconosciuta. Assicurati che sia nel gruppo, poi /avvia.",
 
   tosAccepted: (deal: Deal) =>
-    `✅ Termini accettati (#${deal.id}).
-
-Prossimo: wallet — prima seller, poi buyer.`,
+    deal.amount
+      ? `✅ Termini accettati (#${deal.id}). Escrow: *${deal.amount} ${deal.asset}*.`
+      : `✅ Termini accettati (#${deal.id}).`,
 
   tosLocked:
     "Termini già accettati: non si possono più modificare.",
+
+  /** Conversione €→SOL fallita al momento dell'Accetto. */
+  rateUnavailable:
+    "Tasso €→SOL non disponibile al momento. Riprova tra poco con *Accetto*.",
+
+  missingCommercialPrice:
+    "Manca il prezzo in euro (termini DM). Il seller deve completare *Prezzo* in privato.",
 
   askSellerWallet: (deal: Deal) => {
     const who = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
@@ -300,12 +312,14 @@ Prossimo: wallet — prima seller, poi buyer.`,
     return `I termini si compilano in *privato*. ${seller}: rispondi alle domande del bot in DM.`;
   },
 
+  /** @deprecated Importo escrow fissato da Prezzo € (conversione automatica). */
   askEscrowAmount: (deal: Deal) => {
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
     return `${buyer} o ${seller}: invia l'importo escrow in *${deal.asset}* (es. \`0.05\`).`;
   },
 
+  /** @deprecated */
   invalidEscrowAmount: (asset: string) =>
     `Importo escrow non valido. Invia un numero positivo in *${asset}* (es. \`0.05\`).`,
 
@@ -376,13 +390,15 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
     `Azione non disponibile in \`${status}\`.`,
 
   notParty: "Solo buyer/seller (o admin in disputa).",
-  notCreator: "Solo chi ha preparato il deal in privato può usare /avvia.",
+  /** @deprecated /avvia consentito a buyer o seller. */
+  notCreator: "Solo buyer o seller del deal possono usare /avvia.",
+  notDealParty: "Solo *buyer* o *seller* del deal possono usare /avvia.",
   dealNotFound: "Deal non trovato.",
   noDeals: "Nessun deal. Usa /crea in privato.",
   onlyPrivate: "Usa questo comando in *chat privata* con il bot.",
   onlyGroup: "Usa questo comando nel *gruppo escrow*.",
   noDealInGroup:
-    "Nessun deal collegato. In privato: /crea → poi qui /avvia.",
+    "Nessun deal collegato. In privato: /crea → poi qui /avvia (buyer o seller).",
   alreadyBound: "Questo gruppo è già collegato a un deal.",
   alreadyActivated: "Il deal in questo gruppo è già avviato.",
   /** /avvia ripetuto su deal già collegato: niente seconda card. */
@@ -447,7 +463,7 @@ In gruppo: /pay_seller o /refund_buyer (potere admin in disputa).`,
   adminMissing: "Disputa registrata, ma ADMIN_TELEGRAM_ID non è configurato.",
 
   botAddedHint:
-    "Bot nel gruppo. Buyer o seller che ha preparato il deal in privato: /avvia (servono i permessi admin).",
+    "Bot nel gruppo. *Buyer* o *seller*: /avvia (servono i permessi admin).",
 
   groupTitle: (deal: Deal) =>
     deal.amount
