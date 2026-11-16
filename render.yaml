@@ -1,20 +1,28 @@
 # Blueprint Render.com — collega il repo e imposta i secret nel dashboard.
 # Consigliato: Web Service (healthz) oppure Background Worker; un solo processo polling.
+#
+# IMPORTANTE: il piano free ha filesystem ephemeral → i deal in DATA_DIR spariscono
+# a ogni Manual Deploy. Serve Persistent Disk (piano starter+) con DATA_DIR sul mount.
 services:
   - type: web
     name: telegram-escrow-it
     runtime: node
-    plan: free
+    # Persistent Disk non è disponibile sul free plan.
+    plan: starter
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /healthz
+    disk:
+      name: escrow-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: "10000"
       - key: DATA_DIR
-        value: data
+        value: /var/data
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: ADMIN_TELEGRAM_ID

@@ -41,6 +41,10 @@ async function main(): Promise<void> {
   }
 
   const { bot, store } = createBot(config.botToken);
+  console.log(
+    `Persistenza deal: DATA_DIR=${store.dataDir} → ${store.path} (${store.size} deal). ` +
+      "Su Render serve Persistent Disk: senza volume i deal spariscono al redeploy.",
+  );
   const me = await bot.api.getMe();
   config.botUsername = me.username;
 

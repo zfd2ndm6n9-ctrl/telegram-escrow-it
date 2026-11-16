@@ -32,6 +32,11 @@ export const config = {
     process.env.SOLANA_WATCH_INTERVAL_MS?.trim() || "20000",
   ),
   defaultAsset: "SOL" as const,
+  /**
+   * Cartella persistente per deals.json.
+   * Su Render: montare un Persistent Disk e puntare qui (es. /var/data).
+   * Default locale: `data` (gitignored).
+   */
   dataDir: process.env.DATA_DIR?.trim() || "data",
   /** Impostato a runtime dopo getMe() */
   botUsername: undefined as string | undefined,

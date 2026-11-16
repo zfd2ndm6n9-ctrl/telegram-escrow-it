@@ -1,5 +1,13 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { CreateDealInput, Deal, DealStatus } from "../types.js";
 
@@ -17,14 +25,29 @@ function newDealId(): string {
 
 /**
  * Store JSON su disco (MVP). Chiave principale: id deal; lookup per groupChatId / creator.
+ * Su Render: montare un Persistent Disk e impostare DATA_DIR sul mount (es. /var/data),
+ * altrimenti il filesystem ephemeral azzera i deal a ogni redeploy.
  */
 export class DealStore {
   private deals = new Map<string, Deal>();
   private readonly filePath: string;
+  readonly dataDir: string;
 
   constructor(dataDir: string) {
-    this.filePath = join(dataDir, "deals.json");
+    this.dataDir = resolve(dataDir);
+    this.filePath = resolve(this.dataDir, "deals.json");
     this.load();
+    console.log(
+      `DealStore: ${this.filePath} (${this.deals.size} deal caricati)`,
+    );
+  }
+
+  get path(): string {
+    return this.filePath;
+  }
+
+  get size(): number {
+    return this.deals.size;
   }
 
   private load(): void {
@@ -47,8 +70,15 @@ export class DealStore {
     const snapshot: DealStoreSnapshot = {
       deals: [...this.deals.values()],
     };
+    const payload = `${JSON.stringify(snapshot, null, 2)}\n`;
     const tmp = `${this.filePath}.tmp`;
-    writeFileSync(tmp, JSON.stringify(snapshot, null, 2), "utf8");
+    const fd = openSync(tmp, "w");
+    try {
+      writeFileSync(fd, payload, "utf8");
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     renameSync(tmp, this.filePath);
   }
 
@@ -83,6 +113,19 @@ export class DealStore {
     this.deals.set(deal.id, deal);
     this.persist();
     return deal;
+  }
+
+  /**
+   * Inserisce o sostituisce un deal (recovery / seed). Conserva `id` del record passato.
+   */
+  upsert(deal: Deal): Deal {
+    const next: Deal = {
+      ...deal,
+      updatedAt: nowIso(),
+    };
+    this.deals.set(next.id, next);
+    this.persist();
+    return next;
   }
 
   get(id: string): Deal | undefined {

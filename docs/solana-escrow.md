@@ -47,7 +47,7 @@ Sul **Web Service** (o Background Worker) che esegue il bot — Environment:
 | `SOLANA_WATCH_INTERVAL_MS` | no | Default `20000` |
 | `ADMIN_TELEGRAM_ID` | sì per dispute | Tuo user id Telegram |
 | `TOS_URL` | no | Link ToS |
-| `DATA_DIR` | no | Default `data` (ephemeral su Render free) |
+| `DATA_DIR` | sì in prod | Persistenza deal. Su Render: `/var/data` su Persistent Disk (piano starter+). Default locale `data` (ephemeral su free) |
 | `PORT` | auto su Web | Per `/healthz` |
 
 ### Generare la chiave (una tantum)
@@ -76,14 +76,42 @@ All’avvio i log Render stampano: `Escrow SOL mainnet attivo. Master pubkey: �
 7. Entrambi `/pay_seller` → signature su [Solscan](https://solscan.io)
 8. Prova anche `/refund_buyer` su un secondo micro-deal
 
+## Persistenza deal (Render)
+
+Il bot salva i deal in `DATA_DIR/deals.json`. Su Render **free** il disco è ephemeral: un Manual Deploy azzera lo store e i gruppi rispondono «nessun deal collegato», mentre i fondi restano sull’indirizzo escrow derivato (`HMAC(master, dealId)`).
+
+1. Piano **starter+** con Persistent Disk montato (blueprint: `/var/data`)
+2. Env `DATA_DIR=/var/data`
+3. Non cambiare `SOLANA_PRIVATE_KEY` (stessa master → stessi indirizzi deal)
+
+## Recovery escrow orfano (senza ricreare il deal Telegram)
+
+I fondi non dipendono dallo store: con la **stessa** master key si ridériva la keypair e si può pagare.
+
+```bash
+# Dry-run: verifica derive + saldo (default)
+npm run recover:escrow -- --deal 82978c05
+
+# Paga il seller (o --to buyer / indirizzo libero)
+npm run recover:escrow -- --deal 82978c05 --to seller --execute
+```
+
+In produzione (dopo `npm run build`): `npm run recover:escrow:prod -- …`.
+
+Admin in Telegram (dopo deploy):
+
+- `/ripristina 82978c05` nel gruppo orfano → riscrive il deal nello store e collega il gruppo
+- `/admin_payout 82978c05 seller` (o `buyer`) → payout one-shot anche senza store
+
 ## Admin
 
 - In disputa: `/pay_seller` o `/refund_buyer` forza payout on-chain
 - Emergenza: `/depositato force` (solo `ADMIN_TELEGRAM_ID`) marca `funded` senza saldo (non crea SOL)
+- `/ripristina` · `/admin_payout` — recovery orfani (solo admin)
 
 ## Fuori scope (dopo)
 
 - LTC / ETH
 - KMS / cold / multi-sig
 - Fee di servizio sul payout
-- Persistenza Postgres + volume disco
+- Postgres / replica off-site del JSON

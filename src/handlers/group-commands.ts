@@ -18,9 +18,14 @@ import {
   clearBotPrompts,
   replaceStatusMessage,
 } from "../services/prompt-cleanup.js";
+import { getOrphanProfile } from "../services/orphan-profiles.js";
 import {
   checkDealDeposit,
+  deriveDealKeypair,
+  getEscrowBalanceLamports,
+  getMasterKeypair,
   isValidSolAddress,
+  lamportsToSolString,
   payoutDealSol,
 } from "../services/solana/index.js";
 import type { Deal } from "../types.js";
@@ -107,6 +112,19 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
 
   bot.command("blockchain", async (ctx) => {
     await replyBlockchain(ctx);
+  });
+
+  /** Admin: ricollega un deal orfano noto a questo gruppo (store perso su redeploy). */
+  bot.command(["ripristina", "relink"], async (ctx) => {
+    await adminRipristina(ctx);
+  });
+
+  /**
+   * Admin: payout one-shot senza store Telegram.
+   * Uso: /admin_payout 82978c05 seller|buyer
+   */
+  bot.command(["admin_payout", "adminpayout"], async (ctx) => {
+    await adminPayoutOrphan(ctx);
   });
 
   bot.callbackQuery("addr", async (ctx) => {
@@ -542,4 +560,186 @@ export async function openDispute(ctx: BotContext): Promise<void> {
       "Disputa aperta ma non riesco a scrivere all'admin in privato (deve aver avviato il bot).",
     );
   }
+}
+
+async function adminRipristina(ctx: BotContext): Promise<void> {
+  if (!ctx.from || !isAdminUser(ctx.from.id)) {
+    await ctx.reply(it.adminOnly);
+    return;
+  }
+  if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
+    await ctx.reply(it.onlyGroup, { parse_mode: "Markdown" });
+    return;
+  }
+
+  const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
+  const dealId = (parts[1] ?? "").trim().toLowerCase();
+  if (!/^[a-f0-9]{8}$/.test(dealId)) {
+    await ctx.reply(it.ripristinaUsage, { parse_mode: "Markdown" });
+    return;
+  }
+
+  const profile = getOrphanProfile(dealId);
+  if (!profile) {
+    await ctx.reply(it.ripristinaUnknown(dealId), { parse_mode: "Markdown" });
+    return;
+  }
+
+  const boundOther = ctx.store.findByGroupChatId(ctx.chat.id);
+  if (boundOther && boundOther.id !== dealId) {
+    await ctx.reply(it.alreadyBound);
+    return;
+  }
+
+  const master = await getMasterKeypair();
+  if (!master) {
+    await ctx.reply(it.payoutFailed(
+      { id: dealId } as Deal,
+      "SOLANA_PRIVATE_KEY non configurata",
+    ), { parse_mode: "Markdown" });
+    return;
+  }
+
+  const derived = await deriveDealKeypair(master, dealId);
+  const escrowAddress = derived.publicKey.toBase58();
+  if (escrowAddress !== profile.escrowAddress) {
+    await ctx.reply(it.ripristinaMismatch(dealId, profile.escrowAddress, escrowAddress), {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  let balance = 0n;
+  try {
+    balance = await getEscrowBalanceLamports(escrowAddress);
+  } catch (err) {
+    console.warn("ripristina balance check failed:", err);
+  }
+
+  const ts = new Date().toISOString();
+  const existing = ctx.store.get(dealId);
+  const deal: Deal = {
+    id: dealId,
+    creatorId: existing?.creatorId ?? 0,
+    creatorUsername: existing?.creatorUsername,
+    creatorRole: existing?.creatorRole ?? "seller",
+    buyerId: existing?.buyerId,
+    buyerUsername: existing?.buyerUsername,
+    sellerId: existing?.sellerId,
+    sellerUsername: existing?.sellerUsername,
+    buyerWallet: profile.buyerWallet,
+    sellerWallet: profile.sellerWallet,
+    amount: profile.amount,
+    asset: profile.asset,
+    status: balance > 0n ? "funded" : existing?.status === "released" || existing?.status === "refunded"
+      ? existing.status
+      : "funded",
+    escrowAddress,
+    groupChatId: ctx.chat.id,
+    releaseVotes: [],
+    refundVotes: [],
+    botPromptIds: [],
+    depositLamports: balance > 0n ? String(balance) : existing?.depositLamports,
+    depositDetectedAt: balance > 0n ? ts : existing?.depositDetectedAt,
+    tosText: existing?.tosText ?? "[ripristinato] deal orfano dopo redeploy",
+    tosAcceptedAt: existing?.tosAcceptedAt ?? ts,
+    payoutTxSig: existing?.payoutTxSig,
+    createdAt: existing?.createdAt ?? ts,
+    updatedAt: ts,
+  };
+
+  const saved = ctx.store.upsert(deal);
+  await ctx.reply(
+    it.ripristinaOk(saved, lamportsToSolString(balance)),
+    {
+      parse_mode: "Markdown",
+      reply_markup: groupActionsKeyboard(saved.status),
+    },
+  );
+}
+
+async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
+  if (!ctx.from || !isAdminUser(ctx.from.id)) {
+    await ctx.reply(it.adminOnly);
+    return;
+  }
+
+  const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
+  const dealId = (parts[1] ?? "").trim().toLowerCase();
+  const who = (parts[2] ?? "").trim().toLowerCase();
+  if (!/^[a-f0-9]{8}$/.test(dealId) || (who !== "seller" && who !== "buyer")) {
+    await ctx.reply(it.adminPayoutUsage, { parse_mode: "Markdown" });
+    return;
+  }
+
+  const profile = getOrphanProfile(dealId);
+  const fromStore = ctx.store.get(dealId);
+  const dest =
+    who === "seller"
+      ? profile?.sellerWallet ?? fromStore?.sellerWallet
+      : profile?.buyerWallet ?? fromStore?.buyerWallet;
+
+  if (!dest) {
+    await ctx.reply(it.needWallet(who === "seller" ? "seller" : "buyer"), {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  if (profile) {
+    const master = await getMasterKeypair();
+    if (!master) {
+      await ctx.reply("SOLANA_PRIVATE_KEY non configurata.");
+      return;
+    }
+    const derived = await deriveDealKeypair(master, dealId);
+    if (derived.publicKey.toBase58() !== profile.escrowAddress) {
+      await ctx.reply(
+        it.ripristinaMismatch(
+          dealId,
+          profile.escrowAddress,
+          derived.publicKey.toBase58(),
+        ),
+        { parse_mode: "Markdown" },
+      );
+      return;
+    }
+  }
+
+  await ctx.reply(
+    who === "seller"
+      ? it.adminForceRelease({ id: dealId } as Deal)
+      : it.adminForceRefund({ id: dealId } as Deal),
+    { parse_mode: "Markdown" },
+  );
+
+  const result = await payoutDealSol(dealId, dest);
+  if (!result.ok) {
+    await ctx.reply(it.payoutFailed({ id: dealId } as Deal, result.error), {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  const doneStatus = who === "seller" ? "released" : "refunded";
+  if (fromStore) {
+    ctx.store.update(dealId, {
+      status: doneStatus,
+      payoutTxSig: result.signature,
+    });
+  }
+
+  await ctx.reply(
+    it.payoutSuccess(
+      {
+        id: dealId,
+        sellerWallet: who === "seller" ? dest : fromStore?.sellerWallet,
+        buyerWallet: who === "buyer" ? dest : fromStore?.buyerWallet,
+      } as Deal,
+      who === "seller" ? "release" : "refund",
+      result.signature,
+      result.sol,
+    ),
+    { parse_mode: "Markdown" },
+  );
 }
