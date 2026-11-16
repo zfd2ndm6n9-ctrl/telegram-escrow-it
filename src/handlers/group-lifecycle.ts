@@ -13,6 +13,7 @@ import {
   termsReadyForConfirm,
   tosAccepted,
 } from "../services/deal-logic.js";
+import { convertPriceEurToSol } from "../services/fx/sol-eur.js";
 import { hardenGroupPermissions } from "../services/group-creator.js";
 import {
   autoBindCounterpart,
@@ -45,6 +46,20 @@ function autoBindReply(reason: "too_many" | "none" | "need_message"): string {
   return it.autoBindNone;
 }
 
+/** Buyer/seller/creator del deal (o slot ancora aperto per la controparte). */
+function canRunAvvia(
+  deal: { creatorId: number; buyerId?: number; sellerId?: number },
+  userId: number,
+): boolean {
+  if (deal.creatorId === userId) return true;
+  if (deal.buyerId === userId || deal.sellerId === userId) return true;
+  // Controparte non ancora bound: buyer o seller slot libero → chiunque
+  // nel gruppo col deal collegato può /avvia (auto-bind userà runnerId).
+  const missingBuyer = deal.buyerId == null;
+  const missingSeller = deal.sellerId == null;
+  return missingBuyer || missingSeller;
+}
+
 async function onHumanJoined(
   ctx: BotContext,
   chatId: number,
@@ -57,11 +72,41 @@ async function onHumanJoined(
 
   let current = trackSeenGroupUser(ctx.store, deal, userId);
 
-  // Deal non ancora a 2 party: traccia; auto-bind solo via /avvia
   if (!bothPartiesPresent(current)) {
     if (isAllowedHuman(current, userId) || userId === current.creatorId) {
       const patch = assignJoiningParty(current, userId, username, displayName);
-      if (patch) ctx.store.update(current.id, patch);
+      if (patch) {
+        current = ctx.store.update(current.id, patch) ?? current;
+      }
+    } else if (
+      current.buyerId == null ||
+      current.sellerId == null
+    ) {
+      // Nuovo umano: prova bind immediato (niente attesa messaggio).
+      const bind = await autoBindCounterpart(
+        ctx.api,
+        ctx.store,
+        current,
+        chatId,
+        {
+          runnerId: userId,
+          runnerUsername: username,
+          runnerDisplayName: displayName,
+        },
+      );
+      current = bind.deal;
+      if (
+        bind.ok &&
+        bothPartiesPresent(current) &&
+        (current.status === "awaiting_counterpart" ||
+          current.status === "awaiting_bot_admin")
+      ) {
+        await startDealInGroup(ctx.api, ctx.store, current, chatId, {
+          runnerId: userId,
+          runnerUsername: username,
+          runnerDisplayName: displayName,
+        });
+      }
     }
     return;
   }
@@ -95,8 +140,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Path felice: bot aggiunto a gruppo creato dall'utente.
-    const pending = ctx.store.findAwaitingGroupByCreator(update.from.id);
+    // Path felice: bot aggiunto a gruppo — collega deal di creator o party.
+    const pending =
+      ctx.store.findAwaitingGroupByCreator(update.from.id) ??
+      ctx.store.findAwaitingGroupByParty(update.from.id);
     if (pending && pending.groupChatId == null) {
       ctx.store.update(pending.id, {
         groupChatId: chat.id,
@@ -109,13 +156,15 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       );
     }
 
-    await ctx.api.sendMessage(chat.id, it.botAddedHint);
+    await ctx.api.sendMessage(chat.id, it.botAddedHint, {
+      parse_mode: "Markdown",
+    });
     console.log(`Bot aggiunto a chat ${chat.id}; in attesa di /avvia`);
   });
 
   /**
    * /avvia — collega il gruppo, auto-assegna la controparte, apre termini (DM seller) / Accetto.
-   * Alias: /setup.
+   * Buyer o seller (non solo il creator DM). Alias: /setup.
    */
   const avvia = async (ctx: BotContext) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
@@ -126,7 +175,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     const existing = ctx.store.findByGroupChatId(ctx.chat.id);
     // Già collegato oltre bind/auto-bind: niente seconda card completa.
-    // awaiting_counterpart: permetti retry dopo invite / messaggio controparte.
+    // awaiting_counterpart: permetti retry dopo invite.
     if (
       existing &&
       existing.status !== "awaiting_bot_admin" &&
@@ -139,26 +188,20 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    let deal =
-      existing && existing.creatorId === ctx.from.id
-        ? existing
-        : ctx.store.findAwaitingGroupByCreator(ctx.from.id);
-
+    let deal = existing;
     if (!deal) {
-      if (existing) {
-        if (existing.creatorId !== ctx.from.id) {
-          await ctx.reply(it.notCreator);
-          return;
-        }
-        deal = existing;
-      } else {
-        await ctx.reply(it.noDealInGroup);
-        return;
-      }
+      deal =
+        ctx.store.findAwaitingGroupByCreator(ctx.from.id) ??
+        ctx.store.findAwaitingGroupByParty(ctx.from.id);
     }
 
-    if (deal.creatorId !== ctx.from.id) {
-      await ctx.reply(it.notCreator);
+    if (!deal) {
+      await ctx.reply(it.noDealInGroup);
+      return;
+    }
+
+    if (!canRunAvvia(deal, ctx.from.id)) {
+      await ctx.reply(it.notDealParty, { parse_mode: "Markdown" });
       return;
     }
 
@@ -169,11 +212,18 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     await hardenGroupPermissions(ctx.api, ctx.chat.id);
 
+    const runner = {
+      runnerId: ctx.from.id,
+      runnerUsername: ctx.from.username,
+      runnerDisplayName: displayNameOf(ctx.from),
+    };
+
     const { deal: started, perms, autoBind } = await startDealInGroup(
       ctx.api,
       ctx.store,
       deal,
       ctx.chat.id,
+      runner,
     );
 
     if (!perms.ok) {
@@ -237,6 +287,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           ctx.store,
           current,
           ctx.chat.id,
+          {
+            runnerId: ctx.from.id,
+            runnerUsername: ctx.from.username,
+            runnerDisplayName: displayNameOf(ctx.from),
+          },
         );
         void advanced;
       }
@@ -248,6 +303,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       ctx.store,
       current,
       ctx.chat.id,
+      {
+        runnerId: ctx.from.id,
+        runnerUsername: ctx.from.username,
+        runnerDisplayName: displayNameOf(ctx.from),
+      },
     );
     if (!bind.ok) {
       await ctx.answerCallbackQuery({ text: "Auto-bind fallito" });
@@ -256,10 +316,14 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
 
     await ctx.answerCallbackQuery({ text: "Ruoli ok" });
-    await startDealInGroup(ctx.api, ctx.store, bind.deal, ctx.chat.id);
+    await startDealInGroup(ctx.api, ctx.store, bind.deal, ctx.chat.id, {
+      runnerId: ctx.from.id,
+      runnerUsername: ctx.from.username,
+      runnerDisplayName: displayNameOf(ctx.from),
+    });
   });
 
-  // Buyer Accetta termini → lock + pin → importo escrow → wallet seller
+  // Buyer Accetta termini → lock + pin → converti €→SOL → wallet seller
   bot.callbackQuery(/^tosok:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     const deal = ctx.store.get(dealId);
@@ -307,17 +371,28 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       ctx.callbackQuery.message?.message_id ?? deal.setupMessageId;
     const now = new Date().toISOString();
     const cryptoReady = Boolean(deal.amount && parseAmount(deal.amount));
+
+    let solAmount = cryptoReady ? deal.amount : "";
+    if (!cryptoReady) {
+      if (!deal.priceEur) {
+        await ctx.answerCallbackQuery({ text: "Manca Prezzo €" });
+        await ctx.reply(it.missingCommercialPrice, { parse_mode: "Markdown" });
+        return;
+      }
+      const converted = await convertPriceEurToSol(deal.priceEur);
+      if (!converted) {
+        await ctx.answerCallbackQuery({ text: "Tasso non disponibile" });
+        await ctx.reply(it.rateUnavailable, { parse_mode: "Markdown" });
+        return;
+      }
+      solAmount = converted;
+    }
+
     let updated = ctx.store.update(deal.id, {
       tosAcceptedAt: now,
-      ...(cryptoReady
-        ? {
-            amountConfirmedAt: now,
-            status: "awaiting_seller_wallet" as const,
-          }
-        : {
-            amountConfirmedAt: undefined,
-            status: "awaiting_amount" as const,
-          }),
+      amount: solAmount,
+      amountConfirmedAt: now,
+      status: "awaiting_seller_wallet" as const,
       ...(tosMsgId != null
         ? {
             setupMessageId: deal.setupMessageId ?? tosMsgId,
@@ -332,13 +407,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
 
     await ctx.answerCallbackQuery({ text: "Termini accettati" });
+    await ctx.reply(it.tosAccepted(updated), { parse_mode: "Markdown" });
     await refreshGroupTitle(ctx.api, updated);
     updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
-    if (cryptoReady) {
-      await postAskSellerWallet(ctx.api, ctx.store, updated);
-    } else {
-      await ctx.reply(it.askEscrowAmount(updated), { parse_mode: "Markdown" });
-    }
+    await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
   // Legacy dual-confirm importo (deal mid-flight pre-unificazione)
@@ -387,7 +459,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
-  // Gruppo: niente free-form termini. Solo importo escrow post-Accetto (+ legacy).
+  // Gruppo: niente free-form termini. Legacy importo solo mid-flight.
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -410,7 +482,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           return;
         }
 
-        if (deal.creatorId === ctx.from.id && deal.groupChatId == null) {
+        if (
+          canRunAvvia(deal, ctx.from.id) &&
+          deal.groupChatId == null
+        ) {
           ctx.store.update(deal.id, {
             groupChatId: ctx.chat.id,
             status: "awaiting_bot_admin",
@@ -422,7 +497,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           ctx.store.get(dealId) ?? deal,
           ctx.from.id,
         );
-        await ctx.reply(it.botAddedHint);
+        await ctx.reply(it.botAddedHint, { parse_mode: "Markdown" });
         return;
       }
     }
@@ -440,34 +515,34 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     let current = trackSeenGroupUser(ctx.store, deal, ctx.from.id);
 
-    // Post-Accetto: un messaggio per l'importo escrow crypto
-    if (current.status === "awaiting_amount" && tosAccepted(current)) {
-      if (!isParty(current, ctx.from.id)) {
-        await next();
-        return;
-      }
-      const amount = parseAmount(text);
-      if (!amount) {
-        await ctx.reply(it.invalidEscrowAmount(current.asset), {
-          parse_mode: "Markdown",
+    // Se ancora in attesa controparte: un messaggio può completare il bind
+    if (
+      !bothPartiesPresent(current) &&
+      current.status === "awaiting_counterpart"
+    ) {
+      const bind = await autoBindCounterpart(
+        ctx.api,
+        ctx.store,
+        current,
+        ctx.chat.id,
+        {
+          runnerId: ctx.from.id,
+          runnerUsername: ctx.from.username,
+          runnerDisplayName: displayNameOf(ctx.from),
+        },
+      );
+      if (bind.ok) {
+        await startDealInGroup(ctx.api, ctx.store, bind.deal, ctx.chat.id, {
+          runnerId: ctx.from.id,
+          runnerUsername: ctx.from.username,
+          runnerDisplayName: displayNameOf(ctx.from),
         });
         return;
       }
-
-      let updated = ctx.store.update(current.id, {
-        amount,
-        amountVotes: [ctx.from.id],
-        amountConfirmedAt: new Date().toISOString(),
-        status: "awaiting_seller_wallet",
-      })!;
-      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-      await refreshGroupTitle(ctx.api, updated);
-      updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
-      await postAskSellerWallet(ctx.api, ctx.store, updated);
-      return;
+      current = bind.deal;
     }
 
-    // Legacy: importo dual-confirm mid-flight (pre-unificazione)
+    // Legacy mid-flight: importo dual-confirm (pre conversione €→SOL)
     if (
       current.status === "awaiting_amount" ||
       current.status === "awaiting_amount_confirm"
@@ -476,6 +551,30 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         await next();
         return;
       }
+      // Se abbiamo priceEur e ToS accettati, ripara convertendo invece di chiedere SOL
+      if (
+        current.status === "awaiting_amount" &&
+        tosAccepted(current) &&
+        current.priceEur &&
+        !current.amount
+      ) {
+        const converted = await convertPriceEurToSol(current.priceEur);
+        if (!converted) {
+          await ctx.reply(it.rateUnavailable, { parse_mode: "Markdown" });
+          return;
+        }
+        let updated = ctx.store.update(current.id, {
+          amount: converted,
+          amountConfirmedAt: new Date().toISOString(),
+          status: "awaiting_seller_wallet",
+        })!;
+        await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+        await refreshGroupTitle(ctx.api, updated);
+        updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
+        await postAskSellerWallet(ctx.api, ctx.store, updated);
+        return;
+      }
+
       const amount = parseAmount(text);
       if (!amount) {
         if (current.status === "awaiting_amount") {
