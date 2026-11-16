@@ -5,6 +5,7 @@ import { config } from "./config.js";
 import { registerStartHandlers } from "./handlers/start.js";
 import { registerCreateDealHandlers } from "./handlers/create-deal.js";
 import { registerDealViewHandlers } from "./handlers/deals.js";
+import { registerGroupHygieneHandlers } from "./handlers/group-hygiene.js";
 import { registerGroupLifecycleHandlers } from "./handlers/group-lifecycle.js";
 import { registerGroupCommandHandlers } from "./handlers/group-commands.js";
 import { it } from "./messages/it.js";
@@ -33,6 +34,7 @@ export function createBot(token: string): CreatedBot {
   registerStartHandlers(bot);
   registerCreateDealHandlers(bot);
   registerDealViewHandlers(bot);
+  registerGroupHygieneHandlers(bot);
   registerGroupLifecycleHandlers(bot);
   registerGroupCommandHandlers(bot);
 

@@ -38,6 +38,9 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
 
   bot.hears("❓ Aiuto", async (ctx) => {
     if (ctx.chat?.type !== "private") return;
-    await ctx.reply(it.help, { parse_mode: "Markdown" });
+    await ctx.reply(it.help, {
+      parse_mode: "Markdown",
+      reply_markup: mainMenuKeyboard(),
+    });
   });
 }

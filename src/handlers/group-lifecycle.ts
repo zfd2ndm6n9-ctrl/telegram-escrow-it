@@ -19,14 +19,24 @@ import {
   startDealInGroup,
 } from "../services/group-setup.js";
 import { tosConfirmKeyboard } from "../keyboards/menus.js";
+import { kickUnauthorizedBot } from "./group-hygiene.js";
 
 const MIN_TOS_LENGTH = 20;
+
+function displayNameOf(user: {
+  first_name?: string;
+  last_name?: string;
+}): string | undefined {
+  const parts = [user.first_name, user.last_name].filter(Boolean);
+  return parts.length ? parts.join(" ") : undefined;
+}
 
 async function onHumanJoined(
   ctx: BotContext,
   chatId: number,
   userId: number,
   username: string | undefined,
+  displayName?: string,
 ): Promise<void> {
   const deal = ctx.store.findByGroupChatId(chatId);
   if (!deal) return;
@@ -34,14 +44,14 @@ async function onHumanJoined(
   // Deal non ancora attivato: non auto-assegnare via join; kick solo se già chiuso a 2 party
   if (!bothPartiesPresent(deal)) {
     if (isAllowedHuman(deal, userId) || userId === deal.creatorId) {
-      const patch = assignJoiningParty(deal, userId, username);
+      const patch = assignJoiningParty(deal, userId, username, displayName);
       if (patch) ctx.store.update(deal.id, patch);
     }
     return;
   }
 
   if (isAllowedHuman(deal, userId)) {
-    const patch = assignJoiningParty(deal, userId, username);
+    const patch = assignJoiningParty(deal, userId, username, displayName);
     if (patch) ctx.store.update(deal.id, patch);
     return;
   }
@@ -62,7 +72,6 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     const already = ctx.store.findByGroupChatId(chat.id);
     if (already) {
-      // Gruppo creato dal bot: già bound — rinforza permessi, niente hint legacy.
       if (status === "administrator") {
         await hardenGroupPermissions(ctx.api, chat.id);
       }
@@ -70,7 +79,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Legacy: bot aggiunto a un gruppo utente non ancora collegato.
+    // Path felice: bot aggiunto a gruppo creato dall'utente.
     const pending = ctx.store.findAwaitingGroupByCreator(update.from.id);
     if (pending && pending.groupChatId == null) {
       ctx.store.update(pending.id, {
@@ -84,8 +93,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
   });
 
   /**
-   * /avvia — fallback: collega un gruppo già esistente (o riprende lo start).
-   * Alias: /setup. Il path primario crea il gruppo dopo /crea.
+   * /avvia — collega il gruppo al deal e avvia conferma controparte.
+   * Alias: /setup. Path felice dopo gruppo manuale + bot admin.
    */
   const avvia = async (ctx: BotContext) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
@@ -198,7 +207,12 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
 
     const alreadyParty = isParty(deal, ctx.from.id);
-    const patch = assignJoiningParty(deal, ctx.from.id, ctx.from.username);
+    const patch = assignJoiningParty(
+      deal,
+      ctx.from.id,
+      ctx.from.username,
+      displayNameOf(ctx.from),
+    );
     if (
       !alreadyParty &&
       (!patch || (patch.buyerId !== ctx.from.id && patch.sellerId !== ctx.from.id))
@@ -329,7 +343,6 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         await ctx.reply(it.onlyCreatorWritesTos);
         return;
       }
-      // awaiting_tos_confirm: la controparte deve usare il pulsante, non scrivere
       await next();
       return;
     }
@@ -357,7 +370,6 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     const member = ctx.chatMember.new_chat_member;
     const user = member.user;
-    if (user.is_bot) return;
 
     const becameMember =
       member.status === "member" ||
@@ -365,7 +377,18 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       member.status === "restricted";
     if (!becameMember) return;
 
-    await onHumanJoined(ctx, chat.id, user.id, user.username);
+    if (user.is_bot) {
+      await kickUnauthorizedBot(ctx, chat.id, user);
+      return;
+    }
+
+    await onHumanJoined(
+      ctx,
+      chat.id,
+      user.id,
+      user.username,
+      displayNameOf(user),
+    );
   });
 
   bot.on("message:new_chat_members", async (ctx) => {
@@ -373,8 +396,17 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     if (!ctx.store.findByGroupChatId(ctx.chat.id)) return;
 
     for (const user of ctx.message.new_chat_members) {
-      if (user.is_bot) continue;
-      await onHumanJoined(ctx, ctx.chat.id, user.id, user.username);
+      if (user.is_bot) {
+        await kickUnauthorizedBot(ctx, ctx.chat.id, user);
+        continue;
+      }
+      await onHumanJoined(
+        ctx,
+        ctx.chat.id,
+        user.id,
+        user.username,
+        displayNameOf(user),
+      );
     }
   });
 }

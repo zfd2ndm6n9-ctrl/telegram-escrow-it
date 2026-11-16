@@ -21,7 +21,9 @@ services:
         sync: false
       - key: TOS_URL
         sync: false
-      # Account helper MTProto (crea i gruppi). Solo su Render.
+      # Opzionale: TELEGRAM_BOT_CREATES_GROUPS=1 + helper MTProto (default = gruppo manuale).
+      - key: TELEGRAM_BOT_CREATES_GROUPS
+        sync: false
       - key: TELEGRAM_API_ID
         sync: false
       - key: TELEGRAM_API_HASH

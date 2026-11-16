@@ -60,35 +60,104 @@ export function assignJoiningParty(
   deal: Deal,
   userId: number,
   username?: string,
+  displayName?: string,
 ): Partial<Deal> | null {
   if (deal.buyerId === userId || deal.sellerId === userId) {
     const patch: Partial<Deal> = {};
-    if (deal.buyerId === userId && username && deal.buyerUsername !== username) {
-      patch.buyerUsername = username;
+    if (deal.buyerId === userId) {
+      if (username && deal.buyerUsername !== username) {
+        patch.buyerUsername = username;
+      }
+      if (displayName && deal.buyerDisplayName !== displayName) {
+        patch.buyerDisplayName = displayName;
+      }
     }
-    if (deal.sellerId === userId && username && deal.sellerUsername !== username) {
-      patch.sellerUsername = username;
+    if (deal.sellerId === userId) {
+      if (username && deal.sellerUsername !== username) {
+        patch.sellerUsername = username;
+      }
+      if (displayName && deal.sellerDisplayName !== displayName) {
+        patch.sellerDisplayName = displayName;
+      }
     }
     return Object.keys(patch).length ? patch : null;
   }
 
   // Slot libero = ruolo opposto al creator se quel lato manca
   if (deal.creatorRole === "buyer" && deal.sellerId == null) {
-    return { sellerId: userId, sellerUsername: username };
+    return {
+      sellerId: userId,
+      sellerUsername: username,
+      sellerDisplayName: displayName,
+    };
   }
   if (deal.creatorRole === "seller" && deal.buyerId == null) {
-    return { buyerId: userId, buyerUsername: username };
+    return {
+      buyerId: userId,
+      buyerUsername: username,
+      buyerDisplayName: displayName,
+    };
   }
 
   // Se per qualche motivo manca il lato creator (non dovrebbe)
   if (deal.buyerId == null) {
-    return { buyerId: userId, buyerUsername: username };
+    return {
+      buyerId: userId,
+      buyerUsername: username,
+      buyerDisplayName: displayName,
+    };
   }
   if (deal.sellerId == null) {
-    return { sellerId: userId, sellerUsername: username };
+    return {
+      sellerId: userId,
+      sellerUsername: username,
+      sellerDisplayName: displayName,
+    };
   }
 
   return null;
+}
+
+/** Confronta username / display name salvati; se cambiano restituisce patch + testo alert. */
+export function detectIdentityChange(
+  deal: Deal,
+  userId: number,
+  username: string | undefined,
+  displayName: string | undefined,
+): { patch: Partial<Deal>; alert?: string } | null {
+  const isBuyer = deal.buyerId === userId;
+  const isSeller = deal.sellerId === userId;
+  if (!isBuyer && !isSeller) return null;
+
+  const role = isBuyer ? "buyer" : "seller";
+  const prevUser = isBuyer ? deal.buyerUsername : deal.sellerUsername;
+  const prevName = isBuyer ? deal.buyerDisplayName : deal.sellerDisplayName;
+  const patch: Partial<Deal> = {};
+  const changes: string[] = [];
+
+  if (username && prevUser && username !== prevUser) {
+    if (isBuyer) patch.buyerUsername = username;
+    else patch.sellerUsername = username;
+    changes.push(`@${prevUser} → @${username}`);
+  } else if (username && !prevUser) {
+    if (isBuyer) patch.buyerUsername = username;
+    else patch.sellerUsername = username;
+  }
+
+  if (displayName && prevName && displayName !== prevName) {
+    if (isBuyer) patch.buyerDisplayName = displayName;
+    else patch.sellerDisplayName = displayName;
+    changes.push(`«${prevName}» → «${displayName}»`);
+  } else if (displayName && !prevName) {
+    if (isBuyer) patch.buyerDisplayName = displayName;
+    else patch.sellerDisplayName = displayName;
+  }
+
+  if (Object.keys(patch).length === 0) return null;
+  return {
+    patch,
+    alert: changes.length ? changes.join("; ") : undefined,
+  };
 }
 
 export function startGroupPayload(dealId: string): string {

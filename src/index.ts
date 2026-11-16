@@ -44,18 +44,24 @@ async function main(): Promise<void> {
   const me = await bot.api.getMe();
   config.botUsername = me.username;
 
-  if (isMtprotoHelperConfigured()) {
-    try {
-      await getMtprotoHelper();
-    } catch (err) {
+  if (config.telegramBotCreatesGroups) {
+    if (isMtprotoHelperConfigured()) {
+      try {
+        await getMtprotoHelper();
+      } catch (err) {
+        console.warn(
+          "TELEGRAM_BOT_CREATES_GROUPS=1 ma helper MTProto non disponibile (soft-fallback a gruppo manuale):",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    } else {
       console.warn(
-        "Helper MTProto non disponibile all'avvio (creazione gruppi fallirà finché non è ok):",
-        err instanceof Error ? err.message : err,
+        "TELEGRAM_BOT_CREATES_GROUPS=1 ma mancano TELEGRAM_API_ID/HASH/HELPER_SESSION: path felice = gruppo manuale + /avvia.",
       );
     }
   } else {
-    console.warn(
-      "TELEGRAM_API_ID / TELEGRAM_API_HASH / TELEGRAM_HELPER_SESSION assenti: il bot non può creare i gruppi escrow.",
+    console.log(
+      "Creazione automatica gruppi OFF (default). Path felice: gruppo privato → bot admin → /avvia. Gate: TELEGRAM_BOT_CREATES_GROUPS=1.",
     );
   }
 

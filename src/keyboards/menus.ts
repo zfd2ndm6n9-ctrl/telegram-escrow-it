@@ -36,7 +36,7 @@ export function assetKeyboard(): Keyboard {
     .oneTime();
 }
 
-/** Post-importo / gruppo pronto: solo ToS piattaforma (niente “aggiungi il bot”). */
+/** Post-importo: ToS piattaforma (path manuale: crea gruppo → admin → /avvia). */
 export function afterAmountKeyboard(tosUrl?: string): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (tosUrl) {

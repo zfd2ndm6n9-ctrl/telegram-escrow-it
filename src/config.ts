@@ -37,11 +37,19 @@ export const config = {
   botUsername: undefined as string | undefined,
   /**
    * Account helper MTProto per creare i gruppi escrow (la Bot API non può).
+   * Opzionale: il path felice è gruppo manuale + /avvia.
    * api_id / api_hash da https://my.telegram.org — session string da `npm run helper:login`.
    */
   telegramApiId: Number(process.env.TELEGRAM_API_ID?.trim() || "0") || undefined,
   telegramApiHash: process.env.TELEGRAM_API_HASH?.trim() || undefined,
   telegramHelperSession: process.env.TELEGRAM_HELPER_SESSION?.trim() || undefined,
+  /**
+   * Se `1`/`true` e helper MTProto configurato, dopo /crea il bot tenta di creare il gruppo.
+   * Default off: UX = crea gruppo privato → aggiungi bot admin → /avvia.
+   */
+  telegramBotCreatesGroups: ["1", "true", "yes"].includes(
+    (process.env.TELEGRAM_BOT_CREATES_GROUPS?.trim() || "").toLowerCase(),
+  ),
 };
 
 export function assertConfig(): void {

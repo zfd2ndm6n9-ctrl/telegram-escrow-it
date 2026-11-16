@@ -11,13 +11,20 @@ import {
   roleKeyboard,
 } from "../keyboards/menus.js";
 import { parseAmount } from "../services/deal-logic.js";
-import { createEscrowGroup } from "../services/group-creator.js";
+import {
+  createEscrowGroup,
+  groupCreatorReady,
+} from "../services/group-creator.js";
 import { startDealInGroup } from "../services/group-setup.js";
 import {
   getDealEscrowAddress,
   isSolanaConfigured,
 } from "../services/solana/index.js";
 import type { Asset, PartyRole } from "../types.js";
+
+function botCreatesGroupsEnabled(): boolean {
+  return config.telegramBotCreatesGroups && groupCreatorReady();
+}
 
 export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
   const beginCreate = async (ctx: BotContext) => {
@@ -121,9 +128,13 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       }
 
       const placeholder = "PENDING_SOL_ESCROW";
+      const creatorDisplayName = [ctx.from.first_name, ctx.from.last_name]
+        .filter(Boolean)
+        .join(" ");
       const deal = ctx.store.create({
         creatorId: ctx.from.id,
         creatorUsername: ctx.from.username,
+        creatorDisplayName: creatorDisplayName || undefined,
         creatorRole: role,
         amount,
         asset,
@@ -141,19 +152,58 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       const updated = ctx.store.update(deal.id, { escrowAddress })!;
       ctx.session.creating = undefined;
 
-      await ctx.reply(it.afterAmountInstructions(updated), {
-        parse_mode: "Markdown",
-        reply_markup: afterAmountKeyboard(config.tosUrl),
-      });
+      // Opzionale: TELEGRAM_BOT_CREATES_GROUPS=1 + helper MTProto.
+      if (botCreatesGroupsEnabled()) {
+        const created = await createEscrowGroup({
+          deal: updated,
+          botApi: ctx.api,
+          creatorId: ctx.from.id,
+          creatorUsername: ctx.from.username,
+        });
 
-      const created = await createEscrowGroup({
-        deal: updated,
-        botApi: ctx.api,
-        creatorId: ctx.from.id,
-        creatorUsername: ctx.from.username,
-      });
+        if (created.ok) {
+          const withGroup =
+            ctx.store.update(updated.id, {
+              groupChatId: created.chatId,
+              groupInviteLink: created.inviteLink,
+            }) ?? updated;
 
-      if (!created.ok) {
+          const { deal: started, perms } = await startDealInGroup(
+            ctx.api,
+            ctx.store,
+            withGroup,
+            created.chatId,
+          );
+
+          if (!perms.ok) {
+            await ctx.reply(it.missingBotPerms(perms.missing), {
+              parse_mode: "Markdown",
+              reply_markup: groupInviteKeyboard(
+                created.inviteLink,
+                config.tosUrl,
+              ),
+            });
+            return;
+          }
+
+          await ctx.reply(
+            it.groupReady(started, created.inviteLink, created.creatorInvited),
+            {
+              parse_mode: "Markdown",
+              reply_markup: groupInviteKeyboard(
+                created.inviteLink,
+                config.tosUrl,
+              ),
+            },
+          );
+          return;
+        }
+
+        // Soft-fallback: istruzioni manuali se create automatica fallisce.
+        await ctx.reply(it.afterAmountInstructions(updated), {
+          parse_mode: "Markdown",
+          reply_markup: afterAmountKeyboard(config.tosUrl),
+        });
         await ctx.reply(it.groupCreateFailed(updated, created.error), {
           parse_mode: "Markdown",
           reply_markup: mainMenuKeyboard(),
@@ -161,34 +211,11 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
         return;
       }
 
-      const withGroup =
-        ctx.store.update(updated.id, {
-          groupChatId: created.chatId,
-          groupInviteLink: created.inviteLink,
-        }) ?? updated;
-
-      const { deal: started, perms } = await startDealInGroup(
-        ctx.api,
-        ctx.store,
-        withGroup,
-        created.chatId,
-      );
-
-      if (!perms.ok) {
-        await ctx.reply(it.missingBotPerms(perms.missing), {
-          parse_mode: "Markdown",
-          reply_markup: groupInviteKeyboard(created.inviteLink, config.tosUrl),
-        });
-        return;
-      }
-
-      await ctx.reply(
-        it.groupReady(started, created.inviteLink, created.creatorInvited),
-        {
-          parse_mode: "Markdown",
-          reply_markup: groupInviteKeyboard(created.inviteLink, config.tosUrl),
-        },
-      );
+      // Path felice (default): gruppo manuale.
+      await ctx.reply(it.afterAmountInstructions(updated), {
+        parse_mode: "Markdown",
+        reply_markup: afterAmountKeyboard(config.tosUrl),
+      });
     }
   });
 }

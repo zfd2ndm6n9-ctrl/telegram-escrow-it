@@ -1,52 +1,52 @@
-# Gruppi escrow creati dal bot
+# Gruppi escrow (manuale + helper opzionale)
 
-## Perché un account helper
+## Path felice (default)
 
-La **Telegram Bot API non può creare gruppi**. CoinXpert-style: un **account user MTProto** (helper) crea il supergroup, promuove il bot ad admin, genera il link invito. Il bot grammY resta il runtime del deal.
+1. `/crea` in privato → ruolo → crypto → importo  
+2. L’utente crea un **gruppo privato**  
+3. Aggiunge il bot come **amministratore** (Elimina messaggi, Blocca utenti, Invita utenti)  
+4. Nel gruppo: `/avvia`  
+5. Invita solo la controparte  
 
-Variabili:
+**`TELEGRAM_HELPER_SESSION` non è richiesta** per questo flusso.
+
+## Creazione automatica (opzionale)
+
+La Bot API non può creare gruppi. Con gate esplicito + account helper MTProto il bot può creare il supergroup dopo `/crea`.
 
 | Env | Ruolo |
 |-----|--------|
+| `TELEGRAM_BOT_CREATES_GROUPS=1` | Abilita il tentativo di create automatica |
 | `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` | App su [my.telegram.org](https://my.telegram.org) |
 | `TELEGRAM_HELPER_SESSION` | Session string (`npm run helper:login`) |
 
-## Flusso dopo `/crea`
+Se il gate è on ma helper manca o fallisce → **soft-fallback**: deal già creato + istruzioni manuali (non si rompe `/crea`).
 
-1. Ruolo → crypto → importo SOL  
-2. Helper: `channels.createChannel` (megagroup)  
-3. Helper: `channels.editAdmin` → bot con diritti forti  
-4. Default banned rights + `setChatPermissions` (membri senza change info / invite / pin)  
-5. Tentativo invite creator (se ha username); sempre **link invito** in DM (`member_limit: 2`)  
-6. Auto-start: conferma controparte nel gruppo (`/avvia` resta fallback)
+## Flusso automatico (solo se gate + helper ok)
+
+1. Helper: `channels.createChannel` (megagroup)  
+2. Helper: `channels.editAdmin` → bot con diritti forti  
+3. Default banned rights + `setChatPermissions`  
+4. Link invito in DM (`member_limit: 2`)  
+5. Auto-start conferma controparte  
 
 ## Permessi bot (admin)
 
-Impostati via MTProto `ChatAdminRights`:
+Obbligatori per `/avvia`: Elimina messaggi, Blocca utenti, Invita utenti.
 
-- `changeInfo`, `deleteMessages`, `banUsers`, `inviteUsers`, `pinMessages`
-- `manageCall`, `manageTopics`, `other`
-- `postMessages` / `editMessages` (canali; innocui in gruppo)
-- **`addAdmins: false`** — le parti non ricevono ownership/admin
+## Harden membri + igiene
 
-## Harden membri
-
-Vietato ai non-admin: cambiare info, invitare liberamente, pinnare, poll/stickers/inline, ecc. Consentito: messaggi di testo (+ foto/documenti per wallet/screenshot).
-
-I membri **non** hanno `can_delete_messages` (solo admin): non possono cancellare i messaggi altrui.
+- Membri senza change info / invite / pin / stickers inline  
+- Kick umani extra (oltre buyer/seller; admin solo in disputa)  
+- Kick bot non autorizzati  
+- Messaggi inoltrati: cancellati se possibile + avviso  
+- Alert se buyer/seller cambiano username o nome  
 
 ## Cosa Telegram non può impedire
 
 | Limite | Mitigazione |
 |--------|-------------|
-| Owner del gruppo = **account helper**, non il buyer/seller | Helper dedicato; non promuovere le parti ad admin |
-| L’owner (helper) può ancora eliminare il gruppo | Proteggi session/telefono helper; non condividere |
-| Privacy utente può bloccare l’add diretto del creator | Link invito in DM (path principale) |
-| Link invito inoltrato a terzi | `member_limit: 2` + kick extra dopo 2 party |
-| Controparte può lasciare / spam-report | Processo disputa + admin |
-| Compromissione helper o bot token | Secret solo su Render; ruota session se sospetto |
-| Bot API senza helper → niente create group | Deploy richiede le 3 env helper |
-
-## Legacy
-
-`/avvia` (e `?startgroup=`) restano per gruppi già esistenti o recovery. Il path UX primario **non** chiede più «crea il gruppo / aggiungi il bot».
+| Owner = chi ha creato il gruppo (parti) | Bot admin obbligatorio; non promuovere altri bot |
+| Link invito inoltrato | Kick extra + avviso forward |
+| Compromissione bot token | Secret solo su Render |
+| Helper owner (solo path automatico) | Gate off di default; proteggi session helper |

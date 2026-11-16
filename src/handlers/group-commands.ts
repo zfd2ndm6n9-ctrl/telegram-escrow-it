@@ -2,7 +2,7 @@ import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { config } from "../config.js";
 import { it } from "../messages/it.js";
-import { groupActionsKeyboard } from "../keyboards/menus.js";
+import { groupActionsKeyboard, mainMenuKeyboard } from "../keyboards/menus.js";
 import {
   addUniqueVote,
   isAdminUser,
@@ -81,12 +81,29 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     await handlePayOrRefund(ctx, "release");
   });
 
+  /** Alias CoinXpert-style */
+  bot.command("release", async (ctx) => {
+    await handlePayOrRefund(ctx, "release");
+  });
+
   bot.command("refund_buyer", async (ctx) => {
     await handlePayOrRefund(ctx, "refund");
   });
 
   bot.command("dispute", async (ctx) => {
     await openDispute(ctx);
+  });
+
+  bot.command("support", async (ctx) => {
+    await replySupport(ctx);
+  });
+
+  bot.command("menu", async (ctx) => {
+    await replyMenu(ctx);
+  });
+
+  bot.command("blockchain", async (ctx) => {
+    await replyBlockchain(ctx);
   });
 
   bot.callbackQuery("addr", async (ctx) => {
@@ -423,6 +440,56 @@ async function handlePayOrRefund(
   }
 
   await runPayout(ctx, pending, kind);
+}
+
+async function replySupport(ctx: BotContext): Promise<void> {
+  if (ctx.chat?.type === "private") {
+    await ctx.reply(it.supportDm, { parse_mode: "Markdown" });
+    return;
+  }
+  const deal = requireGroupDeal(ctx);
+  if (!deal) {
+    await ctx.reply(it.noDealInGroup);
+    return;
+  }
+  await ctx.reply(it.supportGroup, { parse_mode: "Markdown" });
+}
+
+async function replyMenu(ctx: BotContext): Promise<void> {
+  if (ctx.chat?.type === "private") {
+    await ctx.reply(it.menuDm, {
+      parse_mode: "Markdown",
+      reply_markup: mainMenuKeyboard(),
+    });
+    return;
+  }
+  const deal = requireGroupDeal(ctx);
+  if (!deal) {
+    await ctx.reply(it.menuGroup, { parse_mode: "Markdown" });
+    return;
+  }
+  await ctx.reply(it.menuGroup, {
+    parse_mode: "Markdown",
+    reply_markup: groupActionsKeyboard(deal.status),
+  });
+}
+
+async function replyBlockchain(ctx: BotContext): Promise<void> {
+  const deal = requireGroupDeal(ctx);
+  if (!deal) {
+    if (ctx.chat?.type === "private") {
+      await ctx.reply(it.onlyGroup, { parse_mode: "Markdown" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
+    return;
+  }
+  if (!deal.payoutTxSig) {
+    await ctx.reply(it.blockchainMissing);
+    return;
+  }
+  const url = `https://solscan.io/tx/${deal.payoutTxSig}`;
+  await ctx.reply(it.blockchainLink(deal, url), { parse_mode: "Markdown" });
 }
 
 export async function openDispute(ctx: BotContext): Promise<void> {

@@ -14,77 +14,100 @@ function depositPrompt(deal: Deal): string {
       : "Buyer";
   return `${buyer}, paga *${deal.amount} ${deal.asset}* a questo indirizzo:
 
-\`${deal.escrowAddress}\``;
+\`${deal.escrowAddress}\`
+
+⚠️ Controlla l'indirizzo *solo* nei messaggi di Escrowita in questo gruppo.`;
 }
 
 export const it = {
-  welcome: `Ciao, benvenuto su Escrowita.
+  welcome: `Ciao, benvenuto su *Escrowita*.
 
-Dopo /crea il bot apre un *gruppo privato* del deal e ti manda il *link invito* da condividere con la controparte. In disputa: entra il supporto.
+Escrow crypto tra due parti già d'accordo.
 
-Comandi (in privato):
-/crea — prepara un nuovo escrow
+/crea — nuovo deal
 /miei — i tuoi deal
+/menu — comandi
 /aiuto — guida`,
 
-  help: `*Guida*
+  help: `*Guida Escrowita*
 
-1. In privato: /crea → ruolo (buyer/seller) → crypto (SOL/ETH/LTC) → importo (*niente wallet in DM*)
-2. Il bot crea il gruppo e ti manda il *link invito* (condividilo con la controparte)
-3. Nel gruppo: conferma ruolo → *ToS del deal* → wallet seller poi buyer → deposito
-4. Indirizzo escrow + deposito → /pay_seller o /refund_buyer (doppia conferma)
+1. In privato: /crea → ruolo → crypto → importo
+2. Crea un *gruppo privato*, aggiungi il bot come *admin*, poi /avvia
+3. Nel gruppo: conferma ruolo → ToS → wallet seller poi buyer → deposito
+4. /pay_seller o /refund_buyer (doppia conferma)
 
-Asset: *SOL* live (mainnet). *ETH* e *LTC* presto disponibili. Niente USDT.`,
+Asset: *SOL* live. *ETH* e *LTC* presto.
+In dubbio: /dispute o /support.`,
+
+  menuDm: `*Menu Escrowita*
+
+/crea — nuovo escrow
+/miei — i tuoi deal
+/aiuto — guida
+/support — supporto`,
+
+  menuGroup: `*Comandi nel gruppo*
+
+/stato — stato deal
+/indirizzo — indirizzo escrow
+/depositato — verifica deposito
+/pay_seller · /refund_buyer — doppia conferma
+/blockchain — link tx
+/dispute · /support
+/menu — questo elenco`,
 
   askRole: "Che ruolo hai in questo deal?",
   askAsset: "Con quale crypto vuoi fare l'escrow?",
   assetComingSoon: (asset: string) =>
     `*${asset}* sarà presto disponibile. Per ora scegli *SOL*.`,
   askAmount:
-    "Quanto vuoi mettere in escrow? Importo in *SOL* (es. `0.01` o `0.05`).\n⚠️ Mainnet reale: usa importi di test piccoli.",
+    "Quanto vuoi mettere in escrow? Importo in *SOL* (es. `0.01`).\n⚠️ Mainnet reale: usa importi di test piccoli.",
   askWallet:
-    "Invia il tuo *indirizzo wallet Solana* (base58).\n• Se sei *buyer*: useremo questo indirizzo per un eventuale rimborso.\n• Se sei *seller*: qui riceverai il pagamento a rilascio.",
+    "Invia il tuo *indirizzo wallet Solana* (base58).",
   invalidAmount:
-    "Importo non valido. Invia un numero positivo in SOL (es. `0.01` o `0.05`).",
+    "Importo non valido. Invia un numero positivo in SOL (es. `0.01`).",
   invalidWallet:
-    "Indirizzo Solana non valido. Incolla un indirizzo base58 (32–44 caratteri).",
+    "Indirizzo Solana non valido. Incolla un indirizzo base58.",
   solanaNotConfigured:
-    "Escrow SOL non configurato: manca `SOLANA_PRIVATE_KEY` sul worker. Avvisa l'admin.",
+    "Escrow SOL non configurato sul server. Avvisa il supporto.",
   cancelled: "Operazione annullata.",
-  unknownPrivate: "Non ho capito. Usa /aiuto oppure i pulsanti del menu.",
+  unknownPrivate: "Non ho capito. Usa /menu oppure /aiuto.",
 
-  /** Post-importo: deal pronto, gruppo in creazione (nessuno “crea gruppo / aggiungi bot”). */
+  /** Post-importo: istruzioni gruppo manuale. */
   afterAmountInstructions: (deal: Deal) =>
-    `✅ Deal *#${deal.id}* preparato.
+    `✅ Deal *#${deal.id}* pronto.
 
-• Ruolo tuo: *${deal.creatorRole}*
+• Ruolo: *${deal.creatorRole}*
 • Importo: *${deal.amount} ${deal.asset}*
 
-Sto creando il gruppo escrow…`,
+Ora:
+1. Crea un *gruppo privato*
+2. Aggiungi questo bot come *amministratore* (Elimina messaggi, Blocca utenti, Invita utenti)
+3. Nel gruppo: /avvia
+
+Poi invita solo la controparte.`,
 
   groupReady: (deal: Deal, inviteLink: string, creatorInvited: boolean) =>
     `✅ Gruppo escrow pronto per deal *#${deal.id}*.
 
-${creatorInvited ? "Ti ho già aggiunto al gruppo.\n" : ""}*Link invito* (max 2 persone — condividilo con la controparte):
+${creatorInvited ? "Ti ho già aggiunto al gruppo.\n" : ""}*Link invito* (max 2 — condividilo con la controparte):
 ${inviteLink}
 
-Nel gruppo: la controparte conferma il ruolo → *ToS* → wallet seller poi buyer → deposito.
-In disputa entra il *supporto*.
-
-Verifica sempre l'indirizzo escrow prima di inviare ${deal.asset}.`,
+Nel gruppo: conferma ruolo → ToS → wallet → deposito.
+Verifica sempre l'indirizzo escrow nei messaggi del bot.`,
 
   groupCreateFailed: (deal: Deal, detail: string) =>
-    `❌ Deal *#${deal.id}* creato ma *non* riesco ad aprire il gruppo.
+    `⚠️ Deal *#${deal.id}* pronto, ma la creazione automatica del gruppo non è riuscita.
 
 \`${escMd(detail)}\`
 
-Avvisa l'admin (helper MTProto / permessi). Il deal resta in attesa di gruppo.`,
+Usa il percorso manuale: crea un gruppo privato → aggiungi il bot admin → /avvia.`,
 
   tosComingSoon:
-    "📄 *Termini di servizio* della piattaforma: in arrivo. I ToS *del singolo deal* si stabiliscono nel gruppo dopo la conferma del ruolo.",
+    "📄 Termini della piattaforma: in arrivo. I ToS del deal si fissano nel gruppo.",
 
   needBotAdmin:
-    "⚠️ Non posso avviare il deal: promuovimi ad *amministratore* con Elimina messaggi, Blocca utenti e Invita utenti, poi reinvia /avvia.",
+    "⚠️ Promuovimi ad *amministratore* (Elimina messaggi, Blocca utenti, Invita utenti), poi /avvia.",
 
   missingBotPerms: (missing: string[]) => {
     const labels: Record<string, string> = {
@@ -93,49 +116,49 @@ Avvisa l'admin (helper MTProto / permessi). Il deal resta in attesa di gruppo.`,
       can_invite_users: "Invita utenti",
     };
     const lines = missing.map((k) => `• ${labels[k] ?? k}`);
-    return `⚠️ *Non posso avviare il deal*: mi mancano permessi da amministratore.
+    return `⚠️ Servono permessi admin.
 
-Promuovimi admin con almeno:
+Promuovimi con:
 • Elimina messaggi
 • Blocca utenti
 • Invita utenti
 
-*Ti manca ancora:*
+*Manca ancora:*
 ${lines.join("\n")}
 
-Poi reinvia /avvia. Niente escrow finché non è a posto.`;
+Poi /avvia.`;
   },
 
   askCounterpartConfirm: (deal: Deal) => {
     const role = deal.creatorRole === "buyer" ? "seller" : "buyer";
-    return `🔐 Deal *#${deal.id}* collegato a questo gruppo.
+    return `🔐 Deal *#${deal.id}* collegato.
 
 • Importo: *${deal.amount} ${deal.asset}*
 • Creatore: *${deal.creatorRole}*
 
-Controparte: tocca il pulsante per confermare come *${role}*.
-(Devono esserci solo buyer + seller + bot — niente altri utenti.)`;
+Controparte: conferma come *${role}*.
+Solo buyer + seller (+ bot).`;
   },
 
   stabilizeTos: (deal: Deal) =>
-    `📜 *Stabiliamo i ToS* — deal *#${deal.id}*
+    `📜 *ToS del deal* — *#${deal.id}*
 
-Chi ha aperto il deal (@${deal.creatorUsername ?? deal.creatorId}): scrivi qui i termini dell'accordo (cosa viene scambiato, tempi, condizioni).
+@${deal.creatorUsername ?? deal.creatorId}: scrivi qui i termini (cosa, tempi, condizioni).
 
-La controparte li confermerà con un pulsante. Solo dopo chiederemo i wallet.`,
+La controparte conferma col pulsante. Poi i wallet.`,
 
   tosDraftPosted: (deal: Deal) =>
-    `📜 *ToS proposti* per deal *#${deal.id}* (dal creatore):
+    `📜 *ToS proposti* (#${deal.id}):
 
 ${escMd(deal.tosText ?? "")}
 
-Controparte: tocca *Accetto i ToS* per confermare.
-Il creatore può reinviare un nuovo testo per sostituirli prima della conferma.`,
+Controparte: *Accetto i ToS*.
+Il creatore può sostituirli inviando un nuovo testo.`,
 
   tosAccepted: (deal: Deal) =>
-    `✅ ToS accettati sul deal *#${deal.id}*.
+    `✅ ToS accettati (#${deal.id}).
 
-Prossimo passo: i wallet *${deal.asset}* (seller prima, poi buyer).`,
+Prossimo: wallet *${deal.asset}* — prima seller, poi buyer.`,
 
   askSellerWallet: (deal: Deal) => {
     const who = deal.sellerUsername
@@ -143,9 +166,7 @@ Prossimo passo: i wallet *${deal.asset}* (seller prima, poi buyer).`,
       : deal.sellerId
         ? `\`${deal.sellerId}\``
         : "seller";
-    return `👛 *Seller* (${who}): invia il tuo wallet *${deal.asset}* con:
-\`/wallet IndirizzoSolana\`
-oppure incolla qui l'indirizzo.`;
+    return `👛 *Seller* (${who}): wallet *${deal.asset}* con \`/wallet Indirizzo\` oppure incolla l'indirizzo.`;
   },
 
   askBuyerWallet: (deal: Deal) => {
@@ -154,36 +175,34 @@ oppure incolla qui l'indirizzo.`;
       : deal.buyerId
         ? `\`${deal.buyerId}\``
         : "buyer";
-    return `👛 *Buyer* (${who}): invia il tuo wallet *${deal.asset}* con:
-\`/wallet IndirizzoSolana\`
-oppure incolla qui l'indirizzo.`;
+    return `👛 *Buyer* (${who}): wallet *${deal.asset}* con \`/wallet Indirizzo\` oppure incolla l'indirizzo.`;
   },
 
   walletSaved: (deal: Deal, role: string, address: string) =>
-    `👛 Wallet *${role}* salvato per #${deal.id}:\n\`${address}\``,
+    `👛 Wallet *${role}* salvato (#${deal.id}):\n\`${address}\``,
 
   walletWrongTurn: (expected: "seller" | "buyer") =>
-    `Ora tocca al *${expected}* impostare il wallet. Attendi il tuo turno.`,
+    `Ora tocca al *${expected}* impostare il wallet.`,
 
   notReadyForDeposit:
-    "L'indirizzo escrow appare solo dopo ToS accettati e wallet di seller e buyer.",
+    "L'indirizzo escrow appare dopo ToS e wallet di seller e buyer.",
 
   onlyCreatorWritesTos:
-    "Solo chi ha creato il deal può scrivere i ToS. Controparte: attendi e conferma con il pulsante.",
+    "Solo chi ha creato il deal scrive i ToS. Controparte: usa il pulsante.",
 
   tosTooShort:
-    "ToS troppo corti. Scrivi almeno qualche riga chiara sulle condizioni del deal.",
+    "ToS troppo corti. Scrivi condizioni chiare in qualche riga.",
 
   dealActivated: depositPrompt,
   depositAddress: depositPrompt,
 
   depositDetected: (deal: Deal, balanceSol: string) =>
-    `💰 Deposito *rilevato on-chain* sul deal *#${deal.id}*.
+    `💰 Deposito rilevato (#${deal.id}).
 
-• Saldo escrow: *${balanceSol} SOL*
+• Saldo: *${balanceSol} SOL*
 • Atteso: *${deal.amount} SOL*
 
-Ora: /pay_seller oppure /refund_buyer — serve conferma di *entrambe* le parti.`,
+Ora: /pay_seller o /refund_buyer — conferma di *entrambe* le parti.`,
 
   depositCheckResult: (
     deal: Deal,
@@ -191,61 +210,85 @@ Ora: /pay_seller oppure /refund_buyer — serve conferma di *entrambe* le parti.
     funded: boolean,
   ) =>
     funded
-      ? `✅ Deposito ok per #${deal.id}: saldo *${balanceSol} SOL* (atteso ${deal.amount}).`
-      : `⏳ Ancora in attesa per #${deal.id}.\nSaldo attuale: *${balanceSol} SOL* / atteso *${deal.amount} SOL*\nIndirizzo:\n\`${deal.escrowAddress}\``,
+      ? `✅ Deposito ok (#${deal.id}): *${balanceSol} SOL*.`
+      : `⏳ In attesa (#${deal.id}).\nSaldo: *${balanceSol} SOL* / *${deal.amount} SOL*\n\`${deal.escrowAddress}\``,
 
   markFundedAdmin: (deal: Deal) =>
-    `💰 Admin ha forzato lo stato *funded* sul deal *#${deal.id}* (bypass on-chain).`,
+    `💰 Admin: stato *funded* forzato su #${deal.id}.`,
 
   releaseVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `Voto *pay_seller* registrato (#${deal.id}). Manca ${remaining} conferma.`
-      : `🔓 Deal *#${deal.id}* — rilascio al seller in corso on-chain…`,
+      ? `Voto *pay_seller* (#${deal.id}). Manca ${remaining} conferma.`
+      : `🔓 #${deal.id} — rilascio al seller…`,
 
   refundVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `Voto *refund_buyer* registrato (#${deal.id}). Manca ${remaining} conferma.`
-      : `↩️ Deal *#${deal.id}* — rimborso al buyer in corso on-chain…`,
+      ? `Voto *refund_buyer* (#${deal.id}). Manca ${remaining} conferma.`
+      : `↩️ #${deal.id} — rimborso al buyer…`,
 
   payoutSuccess: (deal: Deal, kind: "release" | "refund", sig: string, sol: string) =>
     kind === "release"
-      ? `🔓 *pay_seller* completato (#${deal.id}).\nInviati *${sol} SOL* a \`${deal.sellerWallet}\`\nTx: \`${sig}\``
-      : `↩️ *refund_buyer* completato (#${deal.id}).\nInviati *${sol} SOL* a \`${deal.buyerWallet}\`\nTx: \`${sig}\``,
+      ? `🔓 *pay_seller* ok (#${deal.id}).\n*${sol} SOL* → \`${deal.sellerWallet}\`\nTx: \`${sig}\`\n/blockchain per il link.`
+      : `↩️ *refund_buyer* ok (#${deal.id}).\n*${sol} SOL* → \`${deal.buyerWallet}\`\nTx: \`${sig}\`\n/blockchain per il link.`,
 
   payoutFailed: (deal: Deal, error: string) =>
-    `❌ Payout on-chain fallito per #${deal.id}:\n\`${error}\`\nLo stato del deal non è stato chiuso: riprova o apri /dispute.`,
+    `❌ Payout fallito (#${deal.id}):\n\`${error}\`\nRiprova o /dispute.`,
 
   needWallet: (who: "buyer" | "seller") =>
-    `Manca il wallet Solana del *${who}*. Impostalo con:\n\`/wallet IndirizzoSolana\``,
+    `Manca il wallet del *${who}*. Usa \`/wallet Indirizzo\`.`,
 
   adminForceRelease: (deal: Deal) =>
-    `🔓 Admin ha arbitrato: *pay_seller* su #${deal.id} — payout on-chain…`,
+    `🔓 Admin: *pay_seller* su #${deal.id}…`,
   adminForceRefund: (deal: Deal) =>
-    `↩️ Admin ha arbitrato: *refund_buyer* su #${deal.id} — payout on-chain…`,
+    `↩️ Admin: *refund_buyer* su #${deal.id}…`,
 
   wrongStatus: (status: string) =>
-    `Azione non disponibile nello stato \`${status}\`.`,
+    `Azione non disponibile in \`${status}\`.`,
 
-  notParty: "Solo buyer/seller (o admin in disputa) possono farlo.",
-  notCreator: "Solo chi ha creato il deal in privato può usare /avvia.",
+  notParty: "Solo buyer/seller (o admin in disputa).",
+  notCreator: "Solo chi ha creato il deal può usare /avvia.",
   dealNotFound: "Deal non trovato.",
-  noDeals: "Nessun deal. Usa /crea in chat privata con il bot.",
-  onlyPrivate: "Questo comando va usato in *chat privata* con il bot.",
-  onlyGroup: "Questo comando va usato nel *gruppo escrow*.",
+  noDeals: "Nessun deal. Usa /crea in privato.",
+  onlyPrivate: "Usa questo comando in *chat privata* con il bot.",
+  onlyGroup: "Usa questo comando nel *gruppo escrow*.",
   noDealInGroup:
-    "Nessun deal collegato. In privato col bot fai /crea (il bot apre il gruppo).",
+    "Nessun deal collegato. In privato: /crea → poi qui /avvia.",
   alreadyBound: "Questo gruppo è già collegato a un deal.",
   alreadyActivated: "Il deal in questo gruppo è già avviato.",
-  counterpartIsCreator: "Il creatore del deal non può confermare come controparte.",
+  counterpartIsCreator: "Il creatore non può confermare come controparte.",
   counterpartTaken: "La controparte è già confermata.",
-  tosCreatorCannotAccept: "Il creatore ha già proposto i ToS: deve accettarli la controparte.",
-  tosAlreadyAccepted: "I ToS di questo deal sono già accettati.",
+  tosCreatorCannotAccept: "I ToS li accetta la controparte.",
+  tosAlreadyAccepted: "ToS già accettati.",
 
   kickedExtra: (userId: number) =>
-    `🚫 Utente \`${userId}\` rimosso: ammessi solo buyer, seller e (in disputa) admin.`,
+    `🚫 \`${userId}\` rimosso: ammessi solo buyer, seller e (in disputa) supporto.`,
+
+  kickedUnauthorizedBot: (username?: string) =>
+    `🚫 Bot non autorizzato rimosso${username ? ` (@${escMd(username)})` : ""}. Nel gruppo escrow resta solo Escrowita.`,
+
+  forwardBlocked:
+    "⚠️ Messaggi inoltrati non ammessi nel gruppo escrow (anti-truffa).",
+
+  identityChanged: (who: string, detail: string) =>
+    `⚠️ Attenzione: *${escMd(who)}* ha cambiato identità (${escMd(detail)}). Verificate di parlare con la persona giusta.`,
+
+  escrowVerifyHint:
+    "Controlla l'indirizzo escrow *solo* nei messaggi di Escrowita in questo gruppo. Non fidarti di altri canali o forward.",
 
   disputeOpened: (deal: Deal) =>
-    `⚠️ Disputa aperta sul deal *#${deal.id}*. Admin avvisato: può entrare e arbitrare con /pay_seller o /refund_buyer.`,
+    `⚠️ Disputa aperta (#${deal.id}). Supporto avvisato: può entrare e usare /pay_seller o /refund_buyer.`,
+
+  supportGroup:
+    "Supporto Escrowita: usa /dispute per aprire un caso. In disputa può entrare un operatore. Niente arbitraggio automatico «With-Admin»: se serve un umano, /dispute.",
+
+  supportDm:
+    "Supporto Escrowita: nel gruppo del deal usa /dispute. L'operatore riceve notifica e può entrare. Per dubbi sul flusso: /aiuto.",
+
+  blockchainLink: (deal: Deal, url: string) =>
+    `🔗 Tx deal *#${deal.id}*:\n${url}`,
+
+  blockchainMissing:
+    "Nessuna tx di payout ancora. Dopo /pay_seller o /refund_buyer usa di nuovo /blockchain.",
 
   disputeAdminNotify: (
     deal: Deal,
@@ -266,7 +309,7 @@ In gruppo: /pay_seller o /refund_buyer (potere admin in disputa).`,
   adminMissing: "Disputa registrata, ma ADMIN_TELEGRAM_ID non è configurato.",
 
   botAddedHint:
-    "Bot nel gruppo. Se il deal non è già partito, chi l'ha preparato in privato può usare /avvia.",
+    "Bot nel gruppo. Chi ha preparato il deal in privato: /avvia (servono i permessi admin).",
 
   groupTitle: (deal: Deal) => `Escrow #${deal.id} · ${deal.amount} ${deal.asset}`,
 } as const;
