@@ -10,7 +10,7 @@ import {
   mainMenuKeyboard,
   roleKeyboard,
 } from "../keyboards/menus.js";
-import { parseAmount } from "../services/deal-logic.js";
+import { parseAmount, startGroupPayload } from "../services/deal-logic.js";
 import {
   createEscrowGroup,
   groupCreatorReady,
@@ -24,6 +24,11 @@ import type { Asset, PartyRole } from "../types.js";
 
 function botCreatesGroupsEnabled(): boolean {
   return config.telegramBotCreatesGroups && groupCreatorReady();
+}
+
+function startGroupUrlForDeal(dealId: string, ctx: BotContext): string {
+  const username = config.botUsername ?? ctx.botUsername ?? "ESCROWITAbot";
+  return `https://t.me/${username}?startgroup=${startGroupPayload(dealId)}`;
 }
 
 export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
@@ -202,7 +207,10 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
         // Soft-fallback: istruzioni manuali se create automatica fallisce.
         await ctx.reply(it.afterAmountInstructions(updated), {
           parse_mode: "Markdown",
-          reply_markup: afterAmountKeyboard(config.tosUrl),
+          reply_markup: afterAmountKeyboard(
+            startGroupUrlForDeal(updated.id, ctx),
+            config.tosUrl,
+          ),
         });
         await ctx.reply(it.groupCreateFailed(updated, created.error), {
           parse_mode: "Markdown",
@@ -214,7 +222,10 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       // Path felice (default): gruppo manuale.
       await ctx.reply(it.afterAmountInstructions(updated), {
         parse_mode: "Markdown",
-        reply_markup: afterAmountKeyboard(config.tosUrl),
+        reply_markup: afterAmountKeyboard(
+          startGroupUrlForDeal(updated.id, ctx),
+          config.tosUrl,
+        ),
       });
     }
   });
