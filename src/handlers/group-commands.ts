@@ -222,9 +222,12 @@ async function setWallet(ctx: BotContext): Promise<void> {
   const parts = text.trim().split(/\s+/);
   const address = parts.length >= 2 ? parts.slice(1).join("").trim() : "";
   if (!address || !isValidSolAddress(address)) {
-    await ctx.reply(`Uso: \`/wallet IndirizzoSolana\`\n${it.invalidWallet}`, {
-      parse_mode: "Markdown",
-    });
+    await ctx.reply(
+      `Uso: \`/wallet\` seguito dall'indirizzo.\n${it.invalidWallet}`,
+      {
+        parse_mode: "Markdown",
+      },
+    );
     return;
   }
 

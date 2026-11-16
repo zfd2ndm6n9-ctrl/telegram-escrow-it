@@ -3,11 +3,13 @@ import type { Deal } from "../types.js";
 import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
 import {
+  amountConfirmKeyboard,
   counterpartConfirmKeyboard,
   groupActionsKeyboard,
   tosConfirmKeyboard,
 } from "../keyboards/menus.js";
 import {
+  amountConfirmed,
   bothPartiesPresent,
   isPreDepositSetup,
   tosAccepted,
@@ -112,6 +114,8 @@ function resolveBoundStatus(deal: Deal): Deal["status"] {
     "disputed",
     "awaiting_tos",
     "awaiting_tos_confirm",
+    "awaiting_amount",
+    "awaiting_amount_confirm",
     "awaiting_seller_wallet",
     "awaiting_buyer_wallet",
   ];
@@ -122,7 +126,12 @@ function resolveBoundStatus(deal: Deal): Deal["status"] {
     return "awaiting_counterpart";
   }
   if (!tosAccepted(deal)) {
-    return deal.tosText ? "awaiting_tos_confirm" : "awaiting_tos";
+    return deal.tosProduct && deal.tosConditions
+      ? "awaiting_tos_confirm"
+      : "awaiting_tos";
+  }
+  if (!amountConfirmed(deal)) {
+    return deal.amount ? "awaiting_amount_confirm" : "awaiting_amount";
   }
   if (!deal.sellerWallet) return "awaiting_seller_wallet";
   if (!deal.buyerWallet) return "awaiting_buyer_wallet";
@@ -151,6 +160,37 @@ export async function postTosDraft(
   });
 }
 
+export async function postAskTosConditions(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  return sendTrackedPrompt(api, store, deal, it.askTosConditions(deal), {
+    parse_mode: "Markdown",
+  });
+}
+
+export async function postAskAmount(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  return sendTrackedPrompt(api, store, deal, it.askAmountGroup(deal), {
+    parse_mode: "Markdown",
+  });
+}
+
+export async function postAmountProposed(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  return sendTrackedPrompt(api, store, deal, it.amountProposed(deal), {
+    parse_mode: "Markdown",
+    reply_markup: amountConfirmKeyboard(deal.id),
+  });
+}
+
 export async function postAskSellerWallet(
   api: Api,
   store: DealStore,
@@ -159,6 +199,19 @@ export async function postAskSellerWallet(
   return sendTrackedPrompt(api, store, deal, it.askSellerWallet(deal), {
     parse_mode: "Markdown",
   });
+}
+
+/** Aggiorna titolo gruppo con importo (best-effort). */
+export async function refreshGroupTitle(
+  api: Api,
+  deal: Deal,
+): Promise<void> {
+  if (deal.groupChatId == null) return;
+  try {
+    await api.setChatTitle(deal.groupChatId, it.groupTitle(deal));
+  } catch {
+    // ok se manca can_change_info
+  }
 }
 
 export async function postAskBuyerWallet(
@@ -221,11 +274,23 @@ export async function startDealInGroup(
       return { deal: posted, started: true, perms };
     }
     if (bound.status === "awaiting_tos") {
+      if (bound.tosProduct && !bound.tosConditions) {
+        const posted = await postAskTosConditions(api, store, bound);
+        return { deal: posted, started: true, perms };
+      }
       const posted = await postStabilizeTos(api, store, bound);
       return { deal: posted, started: true, perms };
     }
     if (bound.status === "awaiting_tos_confirm" && bound.tosText) {
       const posted = await postTosDraft(api, store, bound);
+      return { deal: posted, started: true, perms };
+    }
+    if (bound.status === "awaiting_amount") {
+      const posted = await postAskAmount(api, store, bound);
+      return { deal: posted, started: true, perms };
+    }
+    if (bound.status === "awaiting_amount_confirm" && bound.amount) {
+      const posted = await postAmountProposed(api, store, bound);
       return { deal: posted, started: true, perms };
     }
     if (bound.status === "awaiting_seller_wallet") {

@@ -36,13 +36,13 @@ export function assetKeyboard(): Keyboard {
     .oneTime();
 }
 
-/** Post-importo: startgroup (admin) + ToS piattaforma. */
+/** Post-crea: startgroup + ToS piattaforma. Label senza «amministratore» / `+`. */
 export function afterAmountKeyboard(
   startGroupUrl: string,
   tosUrl?: string,
 ): InlineKeyboard {
   const kb = new InlineKeyboard()
-    .url("+ Aggiungi bot come amministratore +", startGroupUrl)
+    .url("Aggiungi il bot al gruppo", startGroupUrl)
     .row();
   if (tosUrl) {
     kb.url("📄 Leggi i Termini", tosUrl);
@@ -64,11 +64,15 @@ export function groupInviteKeyboard(inviteLink: string, tosUrl?: string): Inline
 }
 
 export function counterpartConfirmKeyboard(dealId: string): InlineKeyboard {
-  return new InlineKeyboard().text("✅ Confermo (controparte)", `cp:${dealId}`);
+  return new InlineKeyboard().text("✅ Confermo", `cp:${dealId}`);
 }
 
 export function tosConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Accetto i ToS", `tosok:${dealId}`);
+}
+
+export function amountConfirmKeyboard(dealId: string): InlineKeyboard {
+  return new InlineKeyboard().text("✅ Confermo importo", `amtok:${dealId}`);
 }
 
 export function groupActionsKeyboard(status: string): InlineKeyboard {

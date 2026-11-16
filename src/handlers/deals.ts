@@ -17,7 +17,8 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
     }
 
     const lines = deals.slice(0, 20).map((d) => {
-      return `• *#${d.id}* — ${d.amount} ${d.asset} — ${statusLabel(d.status)}`;
+      const amt = d.amount ? `${d.amount} ${d.asset}` : d.asset;
+      return `• *#${d.id}* — ${amt} — ${statusLabel(d.status)}`;
     });
     await ctx.reply(`*I tuoi deal*\n\n${lines.join("\n")}`, {
       parse_mode: "Markdown",

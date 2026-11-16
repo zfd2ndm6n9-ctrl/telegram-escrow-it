@@ -4,6 +4,8 @@ export type DealStatus =
   | "awaiting_counterpart"
   | "awaiting_tos"
   | "awaiting_tos_confirm"
+  | "awaiting_amount"
+  | "awaiting_amount_confirm"
   | "awaiting_seller_wallet"
   | "awaiting_buyer_wallet"
   | "awaiting_deposit"
@@ -38,9 +40,21 @@ export interface Deal {
   sellerWallet?: string;
   /** Termini del deal scritti dal creatore nel gruppo */
   tosText?: string;
+  /** Campo strutturato ToS: prodotto */
+  tosProduct?: string;
+  /** Campo strutturato ToS: condizioni */
+  tosConditions?: string;
   /** Quando la controparte ha accettato i ToS */
   tosAcceptedAt?: string;
+  /**
+   * Importo escrow (stringa decimale). Vuoto finché buyer e seller non
+   * lo confermano nel gruppo dopo i ToS.
+   */
   amount: string;
+  /** Voti dual-confirm sull'importo proposto */
+  amountVotes?: number[];
+  /** Quando entrambe le parti hanno confermato l'importo */
+  amountConfirmedAt?: string;
   asset: Asset;
   status: DealStatus;
   /** Indirizzo deposito univoco (derivato) */
@@ -85,7 +99,8 @@ export type CreateDealInput = {
   creatorUsername?: string;
   creatorDisplayName?: string;
   creatorRole: PartyRole;
-  amount: string;
+  /** Opzionale: di solito impostato dopo dual-confirm in gruppo */
+  amount?: string;
   asset: Asset;
   escrowAddress: string;
 };

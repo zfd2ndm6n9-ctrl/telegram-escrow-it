@@ -5,12 +5,11 @@ import { it } from "../messages/it.js";
 import {
   afterAmountKeyboard,
   assetKeyboard,
-  cancelKeyboard,
   groupInviteKeyboard,
   mainMenuKeyboard,
   roleKeyboard,
 } from "../keyboards/menus.js";
-import { parseAmount, startGroupPayload } from "../services/deal-logic.js";
+import { startGroupPayload } from "../services/deal-logic.js";
 import {
   createEscrowGroup,
   groupCreatorReady,
@@ -108,126 +107,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    if (creating.step === "amount") {
-      const amount = parseAmount(text);
-      if (!amount) {
-        await ctx.reply(it.invalidAmount, {
-          parse_mode: "Markdown",
-          reply_markup: cancelKeyboard(),
-        });
-        return;
-      }
-
-      const role = creating.role;
-      if (!role) {
-        ctx.session.creating = { step: "role" };
-        await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
-        return;
-      }
-
-      const asset = creating.asset;
-      if (!asset || asset !== "SOL") {
-        ctx.session.creating = { step: "asset", role };
-        await ctx.reply(it.askAsset, { reply_markup: assetKeyboard() });
-        return;
-      }
-
-      const placeholder = "PENDING_SOL_ESCROW";
-      const creatorDisplayName = [ctx.from.first_name, ctx.from.last_name]
-        .filter(Boolean)
-        .join(" ");
-      const deal = ctx.store.create({
-        creatorId: ctx.from.id,
-        creatorUsername: ctx.from.username,
-        creatorDisplayName: creatorDisplayName || undefined,
-        creatorRole: role,
-        amount,
-        asset,
-        escrowAddress: placeholder,
-      });
-
-      const escrowAddress = await getDealEscrowAddress(deal.id);
-      if (!escrowAddress) {
-        ctx.store.setStatus(deal.id, "cancelled");
-        ctx.session.creating = undefined;
-        await ctx.reply(it.solanaNotConfigured);
-        return;
-      }
-
-      const updated = ctx.store.update(deal.id, { escrowAddress })!;
-      ctx.session.creating = undefined;
-
-      // Opzionale: TELEGRAM_BOT_CREATES_GROUPS=1 + helper MTProto.
-      if (botCreatesGroupsEnabled()) {
-        const created = await createEscrowGroup({
-          deal: updated,
-          botApi: ctx.api,
-          creatorId: ctx.from.id,
-          creatorUsername: ctx.from.username,
-        });
-
-        if (created.ok) {
-          const withGroup =
-            ctx.store.update(updated.id, {
-              groupChatId: created.chatId,
-              groupInviteLink: created.inviteLink,
-            }) ?? updated;
-
-          const { deal: started, perms } = await startDealInGroup(
-            ctx.api,
-            ctx.store,
-            withGroup,
-            created.chatId,
-          );
-
-          if (!perms.ok) {
-            await ctx.reply(it.missingBotPerms(perms.missing), {
-              parse_mode: "Markdown",
-              reply_markup: groupInviteKeyboard(
-                created.inviteLink,
-                config.tosUrl,
-              ),
-            });
-            return;
-          }
-
-          await ctx.reply(
-            it.groupReady(started, created.inviteLink, created.creatorInvited),
-            {
-              parse_mode: "Markdown",
-              reply_markup: groupInviteKeyboard(
-                created.inviteLink,
-                config.tosUrl,
-              ),
-            },
-          );
-          return;
-        }
-
-        // Soft-fallback: istruzioni manuali se create automatica fallisce.
-        await ctx.reply(it.afterAmountInstructions(updated), {
-          parse_mode: "Markdown",
-          reply_markup: afterAmountKeyboard(
-            startGroupUrlForDeal(updated.id, ctx),
-            config.tosUrl,
-          ),
-        });
-        await ctx.reply(it.groupCreateFailed(updated, created.error), {
-          parse_mode: "Markdown",
-          reply_markup: mainMenuKeyboard(),
-        });
-        return;
-      }
-
-      // Path felice (default): gruppo manuale.
-      await ctx.reply(it.afterAmountInstructions(updated), {
-        parse_mode: "Markdown",
-        reply_markup: afterAmountKeyboard(
-          startGroupUrlForDeal(updated.id, ctx),
-          config.tosUrl,
-        ),
-      });
-    }
+    await next();
   });
 }
 
@@ -248,10 +128,107 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
     await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
     return;
   }
-  ctx.session.creating = { step: "amount", role: creating.role, asset };
-  await ctx.reply(it.askAmount, {
+
+  if (asset !== "SOL") {
+    await assetComingSoon(ctx, asset);
+    return;
+  }
+
+  const role = creating.role;
+  const placeholder = "PENDING_SOL_ESCROW";
+  const creatorDisplayName = [ctx.from.first_name, ctx.from.last_name]
+    .filter(Boolean)
+    .join(" ");
+  const deal = ctx.store.create({
+    creatorId: ctx.from.id,
+    creatorUsername: ctx.from.username,
+    creatorDisplayName: creatorDisplayName || undefined,
+    creatorRole: role,
+    amount: "",
+    asset,
+    escrowAddress: placeholder,
+  });
+
+  const escrowAddress = await getDealEscrowAddress(deal.id);
+  if (!escrowAddress) {
+    ctx.store.setStatus(deal.id, "cancelled");
+    ctx.session.creating = undefined;
+    await ctx.reply(it.solanaNotConfigured);
+    return;
+  }
+
+  const updated = ctx.store.update(deal.id, { escrowAddress })!;
+  ctx.session.creating = undefined;
+
+  // Opzionale: TELEGRAM_BOT_CREATES_GROUPS=1 + helper MTProto.
+  if (botCreatesGroupsEnabled()) {
+    const created = await createEscrowGroup({
+      deal: updated,
+      botApi: ctx.api,
+      creatorId: ctx.from.id,
+      creatorUsername: ctx.from.username,
+    });
+
+    if (created.ok) {
+      const withGroup =
+        ctx.store.update(updated.id, {
+          groupChatId: created.chatId,
+          groupInviteLink: created.inviteLink,
+        }) ?? updated;
+
+      const { deal: started, perms } = await startDealInGroup(
+        ctx.api,
+        ctx.store,
+        withGroup,
+        created.chatId,
+      );
+
+      if (!perms.ok) {
+        await ctx.reply(it.missingBotPerms(perms.missing), {
+          parse_mode: "Markdown",
+          reply_markup: groupInviteKeyboard(
+            created.inviteLink,
+            config.tosUrl,
+          ),
+        });
+        return;
+      }
+
+      await ctx.reply(
+        it.groupReady(started, created.inviteLink, created.creatorInvited),
+        {
+          parse_mode: "Markdown",
+          reply_markup: groupInviteKeyboard(
+            created.inviteLink,
+            config.tosUrl,
+          ),
+        },
+      );
+      return;
+    }
+
+    // Soft-fallback: istruzioni manuali se create automatica fallisce.
+    await ctx.reply(it.afterAmountInstructions(updated), {
+      parse_mode: "Markdown",
+      reply_markup: afterAmountKeyboard(
+        startGroupUrlForDeal(updated.id, ctx),
+        config.tosUrl,
+      ),
+    });
+    await ctx.reply(it.groupCreateFailed(updated, created.error), {
+      parse_mode: "Markdown",
+      reply_markup: mainMenuKeyboard(),
+    });
+    return;
+  }
+
+  // Path felice (default): gruppo manuale — importo si fissa nel gruppo.
+  await ctx.reply(it.afterAmountInstructions(updated), {
     parse_mode: "Markdown",
-    reply_markup: cancelKeyboard(),
+    reply_markup: afterAmountKeyboard(
+      startGroupUrlForDeal(updated.id, ctx),
+      config.tosUrl,
+    ),
   });
 }
 
