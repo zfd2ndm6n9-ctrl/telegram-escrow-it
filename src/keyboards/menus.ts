@@ -36,9 +36,14 @@ export function assetKeyboard(): Keyboard {
     .oneTime();
 }
 
-/** Post-importo: ToS piattaforma (path manuale: crea gruppo → admin → /avvia). */
-export function afterAmountKeyboard(tosUrl?: string): InlineKeyboard {
-  const kb = new InlineKeyboard();
+/** Post-importo: startgroup (admin) + ToS piattaforma. */
+export function afterAmountKeyboard(
+  startGroupUrl: string,
+  tosUrl?: string,
+): InlineKeyboard {
+  const kb = new InlineKeyboard()
+    .url("+ Aggiungi bot come amministratore +", startGroupUrl)
+    .row();
   if (tosUrl) {
     kb.url("📄 Leggi i Termini", tosUrl);
   } else {

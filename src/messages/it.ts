@@ -82,7 +82,7 @@ In dubbio: /dispute o /support.`,
 
 Ora:
 1. Crea un *gruppo privato*
-2. Aggiungi questo bot come *amministratore* (Elimina messaggi, Blocca utenti, Invita utenti)
+2. Aggiungi questo bot come *amministratore*
 3. Nel gruppo: /avvia
 
 Poi invita solo la controparte.`,
