@@ -123,7 +123,7 @@ export async function sendTrackedPrompt(
 }
 
 /**
- * Unico messaggio vivente di setup (termini Prodotto/Prezzo/Tempi):
+ * Unico messaggio vivente di setup (termini Prodotto/Prezzo/Condizioni):
  * edit in place se `setupMessageId` esiste, altrimenti send + salva id.
  */
 export async function upsertSetupMessage(

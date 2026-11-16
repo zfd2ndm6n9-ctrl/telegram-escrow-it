@@ -1,6 +1,6 @@
 import { Context, SessionFlavor } from "grammy";
 import type { DealStore } from "./store/deals.js";
-import type { Asset, PartyRole } from "./types.js";
+import type { Asset, DmTermsStep, PartyRole } from "./types.js";
 
 export type CreateDealStep = "role" | "asset";
 
@@ -9,6 +9,14 @@ export interface SessionData {
     step: CreateDealStep;
     role?: PartyRole;
     asset?: Asset;
+  };
+  /**
+   * Wizard termini in DM (seller): deal attivo + step corrente.
+   * Usato anche quando il seller non è il creator (/avvia → DM).
+   */
+  termsQa?: {
+    dealId: string;
+    step: DmTermsStep;
   };
 }
 

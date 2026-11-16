@@ -21,6 +21,9 @@ export type DealStatus =
 export type Asset = "SOL" | "ETH" | "LTC";
 export type PartyRole = "buyer" | "seller";
 
+/** Step del wizard termini in DM (seller). */
+export type DmTermsStep = "product" | "price" | "conditions";
+
 export interface Deal {
   id: string;
   /** Chi ha avviato il wizard in privato */
@@ -38,7 +41,7 @@ export interface Deal {
   buyerWallet?: string;
   /** Indirizzo Solana del seller (rilascio) */
   sellerWallet?: string;
-  /** Termini del deal (elenco Prodotto / Prezzo € / Tempi / Condizioni) */
+  /** Termini del deal (elenco Prodotto / Prezzo € / Condizioni) */
   tosText?: string;
   /** Campo strutturato: Prodotto */
   tosProduct?: string;
@@ -48,24 +51,26 @@ export interface Deal {
    */
   priceEur?: string;
   /**
-   * Campo strutturato: Tempi (consegna / scadenza).
-   * Nome storico `tosConditions`; in UI è etichettato «Tempi».
+   * Campo strutturato: Condizioni.
+   * Nome storico `tosConditions` (prima etichettato «Tempi»); in UI è «Condizioni».
    */
   tosConditions?: string;
-  /** Campo opzionale: Condizioni / note extra (vuoto → — in card) */
+  /**
+   * @deprecated Tempi rimosso; Condizioni vive in `tosConditions`.
+   * Conservato solo per deal mid-flight legacy.
+   */
   tosNotes?: string;
-  /** Quando la controparte ha accettato la card termini */
+  /** Quando il buyer ha accettato la card termini */
   tosAcceptedAt?: string;
   /**
    * Importo escrow on-chain (stringa decimale nell'asset del deal).
-   * Opzionale nei termini liberi; se manca, chiesto dopo Accetto in un messaggio.
+   * Chiesto dopo Accetto in un messaggio dedicato.
    */
   amount: string;
   /** @deprecated Legacy dual-confirm importo; non usato nel flusso termini unificato */
   amountVotes?: number[];
   /**
-   * Quando l'importo crypto è fissato (con Accetto se già nei termini,
-   * oppure subito dopo la risposta all'ask post-Accetto).
+   * Quando l'importo crypto è fissato (subito dopo la risposta all'ask post-Accetto).
    */
   amountConfirmedAt?: string;
   /**
@@ -97,12 +102,12 @@ export interface Deal {
    */
   botPromptIds?: number[];
   /**
-   * Unico messaggio di setup nel gruppo (deal collegato → ToS → importo).
+   * Unico messaggio di setup nel gruppo (deal collegato → termini → Accetto).
    * Aggiornato in place con editMessageText; non cancellare in hygiene.
    */
   setupMessageId?: number;
   /**
-   * Messaggio ToS accettati (di solito = setupMessageId). Non cancellare in hygiene;
+   * Messaggio termini accettati (di solito = setupMessageId). Non cancellare in hygiene;
    * preferibilmente pinnato nel gruppo.
    */
   tosAcceptedMessageId?: number;
@@ -113,6 +118,16 @@ export interface Deal {
    * Sostituita al click successivo così non si accumulano risposte.
    */
   lastActionReplyId?: number;
+  /**
+   * DM seller: messaggio-riepilogo vivente (elenco Prodotto/Prezzo/Condizioni).
+   * Edit in place; non cancellare durante il wizard.
+   */
+  dmTermsSummaryMessageId?: number;
+  /**
+   * DM seller: ultimo prompt di domanda (Prodotto/Prezzo/Condizioni).
+   * Cancellato dopo ogni risposta.
+   */
+  dmTermsPromptMessageId?: number;
   createdAt: string;
   updatedAt: string;
 }

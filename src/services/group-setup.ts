@@ -16,6 +16,7 @@ import {
   termsReadyForConfirm,
   tosAccepted,
 } from "./deal-logic.js";
+import { startSellerTermsWizard } from "./dm-terms.js";
 import { sendTrackedPrompt, upsertSetupMessage } from "./prompt-cleanup.js";
 
 /** Keyboard della card setup (Accetto solo a proposta completa). */
@@ -438,8 +439,48 @@ export type StartDealResult = {
 };
 
 /**
+ * Dopo ruoli bound: se termini pronti → Accetto; altrimenti DM wizard al seller.
+ */
+async function advanceToTermsOrAccetto(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  let current = deal;
+
+  if (tosAccepted(current)) {
+    return current;
+  }
+
+  if (termsReadyForConfirm(current)) {
+    current =
+      store.setStatus(current.id, "awaiting_tos_confirm") ?? current;
+    return refreshGroupSetupCard(api, store, current);
+  }
+
+  current = store.setStatus(current.id, "awaiting_tos") ?? current;
+  current = await refreshGroupSetupCard(api, store, current);
+
+  const wizard = await startSellerTermsWizard(api, store, current);
+  if (!wizard.ok && wizard.reason === "dm_blocked") {
+    await api.sendMessage(current.groupChatId!, it.dmTermsSellerBlocked(current), {
+      parse_mode: "Markdown",
+    });
+  } else if (wizard.ok) {
+    current = wizard.deal;
+    if (wizard.alreadyReady) {
+      current =
+        store.setStatus(current.id, "awaiting_tos_confirm") ?? current;
+      current = await refreshGroupSetupCard(api, store, current);
+    }
+  }
+
+  return current;
+}
+
+/**
  * Avvio deal in un gruppo già creato/bound: auto-bind controparte,
- * poi card elenco puntato Prodotto/Prezzo€/Tempi/Condizioni (niente conferma ruolo).
+ * poi termini in DM seller → card Accetto (niente free-form in gruppo).
  */
 export async function startDealInGroup(
   api: Api,
@@ -469,22 +510,25 @@ export async function startDealInGroup(
     current = bind.deal;
   }
 
-  if (!tosAccepted(current) && !isPreDepositSetup(current.status)) {
-    current = store.setStatus(current.id, "awaiting_tos") ?? current;
-    const posted = await postStabilizeTos(api, store, current);
-    return { deal: posted, started: true, perms };
-  }
-
   if (current.status === "awaiting_counterpart") {
     current = store.setStatus(current.id, "awaiting_tos") ?? current;
   }
 
-  if (current.status === "awaiting_tos") {
-    const posted = await postStabilizeTos(api, store, current);
+  if (!tosAccepted(current) && !isPreDepositSetup(current.status)) {
+    const posted = await advanceToTermsOrAccetto(api, store, current);
     return { deal: posted, started: true, perms };
   }
-  if (current.status === "awaiting_tos_confirm" && current.tosText) {
-    const posted = await postTosDraft(api, store, current);
+
+  if (current.status === "awaiting_tos") {
+    const posted = await advanceToTermsOrAccetto(api, store, current);
+    return { deal: posted, started: true, perms };
+  }
+  if (current.status === "awaiting_tos_confirm") {
+    if (termsReadyForConfirm(current)) {
+      const posted = await postTosDraft(api, store, current);
+      return { deal: posted, started: true, perms };
+    }
+    const posted = await advanceToTermsOrAccetto(api, store, current);
     return { deal: posted, started: true, perms };
   }
   // Legacy mid-flight amount dual-confirm
@@ -506,8 +550,7 @@ export async function startDealInGroup(
   }
 
   if (bothPartiesPresent(current) && !tosAccepted(current)) {
-    current = store.setStatus(current.id, "awaiting_tos") ?? current;
-    const posted = await postStabilizeTos(api, store, current);
+    const posted = await advanceToTermsOrAccetto(api, store, current);
     return { deal: posted, started: true, perms };
   }
 

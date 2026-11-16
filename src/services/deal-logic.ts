@@ -1,4 +1,4 @@
-import type { Deal, PartyRole } from "../types.js";
+import type { Deal, DmTermsStep, PartyRole } from "../types.js";
 import { config } from "../config.js";
 
 export function parseAmount(raw: string): string | null {
@@ -120,13 +120,7 @@ export function stripRepeatedLabel(value: string, label: string): string {
   return current.length > 0 ? current : value.trim();
 }
 
-export type TermsFieldLabel =
-  | "Prodotto"
-  | "Prezzo"
-  | "Tempi"
-  | "Condizioni"
-  | "Escrow"
-  | "Importo";
+export type TermsFieldLabel = "Prodotto" | "Prezzo" | "Condizioni";
 
 /** Normalizza un campo termini strutturato prima del persist. */
 export function normalizeTosField(
@@ -134,27 +128,26 @@ export function normalizeTosField(
   label: TermsFieldLabel,
 ): string {
   let current = stripRepeatedLabel(raw, label);
-  // Alias legacy / IT
-  if (label === "Tempi") {
-    current = stripRepeatedLabel(current, "Condizioni");
-  }
   if (label === "Condizioni") {
     current = stripRepeatedLabel(current, "Note");
+    // Legacy: input ancora etichettato «Tempi»
+    current = stripRepeatedLabel(current, "Tempi");
   }
-  if (label === "Escrow" || label === "Importo") {
-    current = stripRepeatedLabel(current, "Deposito");
-    current = stripRepeatedLabel(current, "Escrow");
-    current = stripRepeatedLabel(current, "Importo");
+  if (label === "Prezzo") {
+    current = stripRepeatedLabel(current, "Price");
+  }
+  if (label === "Prodotto") {
+    current = stripRepeatedLabel(current, "Product");
   }
   return current;
 }
 
-/** Lunghezza minima per Prodotto / Tempi. */
+/** Lunghezza minima per Prodotto / Condizioni. */
 export const MIN_TOS_FIELD = 2;
 
-export type EssentialTermsField = "product" | "price" | "tempi";
+export type EssentialTermsField = "product" | "price" | "conditions";
 
-/** Prodotto + Prezzo € + Tempi pronti per Accetto (Condizioni opzionale). */
+/** Prodotto + Prezzo € + Condizioni pronti per Accetto. */
 export function termsReadyForConfirm(deal: Deal): boolean {
   return Boolean(
     deal.tosProduct &&
@@ -168,12 +161,20 @@ export function missingEssentialTerms(deal: Deal): EssentialTermsField[] {
   const missing: EssentialTermsField[] = [];
   if (!deal.tosProduct) missing.push("product");
   if (!deal.priceEur) missing.push("price");
-  if (!deal.tosConditions) missing.push("tempi");
+  if (!deal.tosConditions) missing.push("conditions");
   return missing;
 }
 
+/** Prossimo step del wizard DM (null = completo). */
+export function nextDmTermsStep(deal: Deal): DmTermsStep | null {
+  if (!deal.tosProduct) return "product";
+  if (!deal.priceEur) return "price";
+  if (!deal.tosConditions) return "conditions";
+  return null;
+}
+
 /**
- * Elenco puntato fisso Prodotto / Prezzo € / Tempi / Condizioni.
+ * Elenco puntato fisso Prodotto / Prezzo € / Condizioni.
  * Campi vuoti → `—` (card sempre completa).
  */
 export function formatTosBullets(deal: Deal): string {
@@ -183,22 +184,20 @@ export function formatTosBullets(deal: Deal): string {
   const price = deal.priceEur
     ? escMd(formatEuroPrice(deal.priceEur))
     : "—";
-  const tempiRaw = deal.tosConditions
+  // Condizioni in tosConditions; fallback legacy tosNotes se presente
+  const conditionsRaw = deal.tosConditions
     ? stripRepeatedLabel(
-        stripRepeatedLabel(deal.tosConditions, "Tempi"),
-        "Condizioni",
+        stripRepeatedLabel(deal.tosConditions, "Condizioni"),
+        "Tempi",
       )
-    : "";
-  const tempi = tempiRaw ? escMd(tempiRaw) : "—";
-  const notesRaw = deal.tosNotes
-    ? stripRepeatedLabel(deal.tosNotes, "Condizioni")
-    : "";
-  const notes = notesRaw ? escMd(notesRaw) : "—";
+    : deal.tosNotes
+      ? stripRepeatedLabel(deal.tosNotes, "Condizioni")
+      : "";
+  const conditions = conditionsRaw ? escMd(conditionsRaw) : "—";
   return (
     `• Prodotto: ${product}\n` +
     `• Prezzo: ${price}\n` +
-    `• Tempi: ${tempi}\n` +
-    `• Condizioni: ${notes}`
+    `• Condizioni: ${conditions}`
   );
 }
 
@@ -206,320 +205,15 @@ export function formatTosBullets(deal: Deal): string {
 export function composeTosText(
   product: string,
   priceEur: string,
-  tempi: string,
-  notes?: string,
+  conditions: string,
 ): string {
   const p = normalizeTosField(product, "Prodotto");
-  const t = normalizeTosField(tempi, "Tempi");
-  const n = notes?.trim()
-    ? normalizeTosField(notes, "Condizioni")
-    : "";
-  const lines = [
+  const c = normalizeTosField(conditions, "Condizioni");
+  return [
     `• Prodotto: ${p}`,
     `• Prezzo: ${formatEuroPrice(priceEur)}`,
-    `• Tempi: ${t}`,
-    `• Condizioni: ${n || "—"}`,
-  ];
-  return lines.join("\n");
-}
-
-function stripAssetSuffix(raw: string, asset: string): string {
-  return raw.replace(new RegExp(`\\s*${asset}\\s*$`, "i"), "").trim();
-}
-
-const LABEL_ALT =
-  "Prodotto|Prezzo|Tempi|Condizioni|Note|Escrow|Importo|Deposito|Amount|Price|Product";
-
-function labeledValue(text: string, labelAlt: string): string | undefined {
-  const re = new RegExp(
-    `(?:^|\\n)\\s*(?:[•\\-*]\\s*)?(?:${labelAlt})(?:\\s*[:：\\-–—]\\s*|\\s+)(.+?)(?=(?:\\n\\s*(?:[•\\-*]\\s*)?(?:${LABEL_ALT})(?:\\s*[:：\\-–—]|\\s+))|$)`,
-    "is",
-  );
-  const m = text.match(re);
-  const v = m?.[1]?.trim();
-  return v || undefined;
-}
-
-/** Estrae campi etichettati (best-effort, anche parziali). */
-function extractLabeledTerms(text: string): {
-  product?: string;
-  price?: string;
-  tempi?: string;
-  notes?: string;
-  escrow?: string;
-} {
-  return {
-    product: labeledValue(text, "Prodotto|Product"),
-    price: labeledValue(text, "Prezzo|Price"),
-    tempi: labeledValue(text, "Tempi"),
-    notes: labeledValue(text, "Condizioni|Note"),
-    escrow: labeledValue(text, "Escrow|Importo|Deposito|Amount"),
-  };
-}
-
-/** Cerca un importo crypto esplicitamente etichettato o con suffisso asset. */
-export function extractCryptoAmount(
-  text: string,
-  asset: Deal["asset"],
-): string | null {
-  const labeled = labeledValue(text, "Escrow|Importo\\s*escrow|Deposito|Amount");
-  if (labeled) {
-    const cleaned = normalizeTosField(
-      stripAssetSuffix(labeled, asset),
-      "Escrow",
-    );
-    const amt = parseAmount(cleaned);
-    if (amt) return amt;
-  }
-
-  const assetRe = new RegExp(
-    `(?:^|[\\s:])(\\d+(?:[.,]\\d{1,9})?)\\s*${asset}\\b`,
-    "i",
-  );
-  const m = text.match(assetRe);
-  if (m?.[1]) {
-    const amt = parseAmount(m[1]);
-    if (amt) return amt;
-  }
-
-  const escrowInline = text.match(
-    /\b(?:escrow|deposito)\s*[:：]?\s*(\d+(?:[.,]\d{1,9})?)/i,
-  );
-  if (escrowInline?.[1]) {
-    const amt = parseAmount(escrowInline[1]);
-    if (amt) return amt;
-  }
-
-  return null;
-}
-
-function looksLikePriceToken(token: string): boolean {
-  return parseEuroPrice(token) != null;
-}
-
-export type ParsedTermsFields = {
-  product?: string;
-  priceEur?: string;
-  tempi?: string;
-  notes?: string;
-  cryptoAmount?: string;
-};
-
-export type ParseTermsResult =
-  | {
-      ok: true;
-      product: string;
-      priceEur: string;
-      tempi: string;
-      notes?: string;
-      cryptoAmount?: string;
-    }
-  | {
-      ok: false;
-      reason: "incomplete" | "price" | "short" | "empty";
-      partial: ParsedTermsFields;
-      missing: EssentialTermsField[];
-    };
-
-/**
- * Termini da messaggio libero (best-effort).
- * Etichette, righe, slash, keyword — senza formato obbligatorio.
- */
-export function parseTermsProposal(
-  raw: string,
-  asset: Deal["asset"],
-): ParseTermsResult {
-  const text = raw.trim();
-  if (!text) {
-    return {
-      ok: false,
-      reason: "empty",
-      partial: {},
-      missing: ["product", "price", "tempi"],
-    };
-  }
-
-  const partial: ParsedTermsFields = {};
-  const labeled = extractLabeledTerms(text);
-
-  if (labeled.product) {
-    partial.product = normalizeTosField(labeled.product, "Prodotto");
-  }
-  if (labeled.price) {
-    const priceRaw = normalizeTosField(
-      stripAssetSuffix(labeled.price, asset),
-      "Prezzo",
-    );
-    const eur = parseEuroPrice(priceRaw);
-    if (eur) partial.priceEur = eur;
-    else if (priceRaw) {
-      // Prezzo presente ma non parseabile → errore dedicato
-      return {
-        ok: false,
-        reason: "price",
-        partial,
-        missing: ["price"],
-      };
-    }
-  }
-  if (labeled.tempi) {
-    partial.tempi = normalizeTosField(labeled.tempi, "Tempi");
-  }
-  if (labeled.notes) {
-    partial.notes = normalizeTosField(labeled.notes, "Condizioni");
-  }
-
-  const cryptoFromLabel = extractCryptoAmount(text, asset);
-  if (cryptoFromLabel) partial.cryptoAmount = cryptoFromLabel;
-
-  // Se etichette incomplete: prova tre righe / slash / eur inline
-  if (!partial.product || !partial.priceEur || !partial.tempi) {
-    const lines = text
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean);
-
-    if (!partial.product || !partial.priceEur || !partial.tempi) {
-      const isMetaLine = (line: string) =>
-        /^(?:[•\-*]\s*)?(?:condizioni|note|escrow|deposito|importo)\b/i.test(
-          line,
-        );
-      if (lines.length >= 3 && !labeled.product && !labeled.price && !labeled.tempi) {
-        const p0 = normalizeTosField(lines[0], "Prodotto");
-        const p1raw = normalizeTosField(
-          stripAssetSuffix(lines[1], asset),
-          "Prezzo",
-        );
-        const tempiLines = lines.slice(2).filter((l) => !isMetaLine(l));
-        const p2 = normalizeTosField(tempiLines.join(" ").trim(), "Tempi");
-        if (!partial.product && p0) partial.product = p0;
-        if (!partial.priceEur) {
-          const eur = parseEuroPrice(p1raw);
-          if (eur) partial.priceEur = eur;
-          else if (p1raw && looksLikePriceToken(p1raw) === false && /[a-zA-Zàèéìòù]/i.test(p1raw) && !/\d/.test(p1raw)) {
-            // seconda riga non-prezzo: ignora
-          } else if (p1raw && /\d/.test(p1raw) && !parseEuroPrice(p1raw)) {
-            return {
-              ok: false,
-              reason: "price",
-              partial,
-              missing: ["price"],
-            };
-          }
-        }
-        if (!partial.tempi && p2) partial.tempi = p2;
-      } else {
-        const parts = text
-          .split(/\s*\/\s*/)
-          .map((p) => p.trim())
-          .filter(Boolean);
-        if (
-          parts.length === 3 &&
-          !labeled.product &&
-          !labeled.price &&
-          !labeled.tempi
-        ) {
-          if (!partial.product) {
-            partial.product = normalizeTosField(parts[0], "Prodotto");
-          }
-          if (!partial.priceEur) {
-            const eur = parseEuroPrice(
-              normalizeTosField(stripAssetSuffix(parts[1], asset), "Prezzo"),
-            );
-            if (eur) partial.priceEur = eur;
-          }
-          if (!partial.tempi) {
-            partial.tempi = normalizeTosField(parts[2], "Tempi");
-          }
-        }
-      }
-    }
-
-    // Righe etichettate miste (es. "prezzo 5" senza altri label colon)
-    if (lines.length >= 1) {
-      for (const line of lines) {
-        const low = line.toLowerCase();
-        if (!partial.product && /^(?:[•\-*]\s*)?prodotto\b/i.test(line)) {
-          partial.product = normalizeTosField(line, "Prodotto");
-        } else if (!partial.priceEur && /^(?:[•\-*]\s*)?prezzo\b/i.test(line)) {
-          const priceRaw = normalizeTosField(
-            stripAssetSuffix(line, asset),
-            "Prezzo",
-          );
-          const eur = parseEuroPrice(priceRaw);
-          if (eur) partial.priceEur = eur;
-          else if (priceRaw) {
-            return {
-              ok: false,
-              reason: "price",
-              partial,
-              missing: ["price"],
-            };
-          }
-        } else if (!partial.tempi && /^(?:[•\-*]\s*)?tempi\b/i.test(line)) {
-          partial.tempi = normalizeTosField(line, "Tempi");
-        } else if (
-          !partial.notes &&
-          /^(?:[•\-*]\s*)?(?:condizioni|note)\b/i.test(line)
-        ) {
-          partial.notes = normalizeTosField(line, "Condizioni");
-        } else if (
-          !partial.cryptoAmount &&
-          /^(?:[•\-*]\s*)?(?:escrow|deposito|importo)\b/i.test(line)
-        ) {
-          const cleaned = normalizeTosField(
-            stripAssetSuffix(line, asset),
-            "Escrow",
-          );
-          const amt = parseAmount(cleaned);
-          if (amt) partial.cryptoAmount = amt;
-        } else if (
-          !partial.priceEur &&
-          (low.includes("€") || /\b(?:eur|euro)\b/i.test(line))
-        ) {
-          const eur = parseEuroPrice(line);
-          if (eur) partial.priceEur = eur;
-        }
-      }
-    }
-
-    // Unica riga con prezzo € riconoscibile + resto testo
-    if (!partial.priceEur) {
-      const eurInline = text.match(
-        /(?:€\s*)(\d+(?:[.,]\d{1,2})?)|(?:^|[^\d])(\d+(?:[.,]\d{1,2})?)\s*(?:€|eur|euro)\b/i,
-      );
-      if (eurInline) {
-        const token = eurInline[1] || eurInline[2];
-        const eur = parseEuroPrice(token);
-        if (eur) partial.priceEur = eur;
-      }
-    }
-  }
-
-  const missing: EssentialTermsField[] = [];
-  if (!partial.product) missing.push("product");
-  if (!partial.priceEur) missing.push("price");
-  if (!partial.tempi) missing.push("tempi");
-
-  if (missing.length > 0) {
-    return { ok: false, reason: "incomplete", partial, missing };
-  }
-
-  if (
-    partial.product!.length < MIN_TOS_FIELD ||
-    partial.tempi!.length < MIN_TOS_FIELD
-  ) {
-    return { ok: false, reason: "short", partial, missing: [] };
-  }
-
-  return {
-    ok: true,
-    product: partial.product!,
-    priceEur: partial.priceEur!,
-    tempi: partial.tempi!,
-    notes: partial.notes,
-    cryptoAmount: partial.cryptoAmount,
-  };
+    `• Condizioni: ${c}`,
+  ].join("\n");
 }
 
 /** Stati precedenti al deposito escrow (termini / wallet ancora aperti). */

@@ -5,13 +5,11 @@ import {
   amountConfirmed,
   assignJoiningParty,
   bothPartiesPresent,
-  composeTosText,
   isAllowedHuman,
   isParty,
   isPreDepositSetup,
   parseAmount,
   parseStartGroupPayload,
-  parseTermsProposal,
   termsReadyForConfirm,
   tosAccepted,
 } from "../services/deal-logic.js";
@@ -21,7 +19,6 @@ import {
   checkRequiredBotAdminPerms,
   kickUnauthorized,
   postAskSellerWallet,
-  postTosDraft,
   refreshGroupSetupCard,
   refreshGroupTitle,
   startDealInGroup,
@@ -117,7 +114,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
   });
 
   /**
-   * /avvia — collega il gruppo, auto-assegna la controparte, apre la card termini.
+   * /avvia — collega il gruppo, auto-assegna la controparte, apre termini (DM seller) / Accetto.
    * Alias: /setup.
    */
   const avvia = async (ctx: BotContext) => {
@@ -235,8 +232,13 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     if (bothPartiesPresent(current)) {
       await ctx.answerCallbackQuery({ text: "Già assegnati" });
       if (!tosAccepted(current) && current.status === "awaiting_counterpart") {
-        current = ctx.store.setStatus(current.id, "awaiting_tos")!;
-        await refreshGroupSetupCard(ctx.api, ctx.store, current);
+        const { deal: advanced } = await startDealInGroup(
+          ctx.api,
+          ctx.store,
+          current,
+          ctx.chat.id,
+        );
+        void advanced;
       }
       return;
     }
@@ -253,12 +255,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    current = ctx.store.setStatus(bind.deal.id, "awaiting_tos")!;
     await ctx.answerCallbackQuery({ text: "Ruoli ok" });
-    await refreshGroupSetupCard(ctx.api, ctx.store, current);
+    await startDealInGroup(ctx.api, ctx.store, bind.deal, ctx.chat.id);
   });
 
-  // Controparte Accetta termini → lock + pin → (importo escrow se manca) → wallet seller
+  // Buyer Accetta termini → lock + pin → importo escrow → wallet seller
   bot.callbackQuery(/^tosok:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     const deal = ctx.store.get(dealId);
@@ -283,11 +284,17 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.tosAlreadyAccepted);
       return;
     }
-    if (ctx.from.id === deal.creatorId) {
-      await ctx.answerCallbackQuery({ text: "Solo controparte" });
-      await ctx.reply(it.tosOpenerCannotAccept(deal), {
+    // Seller ha scritto i termini in DM → solo il buyer Accetta
+    if (deal.sellerId != null && ctx.from.id === deal.sellerId) {
+      await ctx.answerCallbackQuery({ text: "Solo buyer" });
+      await ctx.reply(it.tosSellerCannotAccept(deal), {
         parse_mode: "Markdown",
       });
+      return;
+    }
+    if (deal.buyerId != null && ctx.from.id !== deal.buyerId) {
+      await ctx.answerCallbackQuery({ text: "Non sei parte" });
+      await ctx.reply(it.notParty);
       return;
     }
     if (!isParty(deal, ctx.from.id)) {
@@ -380,7 +387,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
-  // Opener propone Prodotto + Prezzo + Tempi in un solo messaggio (card vivente)
+  // Gruppo: niente free-form termini. Solo importo escrow post-Accetto (+ legacy).
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -433,7 +440,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     let current = trackSeenGroupUser(ctx.store, deal, ctx.from.id);
 
-    // Post-Accetto: un messaggio per l'importo escrow crypto (se non nei termini)
+    // Post-Accetto: un messaggio per l'importo escrow crypto
     if (current.status === "awaiting_amount" && tosAccepted(current)) {
       if (!isParty(current, ctx.from.id)) {
         await next();
@@ -490,112 +497,27 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
+    // Termini solo in DM seller — niente parsing in gruppo
     if (
-      current.status !== "awaiting_tos" &&
-      current.status !== "awaiting_tos_confirm"
+      current.status === "awaiting_tos" ||
+      current.status === "awaiting_tos_confirm"
     ) {
-      await next();
-      return;
-    }
-
-    if (tosAccepted(current)) {
-      await ctx.reply(it.tosLocked);
-      return;
-    }
-
-    if (ctx.from.id !== current.creatorId) {
-      if (current.status === "awaiting_tos") {
-        await ctx.reply(it.onlyOpenerWritesTerms(current), {
-          parse_mode: "Markdown",
-        });
+      if (tosAccepted(current)) {
+        await ctx.reply(it.tosLocked);
         return;
       }
-      await next();
-      return;
-    }
-
-    const parsed = parseTermsProposal(text, current.asset);
-    if (!parsed.ok) {
-      if (parsed.reason === "price") {
-        await ctx.reply(it.invalidTermsPrice, { parse_mode: "Markdown" });
-        return;
-      }
-      if (parsed.reason === "short") {
-        await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
-        return;
-      }
-
-      // Best-effort: salva i pezzi trovati, aggiorna la card, chiedi solo cosa manca
-      const p = parsed.partial;
-      const hasAny =
-        Boolean(p.product) ||
-        Boolean(p.priceEur) ||
-        Boolean(p.tempi) ||
-        Boolean(p.notes) ||
-        Boolean(p.cryptoAmount);
-
-      if (!hasAny) {
-        await ctx.reply(it.termsNeedEssentials, { parse_mode: "Markdown" });
-        return;
-      }
-
-      const product = p.product ?? current.tosProduct;
-      const priceEur = p.priceEur ?? current.priceEur;
-      const tempi = p.tempi ?? current.tosConditions;
-      const notes = p.notes ?? current.tosNotes;
-      const cryptoAmount =
-        p.cryptoAmount ?? (current.amount ? current.amount : undefined);
-
-      const ready = Boolean(product && priceEur && tempi);
-      const tosText = ready
-        ? composeTosText(product!, priceEur!, tempi!, notes)
-        : [
-            `• Prodotto: ${product ?? "—"}`,
-            `• Prezzo: ${priceEur ? `${priceEur} €` : "—"}`,
-            `• Tempi: ${tempi ?? "—"}`,
-            `• Condizioni: ${notes?.trim() || "—"}`,
-          ].join("\n");
-
-      const merged = ctx.store.update(current.id, {
-        ...(product ? { tosProduct: product } : {}),
-        ...(priceEur ? { priceEur } : {}),
-        ...(tempi ? { tosConditions: tempi } : {}),
-        ...(notes ? { tosNotes: notes } : {}),
-        ...(cryptoAmount ? { amount: cryptoAmount } : {}),
-        tosText,
-        tosAcceptedAt: undefined,
-        amountConfirmedAt: undefined,
-        amountVotes: [],
-        status: ready ? "awaiting_tos_confirm" : "awaiting_tos",
-      })!;
-
       await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-      // Solo edit card (action line chiede ciò che manca) — niente loop errori formato
-      await refreshGroupSetupCard(ctx.api, ctx.store, merged);
+      const notice = await ctx.reply(it.termsOnlyInDm(current), {
+        parse_mode: "Markdown",
+      });
+      // Messaggio guida effimero: cancella dopo breve igiene best-effort
+      setTimeout(() => {
+        void deleteMessageSafe(ctx.api, ctx.chat!.id, notice.message_id);
+      }, 8_000);
       return;
     }
 
-    const tosText = composeTosText(
-      parsed.product,
-      parsed.priceEur,
-      parsed.tempi,
-      parsed.notes,
-    );
-    const updated = ctx.store.update(current.id, {
-      tosProduct: parsed.product,
-      priceEur: parsed.priceEur,
-      tosConditions: parsed.tempi,
-      tosNotes: parsed.notes,
-      ...(parsed.cryptoAmount ? { amount: parsed.cryptoAmount } : {}),
-      tosText,
-      tosAcceptedAt: undefined,
-      amountConfirmedAt: undefined,
-      amountVotes: [],
-      status: "awaiting_tos_confirm",
-    })!;
-
-    await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-    await postTosDraft(ctx.api, ctx.store, updated);
+    await next();
   });
 
   bot.on("chat_member", async (ctx) => {

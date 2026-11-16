@@ -1,13 +1,13 @@
-import type { Deal } from "../types.js";
+import type { Deal, DmTermsStep } from "../types.js";
 import {
   amountConfirmed,
   bothPartiesPresent,
   escMd,
   formatTosBullets,
-  mentionCounterpart,
   mentionPendingVoter,
   mentionUser,
   missingEssentialTerms,
+  termsReadyForConfirm,
   tosAccepted,
   type EssentialTermsField,
 } from "../services/deal-logic.js";
@@ -15,7 +15,7 @@ import {
 const ESSENTIAL_LABELS: Record<EssentialTermsField, string> = {
   product: "Prodotto",
   price: "Prezzo",
-  tempi: "Tempi",
+  conditions: "Condizioni",
 };
 
 function formatMissingList(fields: EssentialTermsField[]): string {
@@ -41,14 +41,6 @@ const STATUS_LABELS: Record<Deal["status"], string> = {
   disputed: "in disputa",
   cancelled: "annullato",
 };
-
-function openerMention(deal: Deal): string {
-  const role = deal.creatorRole;
-  const username =
-    role === "buyer" ? deal.buyerUsername : deal.sellerUsername;
-  const id = role === "buyer" ? deal.buyerId : deal.sellerId;
-  return mentionUser(username ?? deal.creatorUsername, id ?? deal.creatorId, role);
-}
 
 function amountLine(deal: Deal): string {
   if (amountConfirmed(deal) || deal.amount) {
@@ -80,8 +72,8 @@ Escrow crypto tra due parti già d'accordo.
   help: `*Guida Escrowita*
 
 1. In privato: /crea → ruolo (buyer/seller) → crypto
-2. Crea un *gruppo privato*, aggiungi bot + controparte, poi /avvia
-3. Nel gruppo: termini (messaggio libero) → Accetto → importo escrow se manca → wallet → deposito
+2. Il *seller* risponde a 3 domande in DM (Prodotto, Prezzo €, Condizioni)
+3. Gruppo privato → bot admin → /avvia → card Accetto → importo escrow → wallet → deposito
 4. /pay_seller (o /payseller) · /refund_buyer (o /refundbuyer) — doppia conferma
 
 Asset: *SOL* live. *ETH* e *LTC* presto.
@@ -121,19 +113,55 @@ In dubbio: /dispute o /support.`,
   cancelled: "Operazione annullata.",
   unknownPrivate: "Non ho capito. Usa /menu oppure /aiuto.",
 
+  /** Riepilogo vivente in DM seller (elenco puntato). */
+  dmTermsSummary: (deal: Deal) =>
+    `📋 Deal *#${deal.id}* · *${deal.asset}*\n${formatTosBullets(deal)}`,
+
+  dmTermsAsk: (step: DmTermsStep, _deal: Deal) => {
+    if (step === "product") {
+      return "1️⃣ Qual è il *Prodotto*?";
+    }
+    if (step === "price") {
+      return "2️⃣ Qual è il *Prezzo* in euro? (es. `10` o `12,50`)";
+    }
+    return "3️⃣ Quali sono le *Condizioni*?";
+  },
+
+  dmTermsComplete: (deal: Deal) =>
+    `✅ Termini salvati per deal *#${deal.id}*.
+
+Nel gruppo il *buyer* potrà accettare con *Accetto*.`,
+
+  dmTermsTooShort:
+    "Troppo corto. Scrivi almeno un paio di caratteri chiari.",
+
+  dmTermsInvalidPrice:
+    "Prezzo non valido. Usa un importo in *euro* (es. `5`, `5€`, `12,50`).",
+
+  dmTermsSellerBlocked: (deal: Deal) => {
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    return `${seller}: apri una chat *privata* con il bot (/start), poi rispondi alle 3 domande sui termini.`;
+  },
+
   /** Post-crea (senza importo in DM): istruzioni gruppo manuale. */
-  afterAmountInstructions: (deal: Deal) =>
-    `✅ Deal *#${deal.id}* pronto.
+  afterAmountInstructions: (deal: Deal) => {
+    const termsNote = termsReadyForConfirm(deal)
+      ? "\nTermini già compilati in privato."
+      : deal.creatorRole === "buyer"
+        ? "\nDopo /avvia il *seller* riceverà le 3 domande in privato."
+        : "";
+    return `✅ Deal *#${deal.id}* pronto.
 
 • Ruolo: *${deal.creatorRole}*
-• Crypto: *${deal.asset}*
+• Crypto: *${deal.asset}*${termsNote}
 
 Ora:
 1. Crea un *gruppo privato*
 2. Aggiungi questo bot al gruppo
 3. Nel gruppo: /avvia
 
-Poi invita l'altra parte.`,
+Poi invita l'altra parte.`;
+  },
 
   groupReady: (deal: Deal, inviteLink: string, creatorInvited: boolean) =>
     `✅ Gruppo escrow pronto per deal *#${deal.id}*.
@@ -141,7 +169,7 @@ Poi invita l'altra parte.`,
 ${creatorInvited ? "Ti ho già aggiunto al gruppo.\n" : ""}*Link invito* (max 2 — condividilo con l'altra parte):
 ${inviteLink}
 
-Nel gruppo: /avvia → termini → wallet → deposito.
+Nel gruppo: /avvia → termini (DM seller) → Accetto → wallet → deposito.
 Verifica sempre l'indirizzo escrow nei messaggi del bot.`,
 
   groupCreateFailed: (deal: Deal, detail: string) =>
@@ -152,7 +180,7 @@ Verifica sempre l'indirizzo escrow nei messaggi del bot.`,
 Usa il percorso manuale: crea un gruppo privato → aggiungi il bot → /avvia.`,
 
   tosComingSoon:
-    "📄 Termini della piattaforma: in arrivo. I ToS del deal si fissano nel gruppo.",
+    "📄 Termini della piattaforma: in arrivo. I ToS del deal li compila il seller in privato.",
 
   needBotAdmin:
     "⚠️ Promuovimi ad *amministratore* (Elimina messaggi, Blocca utenti, Invita utenti), poi /avvia.",
@@ -179,7 +207,7 @@ Poi /avvia.`;
 
   /**
    * Unica card vivente nel gruppo (elenco puntato).
-   * Buyer/Seller/Prodotto/Prezzo€/Tempi/Condizioni; azione breve sotto; Accetto in button.
+   * Buyer/Seller/Prodotto/Prezzo€/Condizioni; azione breve sotto; Accetto in button.
    */
   groupSetupCard: (deal: Deal) => {
     const header = `🔒 Deal *#${deal.id}* · *${deal.asset}*`;
@@ -191,8 +219,6 @@ Ruoli automatici: *buyer* + *seller* (+ bot).
 Invita la controparte; se è già nel gruppo, che scriva un messaggio, poi /avvia.`;
     }
 
-    const opener = openerMention(deal);
-    const cp = mentionCounterpart(deal);
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
 
@@ -208,21 +234,20 @@ Invita la controparte; se è già nel gruppo, che scriva un messaggio, poi /avvi
       (deal.status === "awaiting_amount" ||
         (!amountConfirmed(deal) && !deal.amount))
     ) {
-      action = `${opener}: invia l'importo escrow in *${deal.asset}* (es. \`0.05\`).`;
+      action = `Invia l'importo escrow in *${deal.asset}* (es. \`0.05\`).`;
     } else if (tosAccepted(deal)) {
       action = `Prossimo: wallet — prima ${seller}, poi ${buyer}.`;
     } else if (
       deal.status === "awaiting_tos_confirm" &&
-      (deal.tosText ||
-        (deal.tosProduct && deal.priceEur && deal.tosConditions))
+      termsReadyForConfirm(deal)
     ) {
-      action = `${cp}: *Accetto* per confermare.`;
+      action = `${buyer}: *Accetto* per confermare.`;
     } else {
       const missing = missingEssentialTerms(deal);
       if (missing.length > 0 && missing.length < 3) {
-        action = `${opener}: manca ancora ${formatMissingList(missing)}.`;
+        action = `${seller}: in privato manca ancora ${formatMissingList(missing)}.`;
       } else {
-        action = `${opener}: invia i termini in un unico messaggio.`;
+        action = `${seller}: completa i termini in *chat privata* col bot.`;
       }
     }
 
@@ -270,25 +295,15 @@ Prossimo: wallet — prima seller, poi buyer.`,
   notReadyForDeposit:
     "L'indirizzo escrow appare dopo termini e wallet di seller e buyer.",
 
-  onlyOpenerWritesTerms: (deal: Deal) => {
-    const opener = openerMention(deal);
-    const cp = mentionCounterpart(deal);
-    return `Solo ${opener} propone i termini. ${cp}: usa *Accetto* a proposta completa.`;
+  termsOnlyInDm: (deal: Deal) => {
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    return `I termini si compilano in *privato*. ${seller}: rispondi alle domande del bot in DM.`;
   },
 
-  tosTooShort:
-    "Troppo corto. Scrivi *Prodotto* e *Tempi* più chiari.",
-
-  /** Fallback raro: messaggio senza campi riconoscibili. */
-  termsNeedEssentials:
-    "Non ho trovato abbastanza. Indica almeno *Prodotto*, *Prezzo* (€) e *Tempi* nello stesso messaggio.",
-
-  invalidTermsPrice:
-    "Prezzo non valido. Usa un importo in *euro* (es. `5`, `5€`, `12,50`).",
-
   askEscrowAmount: (deal: Deal) => {
-    const opener = openerMention(deal);
-    return `${opener}: invia l'importo escrow in *${deal.asset}* (es. \`0.05\`).`;
+    const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    return `${buyer} o ${seller}: invia l'importo escrow in *${deal.asset}* (es. \`0.05\`).`;
   },
 
   invalidEscrowAmount: (asset: string) =>
@@ -375,8 +390,10 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
     `Deal *#${deal.id}* già collegato — \`${STATUS_LABELS[deal.status]}\`. Usa /stato.`,
   counterpartIsOpener: "Chi ha avviato il deal non conferma come controparte.",
   counterpartTaken: "La controparte è già assegnata.",
-  tosOpenerCannotAccept: (deal: Deal) =>
-    `I termini li accetta ${mentionCounterpart(deal)}.`,
+  tosSellerCannotAccept: (deal: Deal) => {
+    const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    return `I termini li accetta ${buyer}.`;
+  },
   tosAlreadyAccepted: "Termini già accettati.",
   amountAlreadyConfirmed: "Importo già confermato.",
   amountOnlyParties: "Solo buyer e seller.",
