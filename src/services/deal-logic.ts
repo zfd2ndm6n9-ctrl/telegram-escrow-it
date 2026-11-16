@@ -66,25 +66,48 @@ export function stripRepeatedLabel(value: string, label: string): string {
   return current.length > 0 ? current : value.trim();
 }
 
-/** Normalizza un campo ToS strutturato prima del persist. */
+export type TermsFieldLabel = "Prodotto" | "Prezzo" | "Tempi" | "Condizioni";
+
+/** Normalizza un campo termini strutturato prima del persist. */
 export function normalizeTosField(
   raw: string,
-  label: "Prodotto" | "Condizioni",
+  label: TermsFieldLabel,
 ): string {
-  return stripRepeatedLabel(raw, label);
+  let current = stripRepeatedLabel(raw, label);
+  // Input legacy «Condizioni: …» quando il campo UI è Tempi
+  if (label === "Tempi") {
+    current = stripRepeatedLabel(current, "Condizioni");
+  }
+  return current;
 }
 
-/** Elenco puntato ToS da campi strutturati (o fallback su tosText). */
+/** Prodotto + Prezzo + Tempi pronti per la conferma controparte. */
+export function termsReadyForConfirm(deal: Deal): boolean {
+  return Boolean(
+    deal.tosProduct &&
+      deal.amount &&
+      deal.tosConditions &&
+      deal.tosText,
+  );
+}
+
+/** Elenco puntato termini da campi strutturati (o fallback su tosText). */
 export function formatTosBullets(deal: Deal): string {
-  if (deal.tosProduct || deal.tosConditions) {
+  if (deal.tosProduct || deal.amount || deal.tosConditions) {
     const lines: string[] = [];
     if (deal.tosProduct) {
       const product = stripRepeatedLabel(deal.tosProduct, "Prodotto");
       lines.push(`• Prodotto: ${escMd(product)}`);
     }
+    if (deal.amount) {
+      lines.push(`• Prezzo: ${escMd(`${deal.amount} ${deal.asset}`)}`);
+    }
     if (deal.tosConditions) {
-      const conditions = stripRepeatedLabel(deal.tosConditions, "Condizioni");
-      lines.push(`• Condizioni: ${escMd(conditions)}`);
+      const tempi = stripRepeatedLabel(
+        stripRepeatedLabel(deal.tosConditions, "Tempi"),
+        "Condizioni",
+      );
+      lines.push(`• Tempi: ${escMd(tempi)}`);
     }
     return lines.join("\n");
   }
@@ -92,14 +115,19 @@ export function formatTosBullets(deal: Deal): string {
   return "";
 }
 
-/** Compone tosText persistito dall'elenco puntato. */
-export function composeTosText(product: string, conditions: string): string {
+/** Compone tosText persistito dall'elenco puntato Prodotto / Prezzo / Tempi. */
+export function composeTosText(
+  product: string,
+  amount: string,
+  asset: Deal["asset"],
+  tempi: string,
+): string {
   const p = normalizeTosField(product, "Prodotto");
-  const c = normalizeTosField(conditions, "Condizioni");
-  return `• Prodotto: ${p}\n• Condizioni: ${c}`;
+  const t = normalizeTosField(tempi, "Tempi");
+  return `• Prodotto: ${p}\n• Prezzo: ${amount} ${asset}\n• Tempi: ${t}`;
 }
 
-/** Stati precedenti al deposito escrow (ToS / importo / wallet ancora aperti). */
+/** Stati precedenti al deposito escrow (termini / wallet ancora aperti). */
 export function isPreDepositSetup(status: Deal["status"]): boolean {
   return (
     status === "awaiting_tos" ||
@@ -109,6 +137,16 @@ export function isPreDepositSetup(status: Deal["status"]): boolean {
     status === "awaiting_seller_wallet" ||
     status === "awaiting_buyer_wallet"
   );
+}
+
+/** Aggiunge userId all'elenco visti nel gruppo (dedupe). */
+export function rememberSeenUser(
+  deal: Deal,
+  userId: number,
+): number[] | null {
+  const prev = deal.seenGroupUserIds ?? [];
+  if (prev.includes(userId)) return null;
+  return [...prev, userId];
 }
 
 export function addUniqueVote(votes: number[], userId: number): number[] {

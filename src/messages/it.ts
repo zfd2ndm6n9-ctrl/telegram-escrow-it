@@ -13,9 +13,9 @@ import {
 const STATUS_LABELS: Record<Deal["status"], string> = {
   awaiting_group: "in attesa gruppo",
   awaiting_bot_admin: "permessi bot incompleti",
-  awaiting_counterpart: "in attesa conferma controparte",
-  awaiting_tos: "in attesa ToS dal creatore",
-  awaiting_tos_confirm: "in attesa conferma ToS",
+  awaiting_counterpart: "in attesa controparte",
+  awaiting_tos: "in attesa termini",
+  awaiting_tos_confirm: "in attesa conferma termini",
   awaiting_amount: "in attesa importo",
   awaiting_amount_confirm: "in attesa conferma importo",
   awaiting_seller_wallet: "in attesa wallet seller",
@@ -29,6 +29,14 @@ const STATUS_LABELS: Record<Deal["status"], string> = {
   disputed: "in disputa",
   cancelled: "annullato",
 };
+
+function openerMention(deal: Deal): string {
+  const role = deal.creatorRole;
+  const username =
+    role === "buyer" ? deal.buyerUsername : deal.sellerUsername;
+  const id = role === "buyer" ? deal.buyerId : deal.sellerId;
+  return mentionUser(username ?? deal.creatorUsername, id ?? deal.creatorId, role);
+}
 
 function amountLine(deal: Deal): string {
   if (amountConfirmed(deal) || deal.amount) {
@@ -59,9 +67,9 @@ Escrow crypto tra due parti già d'accordo.
 
   help: `*Guida Escrowita*
 
-1. In privato: /crea → ruolo → crypto
-2. Crea un *gruppo privato*, aggiungi il bot, poi /avvia
-3. Nel gruppo: conferma → ToS → importo (entrambi) → wallet → deposito
+1. In privato: /crea → ruolo (buyer/seller) → crypto
+2. Crea un *gruppo privato*, aggiungi bot + controparte, poi /avvia
+3. Nel gruppo: termini (Prodotto/Prezzo/Tempi) → Accetto → wallet → deposito
 4. /pay_seller (o /payseller) · /refund_buyer (o /refundbuyer) — doppia conferma
 
 Asset: *SOL* live. *ETH* e *LTC* presto.
@@ -121,7 +129,7 @@ Poi invita l'altra parte.`,
 ${creatorInvited ? "Ti ho già aggiunto al gruppo.\n" : ""}*Link invito* (max 2 — condividilo con l'altra parte):
 ${inviteLink}
 
-Nel gruppo: conferma ruolo → ToS → importo → wallet → deposito.
+Nel gruppo: /avvia → termini → wallet → deposito.
 Verifica sempre l'indirizzo escrow nei messaggi del bot.`,
 
   groupCreateFailed: (deal: Deal, detail: string) =>
@@ -158,87 +166,85 @@ Poi /avvia.`;
   },
 
   /**
-   * Unica card di setup nel gruppo: evolve in place da deal collegato
-   * → ToS → importo (niente spam di messaggi intermedi).
+   * Unica card termini nel gruppo: Prodotto → Prezzo → Tempi,
+   * poi Accetto della controparte (edit in place).
    */
   groupSetupCard: (deal: Deal) => {
     const header = `🔐 Deal *#${deal.id}* · *${deal.asset}*`;
 
     if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
-      const role = deal.creatorRole === "buyer" ? "seller" : "buyer";
       return `${header}
 
-• Creatore: *${deal.creatorRole}*
-
-Controparte: conferma come *${role}*.
-Solo buyer + seller (+ bot).`;
+Ruoli automatici: *buyer* + *seller* (+ bot).
+Invita la controparte; se è già nel gruppo, che scriva un messaggio, poi /avvia.`;
     }
 
-    const creator = mentionUser(
-      deal.creatorUsername,
-      deal.creatorId,
-      "creatore",
-    );
+    const opener = openerMention(deal);
     const cp = mentionCounterpart(deal);
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
 
     const parts: string[] = [
       header,
-      `• Creatore: *${deal.creatorRole}* · Buyer ${buyer} · Seller ${seller}`,
+      `• Buyer ${buyer} · Seller ${seller}`,
     ];
 
     if (!tosAccepted(deal)) {
-      if (deal.status === "awaiting_tos_confirm" && (deal.tosText || deal.tosConditions)) {
-        parts.push(`📜 *ToS proposti*
+      if (
+        deal.status === "awaiting_tos_confirm" &&
+        (deal.tosText || (deal.tosProduct && deal.amount && deal.tosConditions))
+      ) {
+        parts.push(`📜 *Termini proposti*
 ${formatTosBullets(deal)}
 
-${cp}: *Accetto i ToS*.
-Il creatore può sostituirli inviando un nuovo testo.`);
-      } else if (deal.tosProduct && !deal.tosConditions) {
-        parts.push(`📜 *ToS*
+${cp}: *Accetto* per confermare.
+${opener} può sostituirli inviando un nuovo testo.`);
+      } else if (deal.tosProduct && deal.amount && !deal.tosConditions) {
+        parts.push(`📜 *Termini*
 ${formatTosBullets(deal)}
 
-${creator}: ora invia le *Condizioni* (tempi, regole, altro).`);
+${opener}: ora invia i *Tempi* (scadenze, regole, altro).`);
+      } else if (deal.tosProduct && !deal.amount) {
+        parts.push(`📜 *Termini*
+${formatTosBullets(deal)}
+
+${opener}: ora invia il *Prezzo* (es. \`0.05\` — *${deal.asset}*).
+⚠️ Mainnet reale: importi di test piccoli.`);
       } else {
-        parts.push(`📜 *ToS*
-${creator}: invia il *Prodotto* (cosa si scambia). Poi le *Condizioni*.
-${cp}: conferma col pulsante dopo la proposta.`);
+        parts.push(`📜 *Termini*
+${opener}: invia il *Prodotto* (cosa si scambia). Poi *Prezzo* e *Tempi*.
+${cp}: conferma con *Accetto* a proposta completa.`);
       }
     } else {
-      parts.push(`📜 *ToS accettati*
+      parts.push(`📜 *Termini accettati*
 ${formatTosBullets(deal)}`);
 
-      if (amountConfirmed(deal)) {
+      if (amountConfirmed(deal) || deal.amount) {
         parts.push(
-          `💰 Importo fissato: *${deal.amount} ${deal.asset}*.\nProssimo: wallet — prima seller, poi buyer.`,
+          `Prossimo: wallet — prima ${seller}, poi ${buyer}.`,
         );
-      } else if (deal.amount && deal.status === "awaiting_amount_confirm") {
-        const votes = deal.amountVotes ?? [];
-        const progress =
-          votes.length < 2
-            ? `\nConferme: *${votes.length}/2* — aspetta ${mentionPendingVoter(deal, votes)}.`
-            : "";
-        parts.push(`💰 Importo proposto: *${deal.amount} ${deal.asset}*
-${buyer} e ${seller}: confermate entrambe.${progress}
-⚠️ Mainnet reale.`);
-      } else {
-        parts.push(`💰 *Importo*
-${buyer} e ${seller}: una parte propone (es. \`0.05\`), entrambe confermano.
-⚠️ Mainnet reale: importi di test piccoli.`);
       }
     }
 
     return parts.join("\n\n");
   },
 
-  tosAccepted: (deal: Deal) =>
-    `✅ ToS accettati (#${deal.id}).
+  autoBindTooMany:
+    "Troppi membri. Solo *buyer*, *seller* e il bot. Rimuovi gli altri, poi /avvia.",
 
-Prossimo: importo *${deal.asset}* (conferma di entrambe le parti).`,
+  autoBindNone:
+    "Manca la controparte. Invitala nel gruppo, poi /avvia.",
+
+  autoBindNeedMessage:
+    "Controparte non ancora riconosciuta. Che scriva un messaggio nel gruppo, poi /avvia.",
+
+  tosAccepted: (deal: Deal) =>
+    `✅ Termini accettati (#${deal.id}).
+
+Prossimo: wallet — prima seller, poi buyer.`,
 
   tosLocked:
-    "ToS già accettati: non si possono più modificare.",
+    "Termini già accettati: non si possono più modificare.",
 
   askSellerWallet: (deal: Deal) => {
     const who = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
@@ -262,17 +268,21 @@ Prossimo: importo *${deal.asset}* (conferma di entrambe le parti).`,
   },
 
   notReadyForDeposit:
-    "L'indirizzo escrow appare dopo ToS, importo e wallet di seller e buyer.",
+    "L'indirizzo escrow appare dopo termini e wallet di seller e buyer.",
 
-  onlyCreatorWritesTos: (deal: Deal) => {
+  onlyOpenerWritesTerms: (deal: Deal) => {
+    const opener = openerMention(deal);
     const cp = mentionCounterpart(deal);
-    return `Solo chi ha creato il deal scrive i ToS. ${cp}: usa il pulsante.`;
+    return `Solo ${opener} propone i termini. ${cp}: usa *Accetto* a proposta completa.`;
   },
 
   tosTooShort:
-    "Troppo corto. Scrivi un *Prodotto* o delle *Condizioni* più chiare.",
+    "Troppo corto. Scrivi *Prodotto* o *Tempi* più chiari.",
 
-  tosProductSavedHint: "Prodotto ricevuto. Ora le Condizioni.",
+  tosProductSavedHint: "Prodotto ricevuto. Ora il Prezzo.",
+
+  invalidTermsPrice: (asset: string) =>
+    `Prezzo non valido. Invia un numero positivo in *${asset}* (es. \`0.05\`).`,
 
   dealActivated: depositPrompt,
   depositAddress: depositPrompt,
@@ -341,7 +351,7 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
     `Azione non disponibile in \`${status}\`.`,
 
   notParty: "Solo buyer/seller (o admin in disputa).",
-  notCreator: "Solo chi ha creato il deal può usare /avvia.",
+  notCreator: "Solo chi ha preparato il deal in privato può usare /avvia.",
   dealNotFound: "Deal non trovato.",
   noDeals: "Nessun deal. Usa /crea in privato.",
   onlyPrivate: "Usa questo comando in *chat privata* con il bot.",
@@ -353,13 +363,13 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
   /** /avvia ripetuto su deal già collegato: niente seconda card. */
   alreadyLinkedShort: (deal: Deal) =>
     `Deal *#${deal.id}* già collegato — \`${STATUS_LABELS[deal.status]}\`. Usa /stato.`,
-  counterpartIsCreator: "Il creatore non può confermare come controparte.",
-  counterpartTaken: "La controparte è già confermata.",
-  tosCreatorCannotAccept: (deal: Deal) =>
-    `I ToS li accetta ${mentionCounterpart(deal)}.`,
-  tosAlreadyAccepted: "ToS già accettati.",
+  counterpartIsOpener: "Chi ha avviato il deal non conferma come controparte.",
+  counterpartTaken: "La controparte è già assegnata.",
+  tosOpenerCannotAccept: (deal: Deal) =>
+    `I termini li accetta ${mentionCounterpart(deal)}.`,
+  tosAlreadyAccepted: "Termini già accettati.",
   amountAlreadyConfirmed: "Importo già confermato.",
-  amountOnlyParties: "Solo buyer e seller confermano l'importo.",
+  amountOnlyParties: "Solo buyer e seller.",
 
   kickedExtra: (userId: number) =>
     `🚫 \`${userId}\` rimosso: ammessi solo buyer, seller e (in disputa) supporto.`,
@@ -410,7 +420,7 @@ In gruppo: /pay_seller o /refund_buyer (potere admin in disputa).`,
   adminMissing: "Disputa registrata, ma ADMIN_TELEGRAM_ID non è configurato.",
 
   botAddedHint:
-    "Bot nel gruppo. Chi ha preparato il deal in privato: /avvia (servono i permessi admin).",
+    "Bot nel gruppo. Buyer o seller che ha preparato il deal in privato: /avvia (servono i permessi admin).",
 
   groupTitle: (deal: Deal) =>
     deal.amount

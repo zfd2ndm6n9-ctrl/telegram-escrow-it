@@ -63,14 +63,17 @@ export function groupInviteKeyboard(inviteLink: string, tosUrl?: string): Inline
   return kb;
 }
 
+/** @deprecated Conferma ruolo rimossa: auto-bind su /avvia. */
 export function counterpartConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo", `cp:${dealId}`);
 }
 
+/** Accetto unico sulla card Prodotto / Prezzo / Tempi. */
 export function tosConfirmKeyboard(dealId: string): InlineKeyboard {
-  return new InlineKeyboard().text("✅ Accetto i ToS", `tosok:${dealId}`);
+  return new InlineKeyboard().text("✅ Accetto", `tosok:${dealId}`);
 }
 
+/** @deprecated Dual-confirm importo rimosso: Prezzo è nella card termini. */
 export function amountConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo importo", `amtok:${dealId}`);
 }

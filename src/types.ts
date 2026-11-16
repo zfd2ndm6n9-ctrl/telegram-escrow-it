@@ -38,23 +38,31 @@ export interface Deal {
   buyerWallet?: string;
   /** Indirizzo Solana del seller (rilascio) */
   sellerWallet?: string;
-  /** Termini del deal scritti dal creatore nel gruppo */
+  /** Termini del deal (Prodotto / Prezzo / Tempi) proposti nel gruppo */
   tosText?: string;
-  /** Campo strutturato ToS: prodotto */
+  /** Campo strutturato: Prodotto */
   tosProduct?: string;
-  /** Campo strutturato ToS: condizioni */
+  /**
+   * Campo strutturato: Tempi (timing/condizioni).
+   * Nome storico `tosConditions`; in UI è etichettato «Tempi».
+   */
   tosConditions?: string;
-  /** Quando la controparte ha accettato i ToS */
+  /** Quando la controparte ha accettato la card termini */
   tosAcceptedAt?: string;
   /**
-   * Importo escrow (stringa decimale). Vuoto finché buyer e seller non
-   * lo confermano nel gruppo dopo i ToS.
+   * Importo escrow (stringa decimale). Impostato dal proponente
+   * nella card termini (campo Prezzo); confermato con l'Accetto unico.
    */
   amount: string;
-  /** Voti dual-confirm sull'importo proposto */
+  /** @deprecated Legacy dual-confirm importo; non usato nel flusso termini unificato */
   amountVotes?: number[];
-  /** Quando entrambe le parti hanno confermato l'importo */
+  /** Quando l'importo è fissato (insieme all'Accetto termini) */
   amountConfirmedAt?: string;
+  /**
+   * Utenti umani già visti in questo gruppo (join / messaggi).
+   * Serve ad auto-assegnare la controparte su /avvia (Bot API senza lista membri).
+   */
+  seenGroupUserIds?: number[];
   asset: Asset;
   status: DealStatus;
   /** Indirizzo deposito univoco (derivato) */

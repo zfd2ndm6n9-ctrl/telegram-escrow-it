@@ -4,33 +4,28 @@ import type { Deal } from "../types.js";
 import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
 import {
-  amountConfirmKeyboard,
-  counterpartConfirmKeyboard,
   groupActionsKeyboard,
   tosConfirmKeyboard,
 } from "../keyboards/menus.js";
 import {
   amountConfirmed,
+  assignJoiningParty,
   bothPartiesPresent,
   isPreDepositSetup,
+  rememberSeenUser,
+  termsReadyForConfirm,
   tosAccepted,
 } from "./deal-logic.js";
 import { sendTrackedPrompt, upsertSetupMessage } from "./prompt-cleanup.js";
 
-/** Keyboard della card setup vivente (o vuota per togliere i pulsanti). */
+/** Keyboard della card termini (Accetto solo a proposta completa). */
 export function setupCardKeyboard(deal: Deal): InlineKeyboard {
-  if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
-    return counterpartConfirmKeyboard(deal.id);
-  }
-  if (deal.status === "awaiting_tos_confirm" && !tosAccepted(deal)) {
-    return tosConfirmKeyboard(deal.id);
-  }
   if (
-    deal.status === "awaiting_amount_confirm" &&
-    deal.amount &&
-    !amountConfirmed(deal)
+    deal.status === "awaiting_tos_confirm" &&
+    termsReadyForConfirm(deal) &&
+    !tosAccepted(deal)
   ) {
-    return amountConfirmKeyboard(deal.id);
+    return tosConfirmKeyboard(deal.id);
   }
   return new InlineKeyboard();
 }
@@ -61,6 +56,17 @@ export const REQUIRED_BOT_PERMS: RequiredBotPerm[] = [
 export type BotAdminCheck =
   | { ok: true }
   | { ok: false; missing: RequiredBotPerm[]; notAdmin: boolean };
+
+export type HumanMember = {
+  id: number;
+  username?: string;
+  displayName?: string;
+};
+
+export type AutoBindFailure =
+  | "too_many"
+  | "none"
+  | "need_message";
 
 /**
  * Verifica admin + permessi obbligatori via getChatMember.
@@ -94,6 +100,155 @@ export async function checkRequiredBotAdminPerms(
   } catch {
     return { ok: false, missing: [...REQUIRED_BOT_PERMS], notAdmin: true };
   }
+}
+
+function displayNameFromUser(user: {
+  first_name?: string;
+  last_name?: string;
+}): string | undefined {
+  const parts = [user.first_name, user.last_name].filter(Boolean);
+  return parts.length ? parts.join(" ") : undefined;
+}
+
+/**
+ * Scopre gli altri umani nel gruppo (non opener, non bot).
+ * Bot API non elenca i membri: usa admin + seenGroupUserIds (+ getChatMember).
+ */
+export async function discoverOtherHumans(
+  api: Api,
+  chatId: number,
+  openerId: number,
+  seenIds: number[] = [],
+): Promise<{ others: HumanMember[]; memberCount: number; botId: number }> {
+  const me = await api.getMe();
+  const botId = me.id;
+  let memberCount = 0;
+  try {
+    memberCount = await api.getChatMemberCount(chatId);
+  } catch {
+    memberCount = 0;
+  }
+
+  const byId = new Map<number, HumanMember>();
+
+  const addHuman = (user: {
+    id: number;
+    is_bot?: boolean;
+    username?: string;
+    first_name?: string;
+    last_name?: string;
+  }) => {
+    if (user.is_bot || user.id === botId || user.id === openerId) return;
+    byId.set(user.id, {
+      id: user.id,
+      username: user.username,
+      displayName: displayNameFromUser(user),
+    });
+  };
+
+  try {
+    const admins = await api.getChatAdministrators(chatId);
+    for (const m of admins) {
+      addHuman(m.user);
+    }
+  } catch (err) {
+    console.warn(`getChatAdministrators ${chatId} failed:`, err);
+  }
+
+  for (const userId of seenIds) {
+    if (userId === openerId || userId === botId || byId.has(userId)) continue;
+    try {
+      const member = await api.getChatMember(chatId, userId);
+      const st = member.status;
+      if (
+        st === "left" ||
+        st === "kicked" ||
+        (st === "restricted" && "is_member" in member && member.is_member === false)
+      ) {
+        continue;
+      }
+      addHuman(member.user);
+    } catch {
+      // non in chat / sconosciuto
+    }
+  }
+
+  return { others: [...byId.values()], memberCount, botId };
+}
+
+/** Persiste un umano visto nel gruppo (join / messaggio). */
+export function trackSeenGroupUser(
+  store: DealStore,
+  deal: Deal,
+  userId: number,
+): Deal {
+  const next = rememberSeenUser(deal, userId);
+  if (!next) return deal;
+  return store.update(deal.id, { seenGroupUserIds: next }) ?? deal;
+}
+
+/**
+ * Assegna automaticamente la controparte (ruolo opposto al DM).
+ * Fallisce se 0 o >1 altri umani riconoscibili, o se il gruppo ha troppi membri.
+ */
+export async function autoBindCounterpart(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+  chatId: number,
+): Promise<
+  | { ok: true; deal: Deal }
+  | { ok: false; reason: AutoBindFailure; deal: Deal }
+> {
+  if (bothPartiesPresent(deal)) {
+    return { ok: true, deal };
+  }
+
+  const openerId = deal.creatorId;
+  let current = trackSeenGroupUser(store, deal, openerId);
+
+  const { others, memberCount } = await discoverOtherHumans(
+    api,
+    chatId,
+    openerId,
+    current.seenGroupUserIds ?? [],
+  );
+
+  // > buyer + seller + bot
+  if (memberCount > 3) {
+    return { ok: false, reason: "too_many", deal: current };
+  }
+
+  if (others.length > 1) {
+    return { ok: false, reason: "too_many", deal: current };
+  }
+
+  if (others.length === 0) {
+    const reason: AutoBindFailure =
+      memberCount >= 3 ? "need_message" : "none";
+    return { ok: false, reason, deal: current };
+  }
+
+  const other = others[0]!;
+  const patch = assignJoiningParty(
+    current,
+    other.id,
+    other.username,
+    other.displayName,
+  );
+  if (!patch || (patch.buyerId !== other.id && patch.sellerId !== other.id)) {
+    // Slot già pieno da un altro id — non dovrebbe succedere se !bothPartiesPresent
+    return { ok: false, reason: "too_many", deal: current };
+  }
+
+  const seen = rememberSeenUser(current, other.id) ?? current.seenGroupUserIds;
+  current =
+    store.update(current.id, {
+      ...patch,
+      ...(seen ? { seenGroupUserIds: seen } : {}),
+    }) ?? current;
+
+  return { ok: true, deal: current };
 }
 
 /**
@@ -154,15 +309,18 @@ function resolveBoundStatus(deal: Deal): Deal["status"] {
     return deal.status;
   }
   if (!bothPartiesPresent(deal)) {
+    // Verrà risolto da auto-bind; placeholder finché non c'è la controparte
     return "awaiting_counterpart";
   }
   if (!tosAccepted(deal)) {
-    return deal.tosProduct && deal.tosConditions
-      ? "awaiting_tos_confirm"
-      : "awaiting_tos";
+    return termsReadyForConfirm(deal) ? "awaiting_tos_confirm" : "awaiting_tos";
+  }
+  if (!amountConfirmed(deal) && deal.amount) {
+    // Legacy mid-flight: importo proposto ma non ancora «fissato»
+    return "awaiting_amount_confirm";
   }
   if (!amountConfirmed(deal)) {
-    return deal.amount ? "awaiting_amount_confirm" : "awaiting_amount";
+    return "awaiting_tos";
   }
   if (!deal.sellerWallet) return "awaiting_seller_wallet";
   if (!deal.buyerWallet) return "awaiting_buyer_wallet";
@@ -271,61 +429,88 @@ export async function createAdminInviteLink(
   }
 }
 
+export type StartDealResult = {
+  deal: Deal;
+  started: boolean;
+  perms: BotAdminCheck;
+  autoBind?: AutoBindFailure;
+};
+
 /**
- * Avvio deal in un gruppo già creato/bound: chiede conferma controparte
- * oppure riprende ToS/wallet se le parti ci sono già.
+ * Avvio deal in un gruppo già creato/bound: auto-bind controparte,
+ * poi card termini Prodotto/Prezzo/Tempi (niente conferma ruolo).
  */
 export async function startDealInGroup(
   api: Api,
   store: DealStore,
   deal: Deal,
   chatId: number,
-): Promise<{ deal: Deal; started: boolean; perms: BotAdminCheck }> {
+): Promise<StartDealResult> {
   const { deal: bound, perms } = await bindGroupToDeal(api, store, deal, chatId);
   if (!perms.ok) {
     return { deal: bound, started: false, perms };
   }
 
-  if (bothPartiesPresent(bound)) {
-    if (!tosAccepted(bound) && !isPreDepositSetup(bound.status)) {
-      const waitingTos = store.setStatus(bound.id, "awaiting_tos") ?? bound;
-      const posted = await postStabilizeTos(api, store, waitingTos);
-      return { deal: posted, started: true, perms };
+  let current = trackSeenGroupUser(store, bound, bound.creatorId);
+
+  if (!bothPartiesPresent(current)) {
+    const bind = await autoBindCounterpart(api, store, current, chatId);
+    if (!bind.ok) {
+      const waiting =
+        store.setStatus(bind.deal.id, "awaiting_counterpart") ?? bind.deal;
+      return {
+        deal: waiting,
+        started: false,
+        perms,
+        autoBind: bind.reason,
+      };
     }
-    if (bound.status === "awaiting_tos") {
-      if (bound.tosProduct && !bound.tosConditions) {
-        const posted = await postAskTosConditions(api, store, bound);
-        return { deal: posted, started: true, perms };
-      }
-      const posted = await postStabilizeTos(api, store, bound);
-      return { deal: posted, started: true, perms };
-    }
-    if (bound.status === "awaiting_tos_confirm" && bound.tosText) {
-      const posted = await postTosDraft(api, store, bound);
-      return { deal: posted, started: true, perms };
-    }
-    if (bound.status === "awaiting_amount") {
-      const posted = await postAskAmount(api, store, bound);
-      return { deal: posted, started: true, perms };
-    }
-    if (bound.status === "awaiting_amount_confirm" && bound.amount) {
-      const posted = await postAmountProposed(api, store, bound);
-      return { deal: posted, started: true, perms };
-    }
-    if (bound.status === "awaiting_seller_wallet") {
-      const posted = await postAskSellerWallet(api, store, bound);
-      return { deal: posted, started: true, perms };
-    }
-    if (bound.status === "awaiting_buyer_wallet") {
-      const posted = await postAskBuyerWallet(api, store, bound);
-      return { deal: posted, started: true, perms };
-    }
-    return { deal: bound, started: true, perms };
+    current = bind.deal;
   }
 
-  const waiting = store.setStatus(bound.id, "awaiting_counterpart") ?? bound;
-  const posted = await refreshGroupSetupCard(api, store, waiting);
-  return { deal: posted, started: true, perms };
+  if (!tosAccepted(current) && !isPreDepositSetup(current.status)) {
+    current = store.setStatus(current.id, "awaiting_tos") ?? current;
+    const posted = await postStabilizeTos(api, store, current);
+    return { deal: posted, started: true, perms };
+  }
+
+  if (current.status === "awaiting_counterpart") {
+    current = store.setStatus(current.id, "awaiting_tos") ?? current;
+  }
+
+  if (current.status === "awaiting_tos") {
+    const posted = await postStabilizeTos(api, store, current);
+    return { deal: posted, started: true, perms };
+  }
+  if (current.status === "awaiting_tos_confirm" && current.tosText) {
+    const posted = await postTosDraft(api, store, current);
+    return { deal: posted, started: true, perms };
+  }
+  // Legacy mid-flight amount dual-confirm
+  if (current.status === "awaiting_amount") {
+    const posted = await postAskAmount(api, store, current);
+    return { deal: posted, started: true, perms };
+  }
+  if (current.status === "awaiting_amount_confirm" && current.amount) {
+    const posted = await postAmountProposed(api, store, current);
+    return { deal: posted, started: true, perms };
+  }
+  if (current.status === "awaiting_seller_wallet") {
+    const posted = await postAskSellerWallet(api, store, current);
+    return { deal: posted, started: true, perms };
+  }
+  if (current.status === "awaiting_buyer_wallet") {
+    const posted = await postAskBuyerWallet(api, store, current);
+    return { deal: posted, started: true, perms };
+  }
+
+  if (bothPartiesPresent(current) && !tosAccepted(current)) {
+    current = store.setStatus(current.id, "awaiting_tos") ?? current;
+    const posted = await postStabilizeTos(api, store, current);
+    return { deal: posted, started: true, perms };
+  }
+
+  return { deal: current, started: true, perms };
 }
 
 export async function kickUnauthorized(
