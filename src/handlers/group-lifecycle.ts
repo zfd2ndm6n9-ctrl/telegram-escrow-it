@@ -2,7 +2,6 @@ import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { it } from "../messages/it.js";
 import {
-  addUniqueVote,
   amountConfirmed,
   assignJoiningParty,
   bothPartiesPresent,
@@ -13,19 +12,20 @@ import {
   normalizeTosField,
   parseAmount,
   parseStartGroupPayload,
+  termsReadyForConfirm,
   tosAccepted,
 } from "../services/deal-logic.js";
 import { hardenGroupPermissions } from "../services/group-creator.js";
 import {
+  autoBindCounterpart,
   checkRequiredBotAdminPerms,
   kickUnauthorized,
-  postAmountProposed,
   postAskSellerWallet,
-  postAskTosConditions,
   postTosDraft,
   refreshGroupSetupCard,
   refreshGroupTitle,
   startDealInGroup,
+  trackSeenGroupUser,
 } from "../services/group-setup.js";
 import {
   deleteMessageSafe,
@@ -44,6 +44,12 @@ function displayNameOf(user: {
   return parts.length ? parts.join(" ") : undefined;
 }
 
+function autoBindReply(reason: "too_many" | "none" | "need_message"): string {
+  if (reason === "too_many") return it.autoBindTooMany;
+  if (reason === "need_message") return it.autoBindNeedMessage;
+  return it.autoBindNone;
+}
+
 async function onHumanJoined(
   ctx: BotContext,
   chatId: number,
@@ -54,18 +60,20 @@ async function onHumanJoined(
   const deal = ctx.store.findByGroupChatId(chatId);
   if (!deal) return;
 
-  // Deal non ancora attivato: non auto-assegnare via join; kick solo se già chiuso a 2 party
-  if (!bothPartiesPresent(deal)) {
-    if (isAllowedHuman(deal, userId) || userId === deal.creatorId) {
-      const patch = assignJoiningParty(deal, userId, username, displayName);
-      if (patch) ctx.store.update(deal.id, patch);
+  let current = trackSeenGroupUser(ctx.store, deal, userId);
+
+  // Deal non ancora a 2 party: traccia; auto-bind solo via /avvia
+  if (!bothPartiesPresent(current)) {
+    if (isAllowedHuman(current, userId) || userId === current.creatorId) {
+      const patch = assignJoiningParty(current, userId, username, displayName);
+      if (patch) ctx.store.update(current.id, patch);
     }
     return;
   }
 
-  if (isAllowedHuman(deal, userId)) {
-    const patch = assignJoiningParty(deal, userId, username, displayName);
-    if (patch) ctx.store.update(deal.id, patch);
+  if (isAllowedHuman(current, userId)) {
+    const patch = assignJoiningParty(current, userId, username, displayName);
+    if (patch) ctx.store.update(current.id, patch);
     return;
   }
 
@@ -99,6 +107,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         groupChatId: chat.id,
         status: "awaiting_bot_admin",
       });
+      trackSeenGroupUser(
+        ctx.store,
+        ctx.store.get(pending.id) ?? pending,
+        update.from.id,
+      );
     }
 
     await ctx.api.sendMessage(chat.id, it.botAddedHint);
@@ -106,8 +119,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
   });
 
   /**
-   * /avvia — collega il gruppo al deal e avvia conferma controparte.
-   * Alias: /setup. Path felice dopo gruppo manuale + bot admin.
+   * /avvia — collega il gruppo, auto-assegna la controparte, apre la card termini.
+   * Alias: /setup.
    */
   const avvia = async (ctx: BotContext) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
@@ -117,11 +130,13 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     if (!ctx.from) return;
 
     const existing = ctx.store.findByGroupChatId(ctx.chat.id);
-    // Già collegato e oltre il bind: niente seconda card completa.
+    // Già collegato oltre bind/auto-bind: niente seconda card completa.
+    // awaiting_counterpart: permetti retry dopo invite / messaggio controparte.
     if (
       existing &&
       existing.status !== "awaiting_bot_admin" &&
-      existing.status !== "awaiting_group"
+      existing.status !== "awaiting_group" &&
+      existing.status !== "awaiting_counterpart"
     ) {
       await ctx.reply(it.alreadyLinkedShort(existing), {
         parse_mode: "Markdown",
@@ -159,7 +174,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     await hardenGroupPermissions(ctx.api, ctx.chat.id);
 
-    const { deal: started, perms } = await startDealInGroup(
+    const { deal: started, perms, autoBind } = await startDealInGroup(
       ctx.api,
       ctx.store,
       deal,
@@ -170,6 +185,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.missingBotPerms(perms.missing), {
         parse_mode: "Markdown",
       });
+      return;
+    }
+
+    if (autoBind) {
+      await ctx.reply(autoBindReply(autoBind), { parse_mode: "Markdown" });
       return;
     }
 
@@ -187,7 +207,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
   bot.command("avvia", avvia);
   bot.command("setup", avvia);
 
-  // Controparte conferma nel gruppo → Stabiliamo i ToS
+  // Legacy: vecchi pulsanti «Confermo» ruolo — reindirizza ad auto-bind
   bot.callbackQuery(/^cp:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     const deal = ctx.store.get(dealId);
@@ -203,59 +223,44 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
       return;
     }
-    if (ctx.from.id === deal.creatorId) {
-      await ctx.answerCallbackQuery({ text: "Sei il creatore" });
-      await ctx.reply(it.counterpartIsCreator);
-      return;
-    }
-    if (bothPartiesPresent(deal) && deal.status !== "awaiting_counterpart") {
-      await ctx.answerCallbackQuery({ text: "Già completo" });
-      await ctx.reply(it.counterpartTaken);
-      return;
-    }
 
     const perms = await checkRequiredBotAdminPerms(ctx.api, ctx.chat.id);
     if (!perms.ok) {
       await ctx.answerCallbackQuery({ text: "Permessi bot mancanti" });
-      await ctx.reply(it.missingBotPerms(perms.missing), { parse_mode: "Markdown" });
+      await ctx.reply(it.missingBotPerms(perms.missing), {
+        parse_mode: "Markdown",
+      });
       return;
     }
 
-    const alreadyParty = isParty(deal, ctx.from.id);
-    const patch = assignJoiningParty(
-      deal,
-      ctx.from.id,
-      ctx.from.username,
-      displayNameOf(ctx.from),
+    let current = trackSeenGroupUser(ctx.store, deal, ctx.from.id);
+    if (bothPartiesPresent(current)) {
+      await ctx.answerCallbackQuery({ text: "Già assegnati" });
+      if (!tosAccepted(current) && current.status === "awaiting_counterpart") {
+        current = ctx.store.setStatus(current.id, "awaiting_tos")!;
+        await refreshGroupSetupCard(ctx.api, ctx.store, current);
+      }
+      return;
+    }
+
+    const bind = await autoBindCounterpart(
+      ctx.api,
+      ctx.store,
+      current,
+      ctx.chat.id,
     );
-    if (
-      !alreadyParty &&
-      (!patch || (patch.buyerId !== ctx.from.id && patch.sellerId !== ctx.from.id))
-    ) {
-      await ctx.answerCallbackQuery({ text: "Non assegnabile" });
+    if (!bind.ok) {
+      await ctx.answerCallbackQuery({ text: "Auto-bind fallito" });
+      await ctx.reply(autoBindReply(bind.reason), { parse_mode: "Markdown" });
       return;
     }
 
-    const setupMsgId = ctx.callbackQuery.message?.message_id;
-    let updated = ctx.store.update(deal.id, {
-      ...(patch ?? {}),
-      groupChatId: ctx.chat.id,
-      ...(setupMsgId != null && deal.setupMessageId == null
-        ? { setupMessageId: setupMsgId }
-        : {}),
-    })!;
-
-    if (bothPartiesPresent(updated)) {
-      updated = ctx.store.setStatus(updated.id, "awaiting_tos")!;
-      await ctx.answerCallbackQuery({ text: "Confermato" });
-      await refreshGroupSetupCard(ctx.api, ctx.store, updated);
-      return;
-    }
-
-    await ctx.answerCallbackQuery({ text: "Ok" });
+    current = ctx.store.setStatus(bind.deal.id, "awaiting_tos")!;
+    await ctx.answerCallbackQuery({ text: "Ruoli ok" });
+    await refreshGroupSetupCard(ctx.api, ctx.store, current);
   });
 
-  // Controparte accetta i ToS → importo (poi wallet)
+  // Controparte Accetta termini → lock + pin → wallet seller
   bot.callbackQuery(/^tosok:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     const deal = ctx.store.get(dealId);
@@ -271,8 +276,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
       return;
     }
-    if (!deal.tosText || deal.status !== "awaiting_tos_confirm") {
-      await ctx.answerCallbackQuery({ text: "Nessun ToS da accettare" });
+    if (!termsReadyForConfirm(deal) || deal.status !== "awaiting_tos_confirm") {
+      await ctx.answerCallbackQuery({ text: "Nessun termine da accettare" });
       return;
     }
     if (tosAccepted(deal)) {
@@ -282,7 +287,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
     if (ctx.from.id === deal.creatorId) {
       await ctx.answerCallbackQuery({ text: "Solo controparte" });
-      await ctx.reply(it.tosCreatorCannotAccept(deal), {
+      await ctx.reply(it.tosOpenerCannotAccept(deal), {
         parse_mode: "Markdown",
       });
       return;
@@ -295,9 +300,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     const tosMsgId =
       ctx.callbackQuery.message?.message_id ?? deal.setupMessageId;
+    const now = new Date().toISOString();
     let updated = ctx.store.update(deal.id, {
-      tosAcceptedAt: new Date().toISOString(),
-      status: "awaiting_amount",
+      tosAcceptedAt: now,
+      amountConfirmedAt: now,
+      status: "awaiting_seller_wallet",
       ...(tosMsgId != null
         ? {
             setupMessageId: deal.setupMessageId ?? tosMsgId,
@@ -306,17 +313,18 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         : {}),
     })!;
 
-    // Stessa card: ToS accettati + istruzioni importo; pin; resta protetta in hygiene.
     if (tosMsgId != null) {
       updated = untrackPrompt(ctx.store, updated, tosMsgId);
       await pinAcceptedTos(ctx.api, ctx.chat.id, tosMsgId);
     }
 
-    await ctx.answerCallbackQuery({ text: "ToS accettati" });
-    await refreshGroupSetupCard(ctx.api, ctx.store, updated);
+    await ctx.answerCallbackQuery({ text: "Termini accettati" });
+    await refreshGroupTitle(ctx.api, updated);
+    updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
+    await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
-  // Dual-confirm importo → wallet seller
+  // Legacy dual-confirm importo (deal mid-flight pre-unificazione)
   bot.callbackQuery(/^amtok:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     const deal = ctx.store.get(dealId);
@@ -333,7 +341,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
     if (!deal.amount || deal.status !== "awaiting_amount_confirm") {
-      await ctx.answerCallbackQuery({ text: "Nessun importo" });
+      await ctx.answerCallbackQuery({ text: "Flusso aggiornato: usa i termini" });
       return;
     }
     if (amountConfirmed(deal)) {
@@ -347,17 +355,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    const votes = addUniqueVote(deal.amountVotes ?? [], ctx.from.id);
-    if (votes.length < 2) {
-      const waiting =
-        ctx.store.update(deal.id, { amountVotes: votes }) ?? deal;
-      await ctx.answerCallbackQuery({ text: `Confermato ${votes.length}/2` });
-      await refreshGroupSetupCard(ctx.api, ctx.store, waiting);
-      return;
-    }
-
+    // Un solo click basta nel percorso legacy residuo (allineato all'Accetto unico)
     let updated = ctx.store.update(deal.id, {
-      amountVotes: votes,
+      amountVotes: [deal.buyerId, deal.sellerId].filter(
+        (id): id is number => id != null,
+      ),
       amountConfirmedAt: new Date().toISOString(),
       status: "awaiting_seller_wallet",
     })!;
@@ -368,7 +370,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
-  // Creatore scrive i ToS strutturati; parti propongono importo
+  // Opener scrive Prodotto → Prezzo → Tempi sulla stessa card
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -398,6 +400,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           });
         }
 
+        trackSeenGroupUser(
+          ctx.store,
+          ctx.store.get(dealId) ?? deal,
+          ctx.from.id,
+        );
         await ctx.reply(it.botAddedHint);
         return;
       }
@@ -414,19 +421,20 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Importo: entrambe le parti possono proporre (dopo ToS)
+    let current = trackSeenGroupUser(ctx.store, deal, ctx.from.id);
+
+    // Legacy: importo dual-confirm mid-flight
     if (
-      deal.status === "awaiting_amount" ||
-      deal.status === "awaiting_amount_confirm"
+      current.status === "awaiting_amount" ||
+      current.status === "awaiting_amount_confirm"
     ) {
-      if (!isParty(deal, ctx.from.id)) {
+      if (!isParty(current, ctx.from.id)) {
         await next();
         return;
       }
       const amount = parseAmount(text);
       if (!amount) {
-        // Non interferire con chat libera se non è un importo
-        if (deal.status === "awaiting_amount") {
+        if (current.status === "awaiting_amount") {
           await ctx.reply(it.invalidAmount, { parse_mode: "Markdown" });
           return;
         }
@@ -434,34 +442,33 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         return;
       }
 
-      const updated = ctx.store.update(deal.id, {
+      const updated = ctx.store.update(current.id, {
         amount,
         amountVotes: [ctx.from.id],
         amountConfirmedAt: undefined,
         status: "awaiting_amount_confirm",
       })!;
       await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-      await postAmountProposed(ctx.api, ctx.store, updated);
+      await refreshGroupSetupCard(ctx.api, ctx.store, updated);
       return;
     }
 
     if (
-      deal.status !== "awaiting_tos" &&
-      deal.status !== "awaiting_tos_confirm"
+      current.status !== "awaiting_tos" &&
+      current.status !== "awaiting_tos_confirm"
     ) {
       await next();
       return;
     }
 
-    // Dopo accettazione i ToS sono bloccati (status non è più awaiting_tos*).
-    if (tosAccepted(deal)) {
+    if (tosAccepted(current)) {
       await ctx.reply(it.tosLocked);
       return;
     }
 
-    if (ctx.from.id !== deal.creatorId) {
-      if (deal.status === "awaiting_tos") {
-        await ctx.reply(it.onlyCreatorWritesTos(deal), {
+    if (ctx.from.id !== current.creatorId) {
+      if (current.status === "awaiting_tos") {
+        await ctx.reply(it.onlyOpenerWritesTerms(current), {
           parse_mode: "Markdown",
         });
         return;
@@ -470,56 +477,78 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    if (text.length < MIN_TOS_FIELD) {
-      await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
-      return;
-    }
-
-    // Sostituzione pre-accettazione: riparte da Prodotto.
-    if (deal.status === "awaiting_tos_confirm") {
+    // Sostituzione pre-accettazione: riparte da Prodotto
+    if (current.status === "awaiting_tos_confirm") {
       const product = normalizeTosField(text, "Prodotto");
       if (product.length < MIN_TOS_FIELD) {
         await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
         return;
       }
-      const updated = ctx.store.update(deal.id, {
+      const updated = ctx.store.update(current.id, {
         tosProduct: product,
         tosConditions: undefined,
         tosText: undefined,
         tosAcceptedAt: undefined,
+        amount: "",
+        amountConfirmedAt: undefined,
         status: "awaiting_tos",
       })!;
       await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-      await postAskTosConditions(ctx.api, ctx.store, updated);
+      await refreshGroupSetupCard(ctx.api, ctx.store, updated);
       return;
     }
 
-    // awaiting_tos: prima Prodotto, poi Condizioni
-    if (!deal.tosProduct) {
+    // awaiting_tos: Prodotto → Prezzo → Tempi
+    if (!current.tosProduct) {
       const product = normalizeTosField(text, "Prodotto");
       if (product.length < MIN_TOS_FIELD) {
         await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
         return;
       }
-      const updated = ctx.store.update(deal.id, {
+      const updated = ctx.store.update(current.id, {
         tosProduct: product,
         tosConditions: undefined,
         tosText: undefined,
         tosAcceptedAt: undefined,
+        amount: "",
+        amountConfirmedAt: undefined,
       })!;
       await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-      await postAskTosConditions(ctx.api, ctx.store, updated);
+      await refreshGroupSetupCard(ctx.api, ctx.store, updated);
       return;
     }
 
-    const conditions = normalizeTosField(text, "Condizioni");
-    if (conditions.length < MIN_TOS_FIELD) {
+    if (!current.amount) {
+      const amount = parseAmount(normalizeTosField(text, "Prezzo"));
+      if (!amount) {
+        await ctx.reply(it.invalidTermsPrice(current.asset), {
+          parse_mode: "Markdown",
+        });
+        return;
+      }
+      const updated = ctx.store.update(current.id, {
+        amount,
+        amountConfirmedAt: undefined,
+        amountVotes: [],
+      })!;
+      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+      await refreshGroupSetupCard(ctx.api, ctx.store, updated);
+      return;
+    }
+
+    const tempi = normalizeTosField(text, "Tempi");
+    if (tempi.length < MIN_TOS_FIELD) {
       await ctx.reply(it.tosTooShort, { parse_mode: "Markdown" });
       return;
     }
-    const tosText = composeTosText(deal.tosProduct, conditions);
-    const updated = ctx.store.update(deal.id, {
-      tosConditions: conditions,
+    const tosText = composeTosText(
+      current.tosProduct,
+      current.amount,
+      current.asset,
+      tempi,
+    );
+    const updated = ctx.store.update(current.id, {
+      tosConditions: tempi,
       tosText,
       tosAcceptedAt: undefined,
       status: "awaiting_tos_confirm",
