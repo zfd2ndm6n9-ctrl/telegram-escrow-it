@@ -40,12 +40,17 @@ export const config = {
   /** Primo admin (compat notify + messaggi che citano un solo id). */
   adminTelegramId: adminTelegramIds[0],
   /**
-   * URL Termini di servizio (bottone «Leggi i Termini»).
-   * Default: docs/TOS.md su GitHub (markdown renderizzato).
-   * Override con TOS_URL (es. mirror proprio / raw / pagina statica).
-   * Stringa vuota `TOS_URL=` → niente URL: il bot mostra il riepilogo in chat (`it.tosSummary`).
+   * Host pubblico HTTPS del Web Service (senza trailing slash).
+   * Usato per la Mini App ToS: `${publicBaseUrl}/tos`.
+   * Env: `PUBLIC_BASE_URL`, altrimenti `RENDER_EXTERNAL_URL` (auto su Render).
    */
-  tosUrl: resolveTosUrl(),
+  publicBaseUrl: resolvePublicBaseUrl(),
+  /**
+   * URL Mini App Termini (`web_app` su «Leggi i Termini»).
+   * Priorità: `TOS_URL` esplicito → `${PUBLIC_BASE_URL|/RENDER_EXTERNAL_URL}/tos`.
+   * Se assente: bottone callback + messaggio corto (niente dump in chat).
+   */
+  tosWebAppUrl: resolveTosWebAppUrl(),
   /**
    * Secret Solana MAINNET (base58 o JSON array). Solo env / Render — mai in repo.
    * Opzionale a boot: senza chiave i deal on-chain non partono.
@@ -125,21 +130,30 @@ export const config = {
     "https://t.me/+tww-HqO8htBiMzdk",
 };
 
-/** Default pubblico: blob GitHub di docs/TOS.md (niente sito da inventare). */
-const DEFAULT_TOS_URL =
-  "https://github.com/zfd2ndm6n9-ctrl/telegram-escrow-it/blob/main/docs/TOS.md";
+function stripTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, "");
+}
+
+/** `PUBLIC_BASE_URL` oppure `RENDER_EXTERNAL_URL` (Render). */
+function resolvePublicBaseUrl(): string | undefined {
+  const raw =
+    process.env.PUBLIC_BASE_URL?.trim() ||
+    process.env.RENDER_EXTERNAL_URL?.trim() ||
+    "";
+  if (!raw) return undefined;
+  return stripTrailingSlash(raw);
+}
 
 /**
- * `TOS_URL` non impostato → default GitHub.
- * `TOS_URL=` (vuoto esplicito) → undefined (riepilogo in-bot).
- * `TOS_URL=https://…` → quel link.
+ * URL per `InlineKeyboard.webApp`.
+ * `TOS_URL` (se non vuoto) ha priorità; altrimenti `${publicBase}/tos`.
  */
-function resolveTosUrl(): string | undefined {
-  if (!Object.prototype.hasOwnProperty.call(process.env, "TOS_URL")) {
-    return DEFAULT_TOS_URL;
-  }
-  const v = process.env.TOS_URL?.trim();
-  return v || undefined;
+function resolveTosWebAppUrl(): string | undefined {
+  const explicit = process.env.TOS_URL?.trim();
+  if (explicit) return explicit;
+  const base = resolvePublicBaseUrl();
+  if (!base) return undefined;
+  return `${base}/tos`;
 }
 
 function parseChannelId(

@@ -30,6 +30,10 @@ services:
       # Opzionale: lista admin csv (oltre / al posto del singolo)
       - key: ADMIN_TELEGRAM_IDS
         sync: false
+      # HTTPS pubblico del servizio (Mini App /tos). Es: https://….onrender.com
+      - key: PUBLIC_BASE_URL
+        sync: false
+      # Override opzionale URL Mini App (default ${PUBLIC_BASE_URL}/tos)
       - key: TOS_URL
         sync: false
       # Canale pubblico «N iscritti» (bot admin del canale). Vedi README / .env.example.

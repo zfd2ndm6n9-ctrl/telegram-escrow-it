@@ -14,6 +14,8 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 # Branding foto gruppi deal (setChatPhoto su /avvia).
 COPY assets ./assets
+# Mini App Termini (GET /tos).
+COPY public ./public
 # Persistenza deal: monta un volume persistente su /app/data (o imposta DATA_DIR).
 # Su Render blueprint: disk → /var/data e DATA_DIR=/var/data.
 RUN mkdir -p /app/data /var/data

@@ -36,16 +36,19 @@ export function assetKeyboard(): Keyboard {
     .oneTime();
 }
 
-/** Post-crea: startgroup + ToS piattaforma. Label senza «amministratore» / `+`. */
+/**
+ * Post-crea: startgroup + ToS Mini App (`web_app`).
+ * Senza URL → callback `tos` (fallback corto in chat).
+ */
 export function afterAmountKeyboard(
   startGroupUrl: string,
-  tosUrl?: string,
+  tosWebAppUrl?: string,
 ): InlineKeyboard {
   const kb = new InlineKeyboard()
     .url("Aggiungi il bot al gruppo", startGroupUrl)
     .row();
-  if (tosUrl) {
-    kb.url("📄 Leggi i Termini", tosUrl);
+  if (tosWebAppUrl) {
+    kb.webApp("📄 Leggi i Termini", tosWebAppUrl);
   } else {
     kb.text("📄 Leggi i Termini", "tos");
   }
@@ -53,14 +56,27 @@ export function afterAmountKeyboard(
 }
 
 /** DM con link invito gruppo. */
-export function groupInviteKeyboard(inviteLink: string, tosUrl?: string): InlineKeyboard {
+export function groupInviteKeyboard(
+  inviteLink: string,
+  tosWebAppUrl?: string,
+): InlineKeyboard {
   const kb = new InlineKeyboard().url("🔗 Apri il gruppo", inviteLink).row();
-  if (tosUrl) {
-    kb.url("📄 Leggi i Termini", tosUrl);
+  if (tosWebAppUrl) {
+    kb.webApp("📄 Leggi i Termini", tosWebAppUrl);
   } else {
     kb.text("📄 Leggi i Termini", "tos");
   }
   return kb;
+}
+
+/** Teaser canale vouch: apre la stessa Mini App ToS. */
+export function vouchTosKeyboard(tosWebAppUrl: string): InlineKeyboard {
+  return new InlineKeyboard().webApp("📄 Leggi i Termini", tosWebAppUrl);
+}
+
+/** Fallback URL se il canale rifiuta `web_app` (Telegram: spesso solo DM). */
+export function vouchTosUrlKeyboard(tosWebAppUrl: string): InlineKeyboard {
+  return new InlineKeyboard().url("📄 Leggi i Termini", tosWebAppUrl);
 }
 
 /** @deprecated Conferma ruolo rimossa: auto-bind su /avvia. */

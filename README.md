@@ -45,17 +45,20 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `SOLANA_WATCH_INTERVAL_MS` | no | Poll depositi (default `20000`) |
 | `ADMIN_TELEGRAM_ID` | sì in prod | User id admin (dispute + `/log` + force + `/iscritti` + `/codice`) |
 | `ADMIN_TELEGRAM_IDS` | no | Lista admin (csv). Unita a `ADMIN_TELEGRAM_ID` |
-| `TOS_URL` | no | Link Termini. Default (se env assente): [`docs/TOS.md`](./docs/TOS.md) su GitHub. `TOS_URL=` vuoto → riepilogo in-bot. Francesco può hostare il md altrove e puntare qui |
-| `DATA_DIR` | sì in prod | Store deal + iscritti + inviti + log dispute (`deals.json`, `members.json`, `invites.json`, `deal-logs.json`). Render: `/var/data` |
+| `PUBLIC_BASE_URL` | sì in prod (Web) | Host HTTPS del servizio (es. `https://….onrender.com`). Mini App ToS = `/tos`. Fallback: `RENDER_EXTERNAL_URL` |
+| `TOS_URL` | no | Override URL Mini App (default `${PUBLIC_BASE_URL}/tos`) |
+| `DATA_DIR` | sì in prod | Store deal + iscritti + inviti + log dispute (`deals.json`, `members.json`, `invites.json`, `deal-logs.json`, `vouch-tos-pin.json`). Render: `/var/data` |
 | `UPDATES_CHANNEL_ID` | no | Canale pubblico «N iscritti» (id `-100…` o `@nome`). Bot admin del canale |
 | `UPDATES_CHANNEL_MESSAGE_ID` | no | Message id vivente da editare; se assente → aggiorna *description* del canale |
-| `VOUCH_CHANNEL_ID` | no (sì in prod) | Canale vouch + **gate /crea** (id `-100…` preferito). Bot **admin** + Post + `getChatMember`. Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
+| `VOUCH_CHANNEL_ID` | no (sì in prod) | Canale vouch + **gate /crea** + teaser ToS pinnato (id `-100…` preferito). Bot **admin** + Post + Pin + `getChatMember`. Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
 | `VOUCH_INVITE_LINK` | no | Invite mostrato a `/start`. Default `https://t.me/+tww-HqO8htBiMzdk` (override su Render se ruoti il link) |
-| `PORT` | no | Se impostato: `GET /healthz` (Render/Fly) |
+| `PORT` | no | Se impostato: `GET /healthz` + `GET /tos` (Render/Fly) |
 | `TELEGRAM_BOT_CREATES_GROUPS` | no | `1` per tentare create automatica gruppo (default off) |
 | `TELEGRAM_API_ID` / `HASH` / `HELPER_SESSION` | no | Solo con gate sopra; altrimenti soft-fallback manuale |
 
-Documentazione: [`docs/TOS.md`](./docs/TOS.md) (Termini) · [`docs/solana-escrow.md`](./docs/solana-escrow.md) · [`docs/bot-created-groups.md`](./docs/bot-created-groups.md).
+Documentazione: [`docs/TOS.md`](./docs/TOS.md) (Termini; Mini App `/tos`) · [`docs/solana-escrow.md`](./docs/solana-escrow.md) · [`docs/bot-created-groups.md`](./docs/bot-created-groups.md).
+
+**ToS in Telegram:** «Leggi i Termini» apre una **Web App** (`web_app`) su `/tos`. Sul canale vouch: teaser corto pinnato (boot soft + admin `/pin_tos`). Dopo Manual Deploy imposta `PUBLIC_BASE_URL` se non c’è già `RENDER_EXTERNAL_URL`.
 
 ## Avvio (polling)
 
