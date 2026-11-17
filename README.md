@@ -85,7 +85,7 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 ### Nel gruppo
 
 4. `/avvia` → una sola frase «Controparte: scrivi un messaggio o entra nel gruppo.» Soft signup solo per chi apre il deal (`/crea`); controparte: Accetta / `/wallet` / release senza `/start`
-5. *ToS*: card con *Accetta* o *Proponi i ToS* (la controparte). Proponi → stesse 3 DM all’altro; si scambiano finché uno Accetta (lock €→SOL)
+5. *ToS*: card con *Accetta* o *Proponi i ToS* (la controparte). Proponi → stesse 3 domande *nel gruppo* (igiene Q+A); si scambiano finché uno Accetta (lock €→SOL)
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
 8. Rilevamento automatico → seller *Ho spedito* → buyer *Paga* (dual-confirm; alias silenti `/payseller` per admin)

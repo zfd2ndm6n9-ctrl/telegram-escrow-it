@@ -15,8 +15,8 @@ export interface SessionData {
   /** Messaggi effimeri /crea (ruolo, crypto, risposte) da cancellare a fine step. */
   creatingEphemeralIds?: number[];
   /**
-   * Wizard termini in DM (proponente): deal attivo + step corrente.
-   * Opener dopo /crea, o controparte dopo «Proponi i ToS».
+   * Wizard termini in DM (opener dopo /crea): deal attivo + step corrente.
+   * «Proponi i ToS» chiede le 3 Q nel gruppo, non qui.
    */
   termsQa?: {
     dealId: string;

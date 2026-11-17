@@ -388,7 +388,10 @@ export function mentionTermsProposer(
 }
 
 /** Azzera campi termini + lock crypto (nuova proposta). */
-export function blankTermsPatch(proposerId: number): Partial<Deal> {
+export function blankTermsPatch(
+  proposerId: number,
+  opts?: { inGroup?: boolean },
+): Partial<Deal> {
   return {
     tosProposedBy: proposerId,
     tosProduct: undefined,
@@ -402,6 +405,8 @@ export function blankTermsPatch(proposerId: number): Partial<Deal> {
     amountVotes: [],
     dmTermsSummaryMessageId: undefined,
     dmTermsPromptMessageId: undefined,
+    groupTermsPromptMessageId: undefined,
+    termsWizardInGroup: opts?.inGroup === true ? true : undefined,
   };
 }
 

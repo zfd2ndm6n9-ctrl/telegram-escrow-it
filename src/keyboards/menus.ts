@@ -69,7 +69,7 @@ export function counterpartConfirmKeyboard(dealId: string): InlineKeyboard {
 }
 
 /**
- * Card termini: controparte può Accetta (lock) o Proponi i ToS (nuove 3 DM).
+ * Card termini: controparte può Accetta (lock) o Proponi i ToS (3 Q nel gruppo).
  */
 export function tosConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard()

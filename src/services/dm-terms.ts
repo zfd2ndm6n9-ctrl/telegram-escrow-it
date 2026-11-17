@@ -5,6 +5,7 @@ import { it } from "../messages/it.js";
 import {
   blankTermsPatch,
   composeTosText,
+  mentionTermsProposer,
   MIN_TOS_FIELD,
   nextDmTermsStep,
   normalizeTosField,
@@ -160,7 +161,12 @@ export async function startTermsWizard(
     return { ok: true, deal, alreadyReady: true };
   }
 
-  const current = store.update(deal.id, { tosProposedBy: who }) ?? deal;
+  let current = await clearGroupTermsPrompt(api, store, deal);
+  current =
+    store.update(current.id, {
+      tosProposedBy: who,
+      termsWizardInGroup: undefined,
+    }) ?? current;
   const step = nextDmTermsStep(current) ?? "product";
 
   try {
@@ -185,8 +191,57 @@ export async function startSellerTermsWizard(
   return startTermsWizard(api, store, deal, deal.sellerId ?? deal.creatorId);
 }
 
+async function clearGroupTermsPrompt(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  const chatId = deal.groupChatId;
+  if (chatId != null && deal.groupTermsPromptMessageId != null) {
+    await deleteMessageSafe(api, chatId, deal.groupTermsPromptMessageId);
+  }
+  if (deal.groupTermsPromptMessageId == null) return deal;
+  return (
+    store.update(deal.id, { groupTermsPromptMessageId: undefined }) ?? deal
+  );
+}
+
+/** Domanda corrente nel gruppo; cancella il prompt precedente. */
+export async function askGroupTermsStep(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+  step: DmTermsStep,
+): Promise<Deal> {
+  const chatId = deal.groupChatId;
+  if (chatId == null) return deal;
+
+  let current = await clearGroupTermsPrompt(api, store, deal);
+  const who = mentionTermsProposer(current, "proponente");
+  try {
+    const msg = await api.sendMessage(
+      chatId,
+      `${who}: ${it.dmTermsAsk(step, current)}`,
+      { parse_mode: "Markdown" },
+    );
+    return (
+      store.update(current.id, {
+        groupTermsPromptMessageId: msg.message_id,
+        termsWizardInGroup: true,
+      }) ?? current
+    );
+  } catch (err) {
+    console.warn(
+      `ask group terms step ${step} for deal #${deal.id} failed:`,
+      err,
+    );
+    return current;
+  }
+}
+
 /**
- * Nuova proposta: azzera termini e avvia wizard DM per `proposerId`.
+ * Nuova proposta in gruppo: azzera termini, card, 3 domande una per una.
+ * (L'opener /crea resta in DM via `startTermsWizard`.)
  */
 export async function startProposeTermsWizard(
   api: Api,
@@ -198,7 +253,6 @@ export async function startProposeTermsWizard(
   const prev = termsProposerId(deal);
   if (
     prev != null &&
-    prev !== proposerId &&
     (deal.dmTermsSummaryMessageId != null ||
       deal.dmTermsPromptMessageId != null)
   ) {
@@ -210,19 +264,27 @@ export async function startProposeTermsWizard(
     }
   }
 
-  const cleared =
-    store.update(deal.id, {
-      ...blankTermsPatch(proposerId),
-      status:
-        deal.groupChatId != null &&
-        (deal.status === "awaiting_tos" ||
-          deal.status === "awaiting_tos_confirm" ||
-          deal.status === "awaiting_counterpart")
-          ? "awaiting_tos"
-          : deal.status,
-    }) ?? deal;
+  let cleared = await clearGroupTermsPrompt(api, store, deal);
 
-  return startTermsWizard(api, store, cleared, proposerId);
+  if (cleared.groupChatId == null) {
+    // Senza gruppo: fallback DM (non dovrebbe capitare da Proponi in gruppo)
+    cleared =
+      store.update(cleared.id, {
+        ...blankTermsPatch(proposerId),
+      }) ?? cleared;
+    return startTermsWizard(api, store, cleared, proposerId);
+  }
+
+  cleared =
+    store.update(cleared.id, {
+      ...blankTermsPatch(proposerId, { inGroup: true }),
+      status: "awaiting_tos",
+    }) ?? cleared;
+
+  // Caller aggiorna la card; qui solo la prima domanda nel gruppo.
+  const step = nextDmTermsStep(cleared) ?? "product";
+  cleared = await askGroupTermsStep(api, store, cleared, step);
+  return { ok: true, deal: cleared, alreadyReady: false };
 }
 
 export type ApplyTermsAnswerResult =
@@ -346,3 +408,106 @@ export async function applyTermsAnswer(
 
 /** @deprecated alias → applyTermsAnswer */
 export const applySellerTermsAnswer = applyTermsAnswer;
+
+/**
+ * Applica risposta termini nel gruppo (Proponi i ToS).
+ * Igiene: cancella domanda bot + risposta utente; aggiorna campi deal.
+ * A fine wizard: status awaiting_tos_confirm (card/keyboard a cura del caller).
+ */
+export async function applyGroupTermsAnswer(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+  userId: number,
+  step: DmTermsStep,
+  rawText: string,
+  userMessageId?: number,
+): Promise<ApplyTermsAnswerResult> {
+  const chatId = deal.groupChatId;
+  if (chatId == null) {
+    return { ok: false, deal, reason: "wrong_user" };
+  }
+
+  const proposer = termsProposerId(deal) ?? deal.tosProposedBy;
+  if (proposer != null && proposer !== userId) {
+    return { ok: false, deal, reason: "wrong_user" };
+  }
+  let working =
+    deal.tosProposedBy == null
+      ? (store.update(deal.id, {
+          tosProposedBy: userId,
+          termsWizardInGroup: true,
+        }) ?? deal)
+      : deal;
+  if (working.tosProposedBy !== userId) {
+    return { ok: false, deal: working, reason: "wrong_user" };
+  }
+
+  const text = rawText.trim();
+  if (!text) {
+    return { ok: false, deal: working, reason: "empty" };
+  }
+
+  let patch: Partial<Deal> = {};
+  if (step === "product") {
+    const product = normalizeTosField(text, "Prodotto");
+    if (product.length < MIN_TOS_FIELD) {
+      return { ok: false, deal: working, reason: "short" };
+    }
+    patch = { tosProduct: product };
+  } else if (step === "price") {
+    const priceRaw = normalizeTosField(text, "Prezzo");
+    const eur = parseEuroPrice(priceRaw);
+    if (!eur) {
+      return { ok: false, deal: working, reason: "price" };
+    }
+    patch = { priceEur: eur };
+  } else {
+    const conditions = normalizeTosField(text, "Condizioni");
+    if (conditions.length < MIN_TOS_FIELD) {
+      return { ok: false, deal: working, reason: "short" };
+    }
+    patch = { tosConditions: conditions };
+  }
+
+  let current =
+    store.update(working.id, {
+      ...patch,
+      tosProposedBy: userId,
+      termsWizardInGroup: true,
+      tosAcceptedAt: undefined,
+      amountConfirmedAt: undefined,
+      amount: "",
+      amountVotes: [],
+    }) ?? working;
+
+  // Igiene gruppo: cancella prompt + risposta
+  current = await clearGroupTermsPrompt(api, store, current);
+  if (userMessageId != null) {
+    await deleteMessageSafe(api, chatId, userMessageId);
+  }
+
+  const next = nextDmTermsStep(current);
+  if (next) {
+    current = await askGroupTermsStep(api, store, current, next);
+    return { ok: true, deal: current, done: false, nextStep: next };
+  }
+
+  const tosText = composeTosText(
+    current.tosProduct!,
+    current.priceEur!,
+    current.tosConditions!,
+  );
+
+  current =
+    store.update(current.id, {
+      tosText,
+      tosProposedBy: userId,
+      tosAcceptedAt: undefined,
+      status: "awaiting_tos_confirm",
+      termsWizardInGroup: undefined,
+      groupTermsPromptMessageId: undefined,
+    }) ?? current;
+
+  return { ok: true, deal: current, done: true };
+}
