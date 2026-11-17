@@ -12,9 +12,11 @@ export interface SessionData {
     role?: PartyRole;
     asset?: Asset;
   };
+  /** Messaggi effimeri /crea (ruolo, crypto, risposte) da cancellare a fine step. */
+  creatingEphemeralIds?: number[];
   /**
-   * Wizard termini in DM (seller): deal attivo + step corrente.
-   * Usato anche quando il seller non è il creator (/avvia → DM).
+   * Wizard termini in DM (proponente): deal attivo + step corrente.
+   * Opener dopo /crea, o controparte dopo «Proponi i ToS».
    */
   termsQa?: {
     dealId: string;

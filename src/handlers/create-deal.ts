@@ -15,9 +15,9 @@ import {
   termsReadyForConfirm,
 } from "../services/deal-logic.js";
 import {
-  applySellerTermsAnswer,
-  findOpenSellerTermsDeal,
-  startSellerTermsWizard,
+  applyTermsAnswer,
+  findOpenTermsDeal,
+  startTermsWizard,
 } from "../services/dm-terms.js";
 import {
   createEscrowGroup,
@@ -33,6 +33,7 @@ import {
   isValidSolAddress,
 } from "../services/solana/index.js";
 import { requireRegistered } from "../services/registration.js";
+import { deleteMessageSafe } from "../services/prompt-cleanup.js";
 import { dismissInviteStep } from "./start.js";
 import type { Asset, PartyRole } from "../types.js";
 
@@ -43,6 +44,22 @@ function botCreatesGroupsEnabled(): boolean {
 function startGroupUrlForDeal(dealId: string, ctx: BotContext): string {
   const username = config.botUsername ?? ctx.botUsername ?? "ESCROWITAbot";
   return `https://t.me/${username}?startgroup=${startGroupPayload(dealId)}`;
+}
+
+/** Igiene: cancella messaggi effimeri del wizard /crea (ruolo, crypto, risposte). */
+async function clearCreatingEphemeral(ctx: BotContext): Promise<void> {
+  if (!ctx.chat || ctx.chat.type !== "private") return;
+  const ids = ctx.session.creatingEphemeralIds ?? [];
+  for (const id of ids) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, id);
+  }
+  ctx.session.creatingEphemeralIds = undefined;
+}
+
+function trackCreatingEphemeral(ctx: BotContext, messageId?: number): void {
+  if (messageId == null) return;
+  const prev = ctx.session.creatingEphemeralIds ?? [];
+  ctx.session.creatingEphemeralIds = [...prev, messageId];
 }
 
 export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
@@ -58,9 +75,11 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     }
     // Invito opzionale: non bloccare /crea; chiudi prompt senza stack
     await dismissInviteStep(ctx);
+    await clearCreatingEphemeral(ctx);
     ctx.session.creating = { step: "role" };
     ctx.session.termsQa = undefined;
-    await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
+    const ask = await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
+    trackCreatingEphemeral(ctx, ask.message_id);
   };
 
   bot.command("crea", beginCreate);
@@ -76,6 +95,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
         ctx.store.setStatus(deal.id, "cancelled");
       }
     }
+    await clearCreatingEphemeral(ctx);
     ctx.session.creating = undefined;
     ctx.session.termsQa = undefined;
     await ctx.reply(it.cancelled, { reply_markup: mainMenuKeyboard() });
@@ -118,7 +138,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Wizard termini seller (session o deal aperto)
+    // Wizard termini proponente (session o deal aperto)
     const termsHandled = await handlePrivateTermsReply(ctx, text);
     if (termsHandled) return;
 
@@ -129,12 +149,16 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     }
 
     if (creating.step === "role") {
-      await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
+      const ask = await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
+      trackCreatingEphemeral(ctx, ask.message_id);
+      trackCreatingEphemeral(ctx, ctx.message.message_id);
       return;
     }
 
     if (creating.step === "asset") {
-      await ctx.reply(it.askAsset, { reply_markup: assetKeyboard() });
+      const ask = await ctx.reply(it.askAsset, { reply_markup: assetKeyboard() });
+      trackCreatingEphemeral(ctx, ask.message_id);
+      trackCreatingEphemeral(ctx, ctx.message.message_id);
       return;
     }
 
@@ -152,7 +176,7 @@ async function handlePrivateTermsReply(
   let step = ctx.session.termsQa?.step;
 
   if (!dealId || !step) {
-    const open = findOpenSellerTermsDeal(ctx.store, ctx.from.id);
+    const open = findOpenTermsDeal(ctx.store, ctx.from.id);
     if (!open) return false;
     const next = nextDmTermsStep(open);
     if (!next) return false;
@@ -162,13 +186,19 @@ async function handlePrivateTermsReply(
   }
 
   const deal = ctx.store.get(dealId);
-  if (!deal || deal.sellerId !== ctx.from.id) {
+  if (!deal) {
     ctx.session.termsQa = undefined;
     return false;
   }
 
-  // Gate soft signup solo se il seller è l'opener del deal.
-  // Controparte seller (buyer ha aperto): termini OK senza /start + @.
+  const proposer = deal.tosProposedBy ?? deal.creatorId;
+  if (proposer !== ctx.from.id) {
+    ctx.session.termsQa = undefined;
+    return false;
+  }
+
+  // Gate soft signup solo se il proponente è l'opener del deal.
+  // Controparte che Proponi i ToS: OK senza /start + @ (DM già aperta).
   if (
     deal.creatorId === ctx.from.id &&
     !(await requireRegistered(ctx))
@@ -181,7 +211,7 @@ async function handlePrivateTermsReply(
     return false;
   }
 
-  const result = await applySellerTermsAnswer(
+  const result = await applyTermsAnswer(
     ctx.api,
     ctx.store,
     deal,
@@ -215,7 +245,7 @@ async function handlePrivateTermsReply(
     });
     await refreshGroupSetupCard(ctx.api, ctx.store, result.deal);
   } else if (result.deal.creatorId === ctx.from.id) {
-    // Seller opener: solo istruzioni gruppo (già «Termini già compilati»)
+    // Opener: istruzioni gruppo (termini già compilati)
     await finishDealReady(ctx, result.deal);
   } else {
     await ctx.reply(it.dmTermsComplete(result.deal), {
@@ -231,8 +261,10 @@ async function pickRole(ctx: BotContext, role: PartyRole): Promise<void> {
   if (!ctx.session.creating || ctx.session.creating.step !== "role") {
     ctx.session.creating = { step: "role" };
   }
+  trackCreatingEphemeral(ctx, ctx.message?.message_id);
   ctx.session.creating = { step: "asset", role };
-  await ctx.reply(it.askAsset, { reply_markup: assetKeyboard() });
+  const ask = await ctx.reply(it.askAsset, { reply_markup: assetKeyboard() });
+  trackCreatingEphemeral(ctx, ask.message_id);
 }
 
 async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
@@ -240,7 +272,8 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
   const creating = ctx.session.creating;
   if (!creating || creating.step !== "asset" || !creating.role) {
     ctx.session.creating = { step: "role" };
-    await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
+    const ask = await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
+    trackCreatingEphemeral(ctx, ask.message_id);
     return;
   }
 
@@ -248,6 +281,8 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
     await assetComingSoon(ctx, asset);
     return;
   }
+
+  trackCreatingEphemeral(ctx, ctx.message?.message_id);
 
   const role = creating.role;
   const placeholder = "PENDING_SOL_ESCROW";
@@ -273,33 +308,38 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
   if (!escrowAddress) {
     ctx.store.setStatus(deal.id, "cancelled");
     ctx.session.creating = undefined;
+    await clearCreatingEphemeral(ctx);
     await ctx.reply(it.solanaNotConfigured);
     return;
   }
 
-  const updated = ctx.store.update(deal.id, { escrowAddress })!;
+  // Opener (buyer o seller) = proponente termini: 3 domande subito
+  const updated =
+    ctx.store.update(deal.id, {
+      escrowAddress,
+      tosProposedBy: ctx.from.id,
+    })!;
   ctx.session.creating = undefined;
+  await clearCreatingEphemeral(ctx);
 
-  // Seller opener: 3 domande termini prima delle istruzioni gruppo
-  if (role === "seller") {
-    const started = await startSellerTermsWizard(ctx.api, ctx.store, updated);
-    if (started.ok && !started.alreadyReady) {
-      ctx.session.termsQa = {
-        dealId: started.deal.id,
-        step: nextDmTermsStep(started.deal) ?? "product",
-      };
-      return;
-    }
-    if (started.ok && started.alreadyReady) {
-      await finishDealReady(ctx, started.deal);
-      return;
-    }
-    // dm_blocked non dovrebbe succedere in DM col creator — fallback istruzioni
-    await finishDealReady(ctx, updated);
+  const started = await startTermsWizard(
+    ctx.api,
+    ctx.store,
+    updated,
+    ctx.from.id,
+  );
+  if (started.ok && !started.alreadyReady) {
+    ctx.session.termsQa = {
+      dealId: started.deal.id,
+      step: nextDmTermsStep(started.deal) ?? "product",
+    };
     return;
   }
-
-  // Buyer opener: termini dopo /avvia (DM al seller)
+  if (started.ok && started.alreadyReady) {
+    await finishDealReady(ctx, started.deal);
+    return;
+  }
+  // dm_blocked non dovrebbe succedere in DM col creator — fallback istruzioni
   await finishDealReady(ctx, updated);
 }
 
@@ -390,10 +430,12 @@ async function assetComingSoon(ctx: BotContext, asset: Asset): Promise<void> {
   if (!creating || creating.step !== "asset") {
     return;
   }
-  await ctx.reply(it.assetComingSoon(asset), {
+  trackCreatingEphemeral(ctx, ctx.message?.message_id);
+  const ask = await ctx.reply(it.assetComingSoon(asset), {
     parse_mode: "Markdown",
     reply_markup: assetKeyboard(),
   });
+  trackCreatingEphemeral(ctx, ask.message_id);
 }
 
 /** Snapshot invito del creator sul deal (fee 2.5% collaboratore alla release). */

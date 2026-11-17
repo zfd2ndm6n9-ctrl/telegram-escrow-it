@@ -68,9 +68,13 @@ export function counterpartConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo", `cp:${dealId}`);
 }
 
-/** Accetto unico sulla card termini (buyer conferma Prodotto/Prezzo€/Condizioni). */
+/**
+ * Card termini: controparte può Accetta (lock) o Proponi i ToS (nuove 3 DM).
+ */
 export function tosConfirmKeyboard(dealId: string): InlineKeyboard {
-  return new InlineKeyboard().text("✅ Accetto", `tosok:${dealId}`);
+  return new InlineKeyboard()
+    .text("✅ Accetta", `tosok:${dealId}`)
+    .text("✏️ Proponi i ToS", `tospropose:${dealId}`);
 }
 
 /** @deprecated Dual-confirm importo rimosso; crypto amount dopo Accetto se manca. */

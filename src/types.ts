@@ -21,12 +21,12 @@ export type DealStatus =
 export type Asset = "SOL" | "ETH" | "LTC";
 export type PartyRole = "buyer" | "seller";
 
-/** Step del wizard termini in DM (seller). */
+/** Step del wizard termini in DM (proponente corrente). */
 export type DmTermsStep = "product" | "price" | "conditions";
 
 export interface Deal {
   id: string;
-  /** Chi ha avviato il wizard in privato */
+  /** Chi ha avviato il wizard in privato (/crea opener) */
   creatorId: number;
   creatorUsername?: string;
   creatorRole: PartyRole;
@@ -60,7 +60,12 @@ export interface Deal {
    * Conservato solo per deal mid-flight legacy.
    */
   tosNotes?: string;
-  /** Quando il buyer ha accettato la card termini */
+  /**
+   * Chi ha compilato (o sta compilando) gli ultimi termini in DM.
+   * Controparte: Accetta o Proponi i ToS. Legacy senza campo → seller.
+   */
+  tosProposedBy?: number;
+  /** Quando la controparte ha accettato la card termini */
   tosAcceptedAt?: string;
   /**
    * Importo escrow on-chain (stringa decimale nell'asset del deal).
@@ -156,12 +161,12 @@ export interface Deal {
    */
   lastRoleErrorMessageId?: number;
   /**
-   * DM seller: messaggio-riepilogo vivente (elenco Prodotto/Prezzo/Condizioni).
+   * DM proponente: messaggio-riepilogo vivente (elenco Prodotto/Prezzo/Condizioni).
    * Edit in place; non cancellare durante il wizard.
    */
   dmTermsSummaryMessageId?: number;
   /**
-   * DM seller: ultimo prompt di domanda (Prodotto/Prezzo/Condizioni).
+   * DM proponente: ultimo prompt di domanda (Prodotto/Prezzo/Condizioni).
    * Cancellato dopo ogni risposta.
    */
   dmTermsPromptMessageId?: number;

@@ -80,12 +80,12 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 
 1. `/start` → invia la tua `@` (iscrizione soft) → `/crea`
 2. Ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) — **niente wallet in DM**
-3. Istruzioni: crea gruppo privato → aggiungi bot admin → `/avvia`
+3. Chi apre (`/crea`) risponde alle **3 domande** termini in DM (Prodotto → Prezzo € → Condizioni), poi istruzioni gruppo → bot admin → `/avvia`
 
 ### Nel gruppo
 
-4. `/avvia` → una sola frase «Controparte: scrivi un messaggio o entra nel gruppo.» Soft signup solo per chi apre il deal (`/crea`); controparte: Accetto / `/wallet` / release senza `/start`
-5. *ToS*: termini in DM seller; il buyer conferma con *Accetto*
+4. `/avvia` → una sola frase «Controparte: scrivi un messaggio o entra nel gruppo.» Soft signup solo per chi apre il deal (`/crea`); controparte: Accetta / `/wallet` / release senza `/start`
+5. *ToS*: card con *Accetta* o *Proponi i ToS* (la controparte). Proponi → stesse 3 DM all’altro; si scambiano finché uno Accetta (lock €→SOL)
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
 8. Rilevamento automatico → seller *Ho spedito* → buyer *Paga* (dual-confirm; alias silenti `/payseller` per admin)
@@ -114,9 +114,9 @@ Admin: `/iscritti`, `/codice`, `/codici`, `/fee`.
 3. Deploy / restart del worker (**Manual Deploy**)
 4. Su Telegram: `/crea` → buyer → SOL → `0.01`
 5. Crea gruppo privato → aggiungi bot admin → `/avvia` → invita controparte (scrive un messaggio per bind)
-6. Termini DM seller → *Accetto* → `/wallet` seller poi buyer
+6. Termini DM opener → controparte *Accetta* (o *Proponi i ToS*) → `/wallet` seller poi buyer
 7. Invia `0.01 SOL` all’indirizzo mostrato da `/indirizzo`
-8. Attendi “deposito rilevato” → entrambe `/payseller` (o pulsante *Paga seller*)
+8. Attendi “deposito rilevato” → ship → *Paga* (dual-confirm)
 
 ### Persistenza e recovery
 

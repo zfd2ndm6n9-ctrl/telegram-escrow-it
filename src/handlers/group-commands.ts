@@ -600,11 +600,13 @@ async function runPayout(
   }
 
   payoutInFlight.add(fresh.id);
+  let progressMsgId: number | undefined;
   try {
-    await ctx.reply(
+    const progress = await ctx.reply(
       kind === "release" ? it.releaseVote(fresh, 0) : it.refundVote(fresh, 0),
       { parse_mode: "Markdown" },
     );
+    progressMsgId = progress.message_id;
 
     // Snapshot collab wallet dal deal (non da InviteStore live — anti-steal)
     const collab =
@@ -618,6 +620,10 @@ async function runPayout(
     });
 
     if (!result.ok) {
+      if (progressMsgId != null && ctx.chat) {
+        await deleteMessageSafe(ctx.api, ctx.chat.id, progressMsgId);
+        progressMsgId = undefined;
+      }
       if (result.errorCode === "empty_escrow") {
         const bal = fresh.escrowAddress
           ? await getEscrowBalanceLamports(fresh.escrowAddress).catch(() => 0n)
@@ -635,6 +641,11 @@ async function runPayout(
         reply_markup: groupActionsKeyboard(fresh.status, fresh),
       });
       return;
+    }
+
+    if (progressMsgId != null && ctx.chat) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, progressMsgId);
+      progressMsgId = undefined;
     }
 
     let updated = markPayoutCompleted(ctx, fresh.id, kind, result)!;
@@ -663,6 +674,9 @@ async function runPayout(
   } catch (err) {
     // Senza catch: dopo «Rilascio in corso» un throw RPC lasciava chat senza follow-up
     // (solo bot.catch log). Lock liberato in finally → retry ok.
+    if (progressMsgId != null && ctx.chat) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, progressMsgId);
+    }
     const classified = classifyPayoutError(err);
     console.error(
       `runPayout #${fresh.id} kind=${kind} uncaught: ${classified.code} — ${classified.message}`,
