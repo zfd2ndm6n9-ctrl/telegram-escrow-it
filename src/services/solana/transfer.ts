@@ -99,7 +99,20 @@ export async function payoutDealSol(
   }
 
   const connection = getSolanaConnection();
-  const balance = await connection.getBalance(escrow.publicKey);
+  let balance: bigint;
+  try {
+    balance = BigInt(await connection.getBalance(escrow.publicKey));
+  } catch (err) {
+    const classified = classifyPayoutError(err);
+    console.error(
+      `payoutDealSol #${dealId} getBalance(escrow) failed: ${classified.code} — ${classified.message}`,
+    );
+    return {
+      ok: false,
+      error: classified.message,
+      errorCode: classified.code === "unknown" ? "rpc" : classified.code,
+    };
+  }
 
   // Idempotenza on-chain: escrow già vuoto → niente da fare (caller marca completed)
   if (balance <= 0n) {
@@ -110,7 +123,20 @@ export async function payoutDealSol(
     };
   }
 
-  const masterBal = await connection.getBalance(master.publicKey);
+  let masterBal: bigint;
+  try {
+    masterBal = BigInt(await connection.getBalance(master.publicKey));
+  } catch (err) {
+    const classified = classifyPayoutError(err);
+    console.error(
+      `payoutDealSol #${dealId} getBalance(master) failed: ${classified.code} — ${classified.message}`,
+    );
+    return {
+      ok: false,
+      error: classified.message,
+      errorCode: classified.code === "unknown" ? "rpc" : classified.code,
+    };
+  }
   // Multi-ix release può richiedere un po' più di fee di rete
   if (masterBal < 30_000n) {
     return {
@@ -379,11 +405,16 @@ export function classifyPayoutError(err: unknown): {
         "Transazione già processata. Controlla /blockchain o /stato prima di riprovare.",
     };
   }
-  if (lower.includes("429") || lower.includes("too many requests") || lower.includes("rate")) {
+  if (
+    lower.includes("429") ||
+    lower.includes("too many requests") ||
+    lower.includes("rate") ||
+    lower.includes("8190004") // web3 transport / WS rate-limit (pubblico RPC)
+  ) {
     return {
       code: "rpc",
       message:
-        "RPC Solana saturato. Riprova tra un minuto (meglio un endpoint dedicato).",
+        "RPC Solana saturato (429/#8190004). Imposta SOLANA_RPC_URL dedicato (Helius/QuickNode) e riprova.",
     };
   }
   if (lower.includes("solana_private_key") || lower.includes("non configurata")) {

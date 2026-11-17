@@ -39,6 +39,7 @@ import {
 } from "../services/reviews.js";
 import {
   checkDealDeposit,
+  classifyPayoutError,
   deriveDealKeypair,
   getEscrowBalanceLamports,
   getMasterKeypair,
@@ -659,6 +660,25 @@ async function runPayout(
       parse_mode: "Markdown",
       reply_markup: payoutHashKeyboard(),
     });
+  } catch (err) {
+    // Senza catch: dopo «Rilascio in corso» un throw RPC lasciava chat senza follow-up
+    // (solo bot.catch log). Lock liberato in finally → retry ok.
+    const classified = classifyPayoutError(err);
+    console.error(
+      `runPayout #${fresh.id} kind=${kind} uncaught: ${classified.code} — ${classified.message}`,
+      err instanceof Error ? err.message : err,
+    );
+    try {
+      await ctx.reply(it.payoutFailed(fresh, classified.message), {
+        parse_mode: "Markdown",
+        reply_markup: groupActionsKeyboard(fresh.status, fresh),
+      });
+    } catch (replyErr) {
+      console.error(
+        `runPayout #${fresh.id} fail-reply also failed:`,
+        replyErr instanceof Error ? replyErr.message : replyErr,
+      );
+    }
   } finally {
     payoutInFlight.delete(fresh.id);
   }
@@ -1345,6 +1365,23 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
         reply_markup: payoutHashKeyboard(),
       },
     );
+  } catch (err) {
+    const classified = classifyPayoutError(err);
+    console.error(
+      `admin_payout #${dealId} kind=${kind} uncaught: ${classified.code} — ${classified.message}`,
+      err instanceof Error ? err.message : err,
+    );
+    try {
+      await ctx.reply(
+        it.payoutFailed({ id: dealId } as Deal, classified.message),
+        { parse_mode: "Markdown" },
+      );
+    } catch (replyErr) {
+      console.error(
+        `admin_payout #${dealId} fail-reply also failed:`,
+        replyErr instanceof Error ? replyErr.message : replyErr,
+      );
+    }
   } finally {
     payoutInFlight.delete(dealId);
   }

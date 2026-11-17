@@ -10,6 +10,7 @@ export {
   payoutDealSol,
   getEscrowBalanceLamports,
   getPlatformFeeWalletPubkey,
+  classifyPayoutError,
   type PayoutKind,
   type PayoutOptions,
   type TransferResult,
