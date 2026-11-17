@@ -283,25 +283,28 @@ async function applyWallet(
     return;
   }
 
-  // Stati successivi: permette update wallet propria parte senza cambiare status
+  // Da awaiting_deposit in poi: wallet bloccati (anti destinazione payout swap)
+  if (
+    deal.status === "awaiting_deposit" ||
+    deal.status === "funded" ||
+    deal.status === "release_pending" ||
+    deal.status === "refund_pending" ||
+    deal.status === "disputed" ||
+    deal.status === "released" ||
+    deal.status === "refunded"
+  ) {
+    await ctx.reply(it.walletLockedAfterDeposit(deal), {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
   if (isPreDepositSetup(deal.status)) {
     await ctx.reply(it.wrongStatus(deal.status), { parse_mode: "Markdown" });
     return;
   }
 
-  const patch: Partial<Deal> = {};
-  let role: "buyer" | "seller";
-  if (isBuyer) {
-    patch.buyerWallet = address;
-    role = "buyer";
-  } else {
-    patch.sellerWallet = address;
-    role = "seller";
-  }
-  const updated = ctx.store.update(deal.id, patch)!;
-  await ctx.reply(it.walletSaved(updated, role, address), {
-    parse_mode: "Markdown",
-  });
+  await ctx.reply(it.wrongStatus(deal.status), { parse_mode: "Markdown" });
 }
 
 async function verifyDeposit(
@@ -382,62 +385,23 @@ async function verifyDeposit(
   );
 }
 
-async function runPayout(
+/** Lock in-process: evita doppio sendAndConfirm concorrente sullo stesso deal. */
+const payoutInFlight = new Set<string>();
+
+function markPayoutCompleted(
   ctx: BotContext,
-  deal: Deal,
+  dealId: string,
   kind: "release" | "refund",
-): Promise<void> {
-  // Idempotenza: già completato → non ritentare on-chain
-  if (
-    deal.payoutCompleted ||
-    (deal.payoutTxSig &&
-      (deal.status === "released" || deal.status === "refunded"))
-  ) {
-    await ctx.reply(it.payoutAlreadyDone(deal), { parse_mode: "Markdown" });
-    return;
-  }
-
-  const dest = kind === "release" ? deal.sellerWallet : deal.buyerWallet;
-  const who = kind === "release" ? "seller" : "buyer";
-  if (!dest) {
-    await ctx.reply(it.needWallet(who), { parse_mode: "Markdown" });
-    return;
-  }
-
-  await ctx.reply(
-    kind === "release" ? it.releaseVote(deal, 0) : it.refundVote(deal, 0),
-    { parse_mode: "Markdown" },
-  );
-
-  const result = await payoutDealSol(deal.id, dest, {
-    kind,
-    collaboratorWallet:
-      kind === "release" ? deal.collaboratorWallet : undefined,
-  });
-
-  if (!result.ok) {
-    // Escrow vuoto + già released/refunded in race: marca e avvisa
-    if (result.errorCode === "empty_escrow") {
-      const bal = deal.escrowAddress
-        ? await getEscrowBalanceLamports(deal.escrowAddress).catch(() => 0n)
-        : 0n;
-      if (bal === 0n && (deal.status === "released" || deal.status === "refunded")) {
-        await ctx.reply(it.payoutAlreadyDone(deal), { parse_mode: "Markdown" });
-        return;
-      }
-      console.error(
-        `Payout empty_escrow #${deal.id} kind=${kind}: fondi a 0 senza payoutCompleted. Admin!`,
-      );
-    }
-    await ctx.reply(it.payoutFailed(deal, result.error), {
-      parse_mode: "Markdown",
-      reply_markup: groupActionsKeyboard(deal.status),
-    });
-    return;
-  }
-
+  result: {
+    signature: string;
+    lamports: bigint;
+    sellerLamports?: bigint;
+    platformFeeLamports?: bigint;
+    collaboratorFeeLamports?: bigint;
+  },
+): Deal | undefined {
   const doneStatus = kind === "release" ? "released" : "refunded";
-  let updated = ctx.store.update(deal.id, {
+  return ctx.store.update(dealId, {
     status: doneStatus,
     payoutTxSig: result.signature,
     payoutCompleted: true,
@@ -446,38 +410,136 @@ async function runPayout(
         ? String(result.sellerLamports)
         : kind === "refund"
           ? String(result.lamports)
-          : deal.sellerPayoutLamports,
+          : undefined,
     platformFeeLamports:
       kind === "release" && result.platformFeeLamports != null
         ? String(result.platformFeeLamports)
         : kind === "release"
           ? "0"
-          : deal.platformFeeLamports,
+          : undefined,
     collaboratorFeeLamports:
       kind === "release" && result.collaboratorFeeLamports != null
         ? String(result.collaboratorFeeLamports)
         : kind === "release"
           ? "0"
-          : deal.collaboratorFeeLamports,
-  })!;
-  updated = await clearBotPrompts(ctx.api, ctx.store, updated);
+          : undefined,
+  });
+}
 
-  await ctx.reply(
-    it.payoutSuccess(updated, kind, result.signature, result.sol, {
-      platformFeeSol:
-        result.platformFeeLamports != null
-          ? lamportsToSolString(result.platformFeeLamports)
-          : undefined,
-      collaboratorFeeSol:
-        result.collaboratorFeeLamports != null &&
-        result.collaboratorFeeLamports > 0n
-          ? lamportsToSolString(result.collaboratorFeeLamports)
-          : undefined,
-      feeWallet: result.feeWallet,
-      collaboratorWallet: result.collaboratorWallet,
-    }),
-    { parse_mode: "Markdown" },
+/**
+ * Escrow a 0 senza flag store: tipicamente tx già landata (crash/race).
+ * Marca completed per evitare retry / confusioni admin.
+ */
+async function reconcileEmptyEscrow(
+  ctx: BotContext,
+  deal: Deal,
+  kind: "release" | "refund",
+): Promise<Deal> {
+  const doneStatus = kind === "release" ? "released" : "refunded";
+  const updated =
+    ctx.store.update(deal.id, {
+      status: doneStatus,
+      payoutCompleted: true,
+      // Conserva sig se già nota; altrimenti lascia undefined (on-chain sola fonte)
+      payoutTxSig: deal.payoutTxSig,
+    }) ?? deal;
+  console.error(
+    `Payout empty_escrow reconciled #${deal.id} kind=${kind} status→${doneStatus}` +
+      (deal.payoutTxSig ? ` tx=${deal.payoutTxSig}` : " (no stored sig)"),
   );
+  return updated;
+}
+
+async function runPayout(
+  ctx: BotContext,
+  deal: Deal,
+  kind: "release" | "refund",
+): Promise<void> {
+  // Rileggi store: evita race su payoutCompleted / wallet
+  const fresh = ctx.store.get(deal.id) ?? deal;
+
+  // Idempotenza: già completato → non ritentare on-chain
+  if (
+    fresh.payoutCompleted ||
+    (fresh.payoutTxSig &&
+      (fresh.status === "released" || fresh.status === "refunded"))
+  ) {
+    await ctx.reply(it.payoutAlreadyDone(fresh), { parse_mode: "Markdown" });
+    return;
+  }
+
+  if (payoutInFlight.has(fresh.id)) {
+    await ctx.reply(it.payoutBusy(fresh), { parse_mode: "Markdown" });
+    return;
+  }
+
+  const dest = kind === "release" ? fresh.sellerWallet : fresh.buyerWallet;
+  const who = kind === "release" ? "seller" : "buyer";
+  if (!dest) {
+    await ctx.reply(it.needWallet(who), { parse_mode: "Markdown" });
+    return;
+  }
+
+  payoutInFlight.add(fresh.id);
+  try {
+    await ctx.reply(
+      kind === "release" ? it.releaseVote(fresh, 0) : it.refundVote(fresh, 0),
+      { parse_mode: "Markdown" },
+    );
+
+    // Snapshot collab wallet dal deal (non da InviteStore live — anti-steal)
+    const collab =
+      kind === "release" && fresh.collaboratorWallet?.trim()
+        ? fresh.collaboratorWallet.trim()
+        : undefined;
+
+    const result = await payoutDealSol(fresh.id, dest, {
+      kind,
+      collaboratorWallet: collab,
+    });
+
+    if (!result.ok) {
+      if (result.errorCode === "empty_escrow") {
+        const bal = fresh.escrowAddress
+          ? await getEscrowBalanceLamports(fresh.escrowAddress).catch(() => 0n)
+          : 0n;
+        if (bal === 0n) {
+          const reconciled = await reconcileEmptyEscrow(ctx, fresh, kind);
+          await ctx.reply(it.payoutReconciledEmpty(reconciled), {
+            parse_mode: "Markdown",
+          });
+          return;
+        }
+      }
+      await ctx.reply(it.payoutFailed(fresh, result.error), {
+        parse_mode: "Markdown",
+        reply_markup: groupActionsKeyboard(fresh.status),
+      });
+      return;
+    }
+
+    let updated = markPayoutCompleted(ctx, fresh.id, kind, result)!;
+    updated = await clearBotPrompts(ctx.api, ctx.store, updated);
+
+    await ctx.reply(
+      it.payoutSuccess(updated, kind, result.signature, result.sol, {
+        platformFeeSol:
+          result.platformFeeLamports != null
+            ? lamportsToSolString(result.platformFeeLamports)
+            : undefined,
+        collaboratorFeeSol:
+          result.collaboratorFeeLamports != null &&
+          result.collaboratorFeeLamports > 0n
+            ? lamportsToSolString(result.collaboratorFeeLamports)
+            : undefined,
+        feeWallet: result.feeWallet,
+        collaboratorWallet: result.collaboratorWallet,
+      }),
+      { parse_mode: "Markdown" },
+    );
+  } finally {
+    payoutInFlight.delete(fresh.id);
+  }
 }
 
 async function handlePayOrRefund(
@@ -523,12 +585,31 @@ async function handlePayOrRefund(
     return;
   }
 
+  // Merge voto sul record fresco (sync get→update: no await in mezzo)
+  const latest = ctx.store.get(deal.id) ?? deal;
+  if (
+    latest.payoutCompleted ||
+    latest.status === "released" ||
+    latest.status === "refunded"
+  ) {
+    await ctx.reply(it.payoutAlreadyDone(latest), { parse_mode: "Markdown" });
+    return;
+  }
+  const allowedNow =
+    kind === "release"
+      ? ["funded", "release_pending"]
+      : ["funded", "refund_pending"];
+  if (!allowedNow.includes(latest.status)) {
+    await ctx.reply(it.wrongStatus(latest.status));
+    return;
+  }
+
   const voteKey = kind === "release" ? "releaseVotes" : "refundVotes";
-  const votes = addUniqueVote(deal[voteKey], ctx.from.id);
+  const votes = addUniqueVote(latest[voteKey], ctx.from.id);
   const pendingStatus = kind === "release" ? "release_pending" : "refund_pending";
   const done = votes.length >= 2;
 
-  const pending = ctx.store.update(deal.id, {
+  const pending = ctx.store.update(latest.id, {
     [voteKey]: votes,
     status: pendingStatus,
   })!;
@@ -723,6 +804,14 @@ async function adminRipristina(ctx: BotContext): Promise<void> {
     tosText: existing?.tosText ?? "[ripristinato] deal orfano dopo redeploy",
     tosAcceptedAt: existing?.tosAcceptedAt ?? ts,
     payoutTxSig: existing?.payoutTxSig,
+    payoutCompleted: existing?.payoutCompleted,
+    // Conserva attribuzione invito (fee 2.5% collab) se presente nello store
+    inviteCode: existing?.inviteCode,
+    collaboratorUserId: existing?.collaboratorUserId,
+    collaboratorWallet: existing?.collaboratorWallet,
+    platformFeeLamports: existing?.platformFeeLamports,
+    collaboratorFeeLamports: existing?.collaboratorFeeLamports,
+    sellerPayoutLamports: existing?.sellerPayoutLamports,
     createdAt: existing?.createdAt ?? ts,
     updatedAt: ts,
   };
@@ -785,6 +874,24 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
     }
   }
 
+  const kind = who === "seller" ? "release" : "refund";
+  const live = ctx.store.get(dealId) ?? fromStore;
+  if (
+    live?.payoutCompleted ||
+    (live?.payoutTxSig &&
+      (live.status === "released" || live.status === "refunded"))
+  ) {
+    await ctx.reply(it.payoutAlreadyDone(live), { parse_mode: "Markdown" });
+    return;
+  }
+
+  if (payoutInFlight.has(dealId)) {
+    await ctx.reply(it.payoutBusy({ id: dealId } as Deal), {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
   await ctx.reply(
     who === "seller"
       ? it.adminForceRelease({ id: dealId } as Deal)
@@ -792,79 +899,67 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
     { parse_mode: "Markdown" },
   );
 
-  const kind = who === "seller" ? "release" : "refund";
-  if (
-    fromStore?.payoutCompleted ||
-    (fromStore?.payoutTxSig &&
-      (fromStore.status === "released" || fromStore.status === "refunded"))
-  ) {
-    await ctx.reply(it.payoutAlreadyDone(fromStore), { parse_mode: "Markdown" });
-    return;
-  }
-
-  const result = await payoutDealSol(dealId, dest, {
-    kind,
-    collaboratorWallet:
-      kind === "release" ? fromStore?.collaboratorWallet : undefined,
-  });
-  if (!result.ok) {
-    await ctx.reply(it.payoutFailed({ id: dealId } as Deal, result.error), {
-      parse_mode: "Markdown",
-    });
-    return;
-  }
-
-  const doneStatus = who === "seller" ? "released" : "refunded";
-  let updated: Deal | undefined;
-  if (fromStore) {
-    updated = ctx.store.update(dealId, {
-      status: doneStatus,
-      payoutTxSig: result.signature,
-      payoutCompleted: true,
-      sellerPayoutLamports:
-        kind === "release" && result.sellerLamports != null
-          ? String(result.sellerLamports)
-          : String(result.lamports),
-      platformFeeLamports:
-        kind === "release" && result.platformFeeLamports != null
-          ? String(result.platformFeeLamports)
-          : kind === "release"
-            ? "0"
-            : undefined,
-      collaboratorFeeLamports:
-        kind === "release" && result.collaboratorFeeLamports != null
-          ? String(result.collaboratorFeeLamports)
-          : kind === "release"
-            ? "0"
-            : undefined,
-    });
-  }
-
-  await ctx.reply(
-    it.payoutSuccess(
-      updated ??
-        ({
-          id: dealId,
-          sellerWallet: who === "seller" ? dest : fromStore?.sellerWallet,
-          buyerWallet: who === "buyer" ? dest : fromStore?.buyerWallet,
-        } as Deal),
+  payoutInFlight.add(dealId);
+  try {
+    const result = await payoutDealSol(dealId, dest, {
       kind,
-      result.signature,
-      result.sol,
-      {
-        platformFeeSol:
-          result.platformFeeLamports != null
-            ? lamportsToSolString(result.platformFeeLamports)
-            : undefined,
-        collaboratorFeeSol:
-          result.collaboratorFeeLamports != null &&
-          result.collaboratorFeeLamports > 0n
-            ? lamportsToSolString(result.collaboratorFeeLamports)
-            : undefined,
-        feeWallet: result.feeWallet,
-        collaboratorWallet: result.collaboratorWallet,
-      },
-    ),
-    { parse_mode: "Markdown" },
-  );
+      collaboratorWallet:
+        kind === "release" ? live?.collaboratorWallet : undefined,
+    });
+    if (!result.ok) {
+      if (result.errorCode === "empty_escrow") {
+        const escrowAddr =
+          live?.escrowAddress ?? profile?.escrowAddress ?? undefined;
+        const bal = escrowAddr
+          ? await getEscrowBalanceLamports(escrowAddr).catch(() => 0n)
+          : 0n;
+        if (bal === 0n && live) {
+          const reconciled = await reconcileEmptyEscrow(ctx, live, kind);
+          await ctx.reply(it.payoutReconciledEmpty(reconciled), {
+            parse_mode: "Markdown",
+          });
+          return;
+        }
+      }
+      await ctx.reply(it.payoutFailed({ id: dealId } as Deal, result.error), {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+
+    let updated: Deal | undefined;
+    if (live || ctx.store.get(dealId)) {
+      updated = markPayoutCompleted(ctx, dealId, kind, result);
+    }
+
+    await ctx.reply(
+      it.payoutSuccess(
+        updated ??
+          ({
+            id: dealId,
+            sellerWallet: who === "seller" ? dest : live?.sellerWallet,
+            buyerWallet: who === "buyer" ? dest : live?.buyerWallet,
+          } as Deal),
+        kind,
+        result.signature,
+        result.sol,
+        {
+          platformFeeSol:
+            result.platformFeeLamports != null
+              ? lamportsToSolString(result.platformFeeLamports)
+              : undefined,
+          collaboratorFeeSol:
+            result.collaboratorFeeLamports != null &&
+            result.collaboratorFeeLamports > 0n
+              ? lamportsToSolString(result.collaboratorFeeLamports)
+              : undefined,
+          feeWallet: result.feeWallet,
+          collaboratorWallet: result.collaboratorWallet,
+        },
+      ),
+      { parse_mode: "Markdown" },
+    );
+  } finally {
+    payoutInFlight.delete(dealId);
+  }
 }

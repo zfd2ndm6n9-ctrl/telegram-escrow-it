@@ -42,7 +42,11 @@ export async function getMasterKeypair(): Promise<Keypair | null> {
     );
     return masterKeypair;
   } catch (err) {
-    console.error("SOLANA_PRIVATE_KEY non valida:", err);
+    // Non loggare l'errore grezzo (potrebbe ecoare input); solo esito.
+    console.error(
+      "SOLANA_PRIVATE_KEY non valida:",
+      err instanceof Error ? err.message : "parse failed",
+    );
     return null;
   }
 }

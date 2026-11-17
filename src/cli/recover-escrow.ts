@@ -284,23 +284,34 @@ async function main(): Promise<void> {
   }
 
   const dest = resolveDestination(args.to, profile);
-  const kind = dest.label === "buyer" ? "refund" : "release";
+  // seller → release (fee 5%/2.5%); buyer → refund 100%;
+  // indirizzo custom → sweep intero (no fee servizio) per non sottrarre 5% in recovery.
+  const kind =
+    dest.label === "seller"
+      ? "release"
+      : dest.label === "buyer"
+        ? "refund"
+        : "refund";
   const storeForInvite = new DealStore(config.dataDir);
   const existingDeal = storeForInvite.get(args.dealId);
   console.log(`\nEseguo payout (${kind}) → ${dest.label} ${dest.address} …`);
-  if (kind === "release") {
+  if (dest.label === "seller") {
     console.log(
       existingDeal?.collaboratorWallet
         ? `  Fee: 2.5% master + 2.5% collab ${existingDeal.collaboratorWallet}`
         : "  Fee: 5% piattaforma (seller 95%)",
     );
-  } else {
+  } else if (dest.label === "buyer") {
     console.log("  Fee servizio: nessuna (refund)");
+  } else {
+    console.log(
+      "  Fee servizio: nessuna (sweep custom — recovery full balance)",
+    );
   }
   const result = await payoutDealSol(args.dealId, dest.address, {
     kind,
     collaboratorWallet:
-      kind === "release" ? existingDeal?.collaboratorWallet : undefined,
+      dest.label === "seller" ? existingDeal?.collaboratorWallet : undefined,
   });
   if (!result.ok) {
     console.error(`Payout fallito: ${result.error}`);

@@ -96,16 +96,22 @@ I fondi non dipendono dallo store: con la **stessa** master key si ridériva la 
 # Dry-run: verifica derive + saldo (default)
 npm run recover:escrow -- --deal 82978c05
 
-# Paga il seller (o --to buyer / indirizzo libero)
+# Paga il seller (fee 5%/2.5%) o rimborsa buyer (100%)
 npm run recover:escrow -- --deal 82978c05 --to seller --execute
+npm run recover:escrow -- --deal 82978c05 --to buyer --execute
+
+# Indirizzo libero = sweep intero (nessuna fee servizio — recovery)
+npm run recover:escrow -- --deal 82978c05 --to <PUBKEY> --execute
 ```
 
 In produzione (dopo `npm run build`): `npm run recover:escrow:prod -- …`.
 
 Admin in Telegram (dopo deploy):
 
-- `/ripristina 82978c05` nel gruppo orfano → riscrive il deal nello store e collega il gruppo
+- `/ripristina 82978c05` nel gruppo orfano → riscrive il deal nello store e collega il gruppo (conserva invite/fee se già nello store)
 - `/admin_payout 82978c05 seller` (o `buyer`) → payout one-shot anche senza store
+
+**Wallet lock:** dopo `awaiting_deposit` i wallet buyer/seller non si possono più cambiare via `/wallet` (anti-swap destinazione). In emergenza: `/dispute` + admin.
 
 ## Fee 5% + codici invito
 
