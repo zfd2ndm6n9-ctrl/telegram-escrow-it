@@ -328,15 +328,81 @@ export function counterpartParty(deal: Deal): {
 /**
  * Mention Telegram: `@username` se c’è, altrimenti id in code, altrimenti fallback
  * (es. «controparte» solo se l’id non è ancora noto).
+ * Escape `_` e altri char Markdown legacy così `@foo_bar` non spezza parse_mode.
  */
 export function mentionUser(
   username?: string,
   userId?: number,
   fallback = "controparte",
 ): string {
-  if (username) return `@${username}`;
+  if (username) return `@${escMd(username)}`;
   if (userId != null) return `\`${userId}\``;
   return fallback;
+}
+
+/**
+ * Chi ha proposto (o sta compilando) i termini.
+ * Nuovo flusso: opener / ultimo «Proponi i ToS».
+ * Legacy senza `tosProposedBy`: seller se termini pronti, altrimenti creator.
+ */
+export function termsProposerId(deal: Deal): number | undefined {
+  if (deal.tosProposedBy != null) return deal.tosProposedBy;
+  if (termsReadyForConfirm(deal) && deal.sellerId != null) {
+    return deal.sellerId;
+  }
+  return deal.creatorId;
+}
+
+export function isTermsProposer(deal: Deal, userId: number): boolean {
+  return termsProposerId(deal) === userId;
+}
+
+/** Controparte rispetto al proponente termini (può Accetta / Proponi). */
+export function termsCounterpartId(deal: Deal): number | undefined {
+  const proposer = termsProposerId(deal);
+  if (proposer == null) return undefined;
+  if (deal.buyerId != null && deal.sellerId != null) {
+    if (proposer === deal.buyerId) return deal.sellerId;
+    if (proposer === deal.sellerId) return deal.buyerId;
+  }
+  // Ruoli non entrambi bound: l'altra parte è chi non è creator se proposer=creator
+  if (proposer === deal.creatorId) {
+    return deal.creatorRole === "buyer" ? deal.sellerId : deal.buyerId;
+  }
+  return deal.creatorId;
+}
+
+export function mentionTermsProposer(
+  deal: Deal,
+  fallback = "proponente",
+): string {
+  const id = termsProposerId(deal);
+  if (id == null) return fallback;
+  if (id === deal.buyerId) {
+    return mentionUser(deal.buyerUsername, deal.buyerId, fallback);
+  }
+  if (id === deal.sellerId) {
+    return mentionUser(deal.sellerUsername, deal.sellerId, fallback);
+  }
+  return mentionUser(deal.creatorUsername, deal.creatorId, fallback);
+}
+
+/** Azzera campi termini + lock crypto (nuova proposta). */
+export function blankTermsPatch(proposerId: number): Partial<Deal> {
+  return {
+    tosProposedBy: proposerId,
+    tosProduct: undefined,
+    priceEur: undefined,
+    tosConditions: undefined,
+    tosText: undefined,
+    tosNotes: undefined,
+    tosAcceptedAt: undefined,
+    amount: "",
+    amountConfirmedAt: undefined,
+    amountVotes: [],
+    dmTermsSummaryMessageId: undefined,
+    dmTermsPromptMessageId: undefined,
+  };
 }
 
 export function mentionCounterpart(

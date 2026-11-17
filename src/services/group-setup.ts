@@ -18,7 +18,7 @@ import {
   termsReadyForConfirm,
   tosAccepted,
 } from "./deal-logic.js";
-import { startSellerTermsWizard } from "./dm-terms.js";
+import { startTermsWizard } from "./dm-terms.js";
 import {
   clearEphemeralReplies,
   clearRoleError,
@@ -26,7 +26,7 @@ import {
   upsertSetupMessage,
 } from "./prompt-cleanup.js";
 
-/** Keyboard della card setup (Accetto solo a proposta completa). */
+/** Keyboard della card setup (Accetta / Proponi a proposta completa). */
 export function setupCardKeyboard(deal: Deal): InlineKeyboard {
   if (
     deal.status === "awaiting_tos_confirm" &&
@@ -592,7 +592,8 @@ export type StartDealResult = {
 };
 
 /**
- * Dopo ruoli bound: se termini pronti → Accetto; altrimenti DM wizard al seller.
+ * Dopo ruoli bound: se termini pronti → Accetta/Proponi;
+ * altrimenti riprende wizard DM sul proponente (opener di default).
  */
 async function advanceToTermsOrAccetto(
   api: Api,
@@ -606,19 +607,37 @@ async function advanceToTermsOrAccetto(
   }
 
   if (termsReadyForConfirm(current)) {
+    if (current.tosProposedBy == null) {
+      current =
+        store.update(current.id, {
+          tosProposedBy: current.creatorId,
+        }) ?? current;
+    }
     current =
       store.setStatus(current.id, "awaiting_tos_confirm") ?? current;
     return refreshGroupSetupCard(api, store, current);
   }
 
   current = store.setStatus(current.id, "awaiting_tos") ?? current;
+  if (current.tosProposedBy == null) {
+    current =
+      store.update(current.id, { tosProposedBy: current.creatorId }) ??
+      current;
+  }
   current = await refreshGroupSetupCard(api, store, current);
 
-  const wizard = await startSellerTermsWizard(api, store, current);
+  const wizard = await startTermsWizard(
+    api,
+    store,
+    current,
+    current.tosProposedBy ?? current.creatorId,
+  );
   if (!wizard.ok && wizard.reason === "dm_blocked") {
-    await api.sendMessage(current.groupChatId!, it.dmTermsSellerBlocked(current), {
-      parse_mode: "Markdown",
-    });
+    await api.sendMessage(
+      current.groupChatId!,
+      it.dmTermsProposerBlocked(current),
+      { parse_mode: "Markdown" },
+    );
   } else if (wizard.ok) {
     current = wizard.deal;
     if (wizard.alreadyReady) {
@@ -633,7 +652,7 @@ async function advanceToTermsOrAccetto(
 
 /**
  * Avvio deal in un gruppo già creato/bound: auto-bind controparte,
- * poi termini in DM seller → card Accetto (niente free-form in gruppo).
+ * poi card Accetta/Proponi (termini già in DM opener) o ripresa wizard.
  */
 export async function startDealInGroup(
   api: Api,

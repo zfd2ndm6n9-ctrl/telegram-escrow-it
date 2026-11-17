@@ -8,11 +8,13 @@ import {
   isAllowedHuman,
   isParty,
   isPreDepositSetup,
+  isTermsProposer,
   parseAmount,
   parseStartGroupPayload,
   termsReadyForConfirm,
   tosAccepted,
 } from "../services/deal-logic.js";
+import { startProposeTermsWizard } from "../services/dm-terms.js";
 import { convertPriceEurToSol } from "../services/fx/sol-eur.js";
 import { hardenGroupPermissions } from "../services/group-creator.js";
 import {
@@ -30,6 +32,7 @@ import {
   clearBotPrompts,
   deleteMessageSafe,
   pinAcceptedTos,
+  replaceActionReply,
   sendTrackedPrompt,
   untrackPrompt,
 } from "../services/prompt-cleanup.js";
@@ -195,7 +198,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
   });
 
   /**
-   * /avvia — collega il gruppo, auto-assegna la controparte, apre termini (DM seller) / Accetto.
+   * /avvia — collega il gruppo, auto-assegna la controparte, card Accetta/Proponi.
    * Buyer o seller (non solo il creator DM). Alias: /setup.
    */
   const avvia = async (ctx: BotContext) => {
@@ -392,7 +395,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await clearBotPrompts(ctx.api, ctx.store, advanced);
   });
 
-  // Buyer Accetta termini → lock + pin → converti €→SOL → wallet seller
+  // Controparte Accetta termini → lock + pin → converti €→SOL → wallet seller
   bot.callbackQuery(/^tosok:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     const deal = ctx.store.get(dealId);
@@ -417,22 +420,15 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.tosAlreadyAccepted);
       return;
     }
-    // Seller ha scritto i termini in DM → solo il buyer Accetta
-    if (deal.sellerId != null && ctx.from.id === deal.sellerId) {
-      await ctx.answerCallbackQuery({ text: "Solo buyer" });
-      await ctx.reply(it.tosSellerCannotAccept(deal), {
-        parse_mode: "Markdown",
-      });
-      return;
-    }
-    if (deal.buyerId != null && ctx.from.id !== deal.buyerId) {
-      await ctx.answerCallbackQuery({ text: "Non sei parte" });
-      await ctx.reply(it.notParty);
-      return;
-    }
     if (!isParty(deal, ctx.from.id)) {
       await ctx.answerCallbackQuery({ text: "Non sei parte" });
       await ctx.reply(it.notParty);
+      return;
+    }
+    // Chi ha proposto non può accettare la propria card
+    if (isTermsProposer(deal, ctx.from.id)) {
+      await ctx.answerCallbackQuery({ text: "Sei il proponente" });
+      await ctx.reply(it.tosProposerCannotAccept, { parse_mode: "Markdown" });
       return;
     }
 
@@ -481,10 +477,81 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
 
     await ctx.answerCallbackQuery({ text: "Termini accettati" });
-    await ctx.reply(it.tosAccepted(updated), { parse_mode: "Markdown" });
+    // Niente reply Accetto leftover: card aggiornata + ask wallet bastano.
     await refreshGroupTitle(ctx.api, updated);
     updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
     await postAskSellerWallet(ctx.api, ctx.store, updated);
+  });
+
+  // Controparte Proponi i ToS → nuove 3 domande DM → card aggiornata
+  bot.callbackQuery(/^tospropose:(.+)$/, async (ctx) => {
+    const dealId = ctx.match![1];
+    const deal = ctx.store.get(dealId);
+    if (!deal || !ctx.from || !ctx.chat) {
+      await ctx.answerCallbackQuery({ text: "Deal non trovato" });
+      return;
+    }
+    if (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup") {
+      await ctx.answerCallbackQuery({ text: "Solo in gruppo" });
+      return;
+    }
+    if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
+      await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
+      return;
+    }
+    if (tosAccepted(deal)) {
+      await ctx.answerCallbackQuery({ text: "Già accettati" });
+      await ctx.reply(it.tosAlreadyAccepted);
+      return;
+    }
+    if (
+      deal.status !== "awaiting_tos_confirm" &&
+      deal.status !== "awaiting_tos"
+    ) {
+      await ctx.answerCallbackQuery({ text: "Non in fase termini" });
+      return;
+    }
+    if (!isParty(deal, ctx.from.id)) {
+      await ctx.answerCallbackQuery({ text: "Non sei parte" });
+      await ctx.reply(it.notParty);
+      return;
+    }
+    if (isTermsProposer(deal, ctx.from.id) && termsReadyForConfirm(deal)) {
+      await ctx.answerCallbackQuery({ text: "Sei il proponente" });
+      await ctx.reply(it.tosProposerCannotAccept, { parse_mode: "Markdown" });
+      return;
+    }
+
+    await ctx.answerCallbackQuery({ text: "Nuova proposta" });
+    const wizard = await startProposeTermsWizard(
+      ctx.api,
+      ctx.store,
+      deal,
+      ctx.from.id,
+    );
+
+    if (!wizard.ok) {
+      await replaceActionReply(
+        ctx.api,
+        ctx.store,
+        wizard.deal,
+        it.tosProposeDmBlocked(wizard.deal),
+        { parse_mode: "Markdown" },
+      );
+      return;
+    }
+
+    let updated = wizard.deal;
+    updated =
+      ctx.store.setStatus(updated.id, "awaiting_tos") ?? updated;
+    updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
+    await replaceActionReply(
+      ctx.api,
+      ctx.store,
+      updated,
+      it.tosProposeStarted(updated),
+      { parse_mode: "Markdown" },
+    );
   });
 
   // Legacy dual-confirm importo (deal mid-flight pre-unificazione)
