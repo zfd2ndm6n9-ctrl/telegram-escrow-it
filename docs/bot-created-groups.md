@@ -34,6 +34,16 @@ Se il gate è on ma helper manca o fallisce → **soft-fallback**: deal già cre
 
 Obbligatori per `/avvia`: Elimina messaggi, Blocca utenti, Invita utenti.
 
+Per titolo gruppo + foto branding (`setChatTitle` / `setChatPhoto`): serve anche **Cambia info del gruppo** (`can_change_info`). Se manca, setup e escrow proseguono comunque (soft-fail + log).
+
+## Foto profilo gruppo (Escrowita)
+
+Alla prima `/avvia` / bind riuscito il bot carica `assets/escrowita-group.png` via `setChatPhoto` (una volta per deal; flag `groupPhotoSetAt`). Non viene ri-caricata a ogni rename.
+
+### Foto profilo del bot (BotFather) — manuale
+
+La Bot API **non** può impostare la foto profilo del bot. Francesco carica lo stesso PNG (`assets/escrowita-group.png` / media store) in [@BotFather](https://t.me/BotFather) → bot → Edit Bot → Edit Botpic (e sul canale, se serve).
+
 ## Harden membri + igiene
 
 - Membri senza change info / invite / pin / stickers inline  

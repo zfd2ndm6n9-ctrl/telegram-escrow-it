@@ -1,5 +1,8 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Api } from "grammy";
-import { InlineKeyboard } from "grammy";
+import { InlineKeyboard, InputFile } from "grammy";
 import type { Deal } from "../types.js";
 import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
@@ -25,6 +28,53 @@ import {
   sendTrackedPrompt,
   upsertSetupMessage,
 } from "./prompt-cleanup.js";
+
+/** PNG branding gruppi deal (repo `assets/`, non compilato in dist/). */
+const GROUP_PHOTO_FILENAME = "escrowita-group.png";
+
+/**
+ * Path assoluto a `assets/escrowita-group.png`.
+ * Risolve da `import.meta` (dist/src → package root) con fallback su cwd.
+ */
+export function resolveGroupPhotoPath(): string | undefined {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(here, "..", "..", "assets", GROUP_PHOTO_FILENAME),
+    path.resolve(process.cwd(), "assets", GROUP_PHOTO_FILENAME),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Imposta la foto profilo del gruppo deal (best-effort).
+ * Richiede admin + can_change_info (stesso diritto di setChatTitle).
+ * Soft-fail: log e continua.
+ */
+export async function ensureEscrowitaGroupPhoto(
+  api: Api,
+  chatId: number,
+): Promise<boolean> {
+  const photoPath = resolveGroupPhotoPath();
+  if (!photoPath) {
+    console.warn(
+      `setChatPhoto ${chatId}: asset mancante (assets/${GROUP_PHOTO_FILENAME})`,
+    );
+    return false;
+  }
+  try {
+    await api.setChatPhoto(chatId, new InputFile(photoPath));
+    return true;
+  } catch (err) {
+    console.warn(
+      `setChatPhoto ${chatId} failed:`,
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
+}
 
 /** Keyboard della card setup (Accetta / Proponi a proposta completa). */
 export function setupCardKeyboard(deal: Deal): InlineKeyboard {
@@ -398,12 +448,24 @@ export async function bindGroupToDeal(
     // ok se manca can_change_info
   }
 
+  // Foto branding una sola volta (non a ogni rename / /avvia).
+  let groupPhotoSetAt = deal.groupPhotoSetAt;
+  if (!groupPhotoSetAt) {
+    const ok = await ensureEscrowitaGroupPhoto(api, chatId);
+    if (ok) {
+      groupPhotoSetAt = new Date().toISOString();
+    }
+  }
+
   const nextStatus = resolveBoundStatus(deal);
 
   const updated =
     store.update(deal.id, {
       groupChatId: chatId,
       status: nextStatus,
+      ...(groupPhotoSetAt && groupPhotoSetAt !== deal.groupPhotoSetAt
+        ? { groupPhotoSetAt }
+        : {}),
     }) ?? deal;
 
   return { deal: updated, perms };

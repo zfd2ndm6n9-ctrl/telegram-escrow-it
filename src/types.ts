@@ -96,6 +96,11 @@ export interface Deal {
   escrowAddress: string;
   /** Chat id del gruppo escrow (negativo) */
   groupChatId?: number;
+  /**
+   * Quando `setChatPhoto` con branding Escrowita è riuscito per questo deal.
+   * Idempotenza: non ri-caricare a ogni rename / /avvia ripetuto.
+   */
+  groupPhotoSetAt?: string;
   groupInviteLink?: string;
   adminInviteLink?: string;
   /** Voti per /pay_seller */
