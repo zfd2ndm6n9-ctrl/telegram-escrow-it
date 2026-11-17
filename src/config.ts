@@ -77,13 +77,21 @@ export const config = {
   ),
   /**
    * Canale vouch / recensioni post-release.
-   * Invite tipica: https://t.me/+tww-HqO8htBiMzdk (non cambiare).
+   * Invite tipica: https://t.me/+tww-HqO8htBiMzdk (override con VOUCH_INVITE_LINK).
    * Preferire id numerico (-100…). Bot admin con permesso «Gestire i messaggi»
    * (Post messages / can_post_messages) — sufficiente; non servono altri flag.
    * Come ottenere l'id: aggiungi il bot admin → inoltra un msg del canale
    * a @userinfobot / @getidsbot, oppure leggi il chat id nei log Telegram.
+   * Gate: /crea e uso deal richiedono getChatMember = membro del canale.
    */
   vouchChannelId: parseChannelId(process.env.VOUCH_CHANNEL_ID),
+  /**
+   * Link invito canale vouch (mostrato a /start).
+   * Default pubblico; su Render puoi sovrascrivere con VOUCH_INVITE_LINK.
+   */
+  vouchInviteLink:
+    process.env.VOUCH_INVITE_LINK?.trim() ||
+    "https://t.me/+tww-HqO8htBiMzdk",
 };
 
 function parseChannelId(

@@ -57,7 +57,8 @@ Sul **Web Service** (o Background Worker) che esegue il bot — Environment:
 | `ADMIN_TELEGRAM_ID` | sì per dispute / codici | Tuo user id Telegram |
 | `TOS_URL` | no | Link ToS |
 | `DATA_DIR` | sì in prod | Persistenza deal + iscritti + inviti (`deals.json`, `members.json`, `invites.json`). Su Render: `/var/data` |
-| `VOUCH_CHANNEL_ID` | sì in prod | Canale vouch (id `-100…`). Bot **admin** con permesso **«Gestire i messaggi»** (Post) only. Invite `https://t.me/+tww-HqO8htBiMzdk` (non cambiare). Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot`. Fail post → log `[vouch] FAIL …` |
+| `VOUCH_CHANNEL_ID` | sì in prod | Canale vouch + gate `/crea` (id `-100…`). Bot **admin** Post + `getChatMember`. Fail post → log `[vouch] FAIL …` |
+| `VOUCH_INVITE_LINK` | no | Invite a `/start`. Default `https://t.me/+tww-HqO8htBiMzdk` (override Render) |
 | `PORT` | auto su Web | Per `/healthz` |
 
 ### Generare la chiave (una tantum)

@@ -534,8 +534,9 @@ export async function postDealActivated(
 }
 
 /**
- * Dopo deposito confermato: chiude UI deposito (prompt + effimeri + errori ruolo)
- * e chiede al seller di spedire. Usato da watcher e Verifica deposito.
+ * Dopo deposito confermato: aggiorna la card pinnata (*DEPOSITO CONFERMATO*),
+ * chiude UI deposito (prompt + effimeri + errori ruolo) e chiede al seller di spedire.
+ * Usato da watcher e Verifica deposito.
  */
 export async function postShipAsk(
   api: Api,
@@ -544,6 +545,15 @@ export async function postShipAsk(
 ): Promise<Deal> {
   let current = await clearEphemeralReplies(api, store, deal);
   current = await clearRoleError(api, store, current);
+  // Pin / card vivente: stato funded senza shouty separate.
+  try {
+    current = await refreshGroupSetupCard(api, store, current);
+  } catch (err) {
+    console.warn(
+      `postShipAsk refresh card #${current.id}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
   if (current.sellerShippedAt) {
     return postBuyerAfterShip(api, store, current);
   }

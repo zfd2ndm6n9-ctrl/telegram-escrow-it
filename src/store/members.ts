@@ -11,11 +11,14 @@ import { dirname, resolve } from "node:path";
 
 export type Member = {
   userId: number;
-  /** Username Telegram senza @ (obbligatorio per iscrizione soft). */
+  /** Username Telegram senza @ (opzionale: soft gate per /crea). */
   username?: string;
   firstSeen: string;
   lastSeen: string;
-  /** Quando l'utente ha confermato la @ (iscrizione completa). */
+  /**
+   * Iscrizione completata (/start). Non richiede @.
+   * Contatore pubblico e gate base usano questo.
+   */
   registeredAt?: string;
   /** Codice invito riscattato (una volta). Attribuisce i deal creati. */
   inviteCode?: string;
@@ -63,10 +66,15 @@ export class MemberStore {
     return this.members.size;
   }
 
-  /** Solo iscritti con @ confermata (o legacy con username già salvato). */
+  /** Iscritti con /start completato (`registeredAt`, o legacy con @). */
   get registeredCount(): number {
     return [...this.members.values()].filter((m) => this.isFullyRegistered(m))
       .length;
+  }
+
+  /** Tutti i record (anche touch senza iscrizione). */
+  listAll(): Member[] {
+    return [...this.members.values()];
   }
 
   private load(): void {
@@ -128,18 +136,24 @@ export class MemberStore {
   }
 
   isFullyRegistered(member: Member): boolean {
-    return Boolean(member.username?.trim());
+    // Nuovo: registeredAt. Legacy: aveva solo @ senza registeredAt.
+    return Boolean(member.registeredAt || member.username?.trim());
   }
 
-  /** Iscrizione soft completa: ha @ salvata. */
+  /** Iscrizione completata (/start), anche senza @. */
   isRegistered(userId: number): boolean {
     const m = this.members.get(userId);
     return Boolean(m && this.isFullyRegistered(m));
   }
 
+  /** Soft gate: ha un @ Telegram salvato. */
+  hasUsername(userId: number): boolean {
+    const m = this.members.get(userId);
+    return Boolean(m?.username?.trim());
+  }
+
   /**
-   * Touch last_seen senza iscrivere (es. /start prima della @).
-   * Non conta come iscritto finché manca username.
+   * Touch last_seen (es. refresh). Non iscrive da solo.
    */
   touch(userId: number, username?: string): Member {
     const ts = nowIso();
@@ -147,7 +161,7 @@ export class MemberStore {
     if (existing) {
       const next: Member = {
         ...existing,
-        // Non sovrascrivere @ già confermata con undefined
+        // Non sovrascrivere @ già nota con undefined
         username: username ?? existing.username,
         lastSeen: ts,
       };
@@ -158,13 +172,94 @@ export class MemberStore {
     }
     const member: Member = {
       userId,
-      username: undefined,
+      username: username || undefined,
       firstSeen: ts,
       lastSeen: ts,
     };
     this.members.set(userId, member);
+    if (username) this.indexUsername(userId, username);
     this.persist();
     return member;
+  }
+
+  /**
+   * Completa iscrizione a /start (con o senza @).
+   * Riconnette per userId; se c’è @ e punta a un altro id, rimappa.
+   */
+  registerFromStart(
+    userId: number,
+    username?: string,
+  ): {
+    member: Member;
+    isNew: boolean;
+    reconnected: boolean;
+    previousUserId?: number;
+  } {
+    const clean = username?.trim().replace(/^@+/, "") || undefined;
+    if (clean) {
+      return this.registerWithUsername(userId, clean);
+    }
+
+    const ts = nowIso();
+    const byId = this.members.get(userId);
+    if (byId && this.isFullyRegistered(byId)) {
+      const next: Member = {
+        ...byId,
+        lastSeen: ts,
+        registeredAt: byId.registeredAt ?? ts,
+      };
+      this.members.set(userId, next);
+      this.persist();
+      return { member: next, isNew: false, reconnected: true };
+    }
+
+    if (byId) {
+      const next: Member = {
+        ...byId,
+        lastSeen: ts,
+        registeredAt: ts,
+      };
+      this.members.set(userId, next);
+      this.persist();
+      return { member: next, isNew: true, reconnected: false };
+    }
+
+    const member: Member = {
+      userId,
+      firstSeen: ts,
+      lastSeen: ts,
+      registeredAt: ts,
+    };
+    this.members.set(userId, member);
+    this.persist();
+    return { member, isNew: true, reconnected: false };
+  }
+
+  /**
+   * Aggiorna @ da refresh periodico / getChat.
+   * Restituisce true se username è cambiato.
+   */
+  refreshUsername(userId: number, username: string | undefined): boolean {
+    const existing = this.members.get(userId);
+    if (!existing) return false;
+    const clean = username?.trim().replace(/^@+/, "") || undefined;
+    const prev = existing.username?.trim() || undefined;
+    if (prev === clean) {
+      // solo lastSeen
+      this.members.set(userId, { ...existing, lastSeen: nowIso() });
+      this.persist();
+      return false;
+    }
+    const next: Member = {
+      ...existing,
+      username: clean,
+      lastSeen: nowIso(),
+      registeredAt: existing.registeredAt ?? nowIso(),
+    };
+    this.members.set(userId, next);
+    this.indexUsername(userId, clean);
+    this.persist();
+    return true;
   }
 
   /**
@@ -290,6 +385,12 @@ export class MemberStore {
       .filter((m) => this.isFullyRegistered(m))
       .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
       .slice(0, Math.max(0, limit));
+  }
+
+  /** Display: @handle oppure «utente». */
+  displayHandle(userId: number): string {
+    const m = this.members.get(userId);
+    return m?.username?.trim() ? `@${m.username.trim()}` : "utente";
   }
 
   /**

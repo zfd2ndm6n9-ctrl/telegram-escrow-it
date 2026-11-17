@@ -56,10 +56,13 @@ function adminPermsMessage(perms: Extract<BotAdminCheck, { ok: false }>): string
   return it.missingBotPerms(perms.missing, { notAdmin: perms.notAdmin });
 }
 
-function autoBindReply(reason: "too_many" | "none" | "need_message"): string {
+function autoBindReply(
+  reason: "too_many" | "none" | "need_message",
+  deal: Parameters<typeof it.counterpartAsk>[0],
+): string {
   if (reason === "too_many") return it.autoBindTooMany;
-  // none / need_message: stessa unica frase (la card vivente di solito basta).
-  return it.counterpartAsk;
+  // none / need_message: role-aware (la card vivente di solito basta).
+  return it.counterpartAsk(deal);
 }
 
 /** Buyer/seller/creator del deal (o slot ancora aperto per la controparte). */
@@ -289,7 +292,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           ctx.api,
           ctx.store,
           started,
-          autoBindReply(autoBind),
+          autoBindReply(autoBind, started),
           { parse_mode: "Markdown" },
         );
       }
@@ -380,7 +383,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         ctx.api,
         ctx.store,
         bind.deal,
-        autoBindReply(bind.reason),
+        autoBindReply(bind.reason, bind.deal),
         { parse_mode: "Markdown" },
       );
       return;

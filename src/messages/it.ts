@@ -67,33 +67,66 @@ function depositPrompt(deal: Deal): string {
 }
 
 export const it = {
-  /** /start senza @ ancora: chiedi solo la @. */
-  welcomeAskHandle: `Ciao, benvenuto su *Escrowita*.
-
-Per iscriverti invia la tua *@* Telegram (es. \`@nome\`).`,
+  /** /start: iscrizione senza forzare @. */
+  welcomeAskHandle:
+    "Ciao, benvenuto su *Escrowita*.\n\nPer iscriverti invia `/start`.",
 
   askHandleAgain:
-    "Invia la tua *@* Telegram (es. `@nome`), così come appare nel tuo profilo.",
+    "Imposta una *@* Telegram nel profilo, poi reinviami `/start`.",
 
-  registeredOk: (username: string) =>
-    `✅ Iscrizione ok — @${escMd(username)}.
+  /** Display handle: @nome oppure «utente». */
+  displayUser: (username?: string) =>
+    username?.trim() ? `@${escMd(username.trim())}` : "utente",
+
+  registeredOk: (username?: string) => {
+    const who = username?.trim()
+      ? `@${escMd(username.trim())}`
+      : "utente";
+    const softAt = username?.trim()
+      ? ""
+      : "\n\n_Imposta una @ Telegram per usare /crea._";
+    return `✅ Iscrizione ok — ${who}.${softAt}
 
 Escrow crypto tra due parti già d'accordo.
 
 /crea — nuovo deal
-/miei — i tuoi deal`,
+/miei — i tuoi deal`;
+  },
 
-  /** Stesso profilo / @ già nota (anche dopo delete bot). */
-  welcomeBack: (username?: string) =>
-    username
-      ? `Bentornato su *Escrowita* — @${escMd(username)}.
+  /** Stesso profilo (anche dopo delete bot). */
+  welcomeBack: (username?: string) => {
+    const who = username?.trim()
+      ? `@${escMd(username.trim())}`
+      : "utente";
+    const softAt = username?.trim()
+      ? ""
+      : "\n\n_Imposta una @ Telegram per usare /crea._";
+    return `Bentornato su *Escrowita* — ${who}.${softAt}
 
 /crea — nuovo deal
-/miei — i tuoi deal`
-      : `Bentornato su *Escrowita* — sei già iscritto.
+/miei — i tuoi deal`;
+  },
 
-/crea — nuovo deal
-/miei — i tuoi deal`,
+  /** Canale vouch: già dentro. */
+  vouchAlreadyMember: "✅ Sei già nel canale reviews.",
+
+  /** Canale vouch: invita a entrare (hard gate). */
+  needVouchJoin: (inviteLink: string) =>
+    `Prima entra nel *canale reviews*:
+
+${inviteLink}
+
+Poi tocca *Ho entrato* o reinvia \`/start\`.`,
+
+  vouchJoinedOk:
+    "✅ Canale reviews ok. Ora puoi usare /crea.",
+
+  vouchStillOut: (inviteLink: string) =>
+    `Non ti vedo ancora nel canale.
+
+${inviteLink}
+
+Entra, poi *Ho entrato* o \`/start\`.`,
 
   askInviteOptional: "Codice invito? Invia o /skip.",
 
@@ -117,17 +150,21 @@ Escrow crypto tra due parti già d'accordo.
       : "L'@ non corrisponde al profilo.",
 
   handleNeedTelegramUsername:
-    "Imposta un username Telegram, poi reinviami la @.",
+    "Imposta un username Telegram nel profilo, poi `/start`.",
 
   handleInvalid: "@ non valida. Es. `@nome`.",
 
-  /** Gate soft signup: solo opener (/crea, wizard termini opener, /invito). */
+  /** Soft gate @ per /crea (iscrizione ok anche senza). */
+  needUsernameSoft:
+    "Imposta una *@* Telegram nel profilo, poi riprova `/crea`.",
+
+  /** Gate /start: solo opener (/crea, wizard termini opener, /invito). */
   needRegistration:
-    "Per usare l'escrow apri una chat *privata* con il bot, invia `/start` e la tua *@*.",
+    "Per usare l'escrow apri una chat *privata* con il bot e invia `/start`.",
 
   /** @deprecated alias */
   needPrivateStart:
-    "Per usare l'escrow apri una chat *privata* con il bot, invia `/start` e la tua *@*.",
+    "Per usare l'escrow apri una chat *privata* con il bot e invia `/start`.",
 
   iscrittiCount: (n: number) => `Iscritti: *${n}*`,
 
@@ -254,7 +291,8 @@ Usa il percorso manuale: crea un gruppo privato → aggiungi il bot → /avvia.`
 
   /**
    * Unica card vivente nel gruppo (elenco puntato).
-   * Buyer/Seller/Prodotto/Prezzo€/Condizioni; solo l'azione corrente sotto; Accetto in button.
+   * Buyer/Seller/Prodotto/Prezzo€/Condizioni; solo l'azione corrente sotto; Accetta/Proponi in button.
+   * Post-deposito: riga *DEPOSITO CONFERMATO* sulla card pinnata.
    */
   groupSetupCard: (deal: Deal) => {
     const solHint =
@@ -264,9 +302,10 @@ Usa il percorso manuale: crea un gruppo privato → aggiungi il bot → /avvia.`
     const header = `🔒 Deal *#${deal.id}* · *${deal.asset}*${solHint}`;
 
     if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
+      const missingRole = deal.creatorRole === "seller" ? "Buyer" : "Seller";
       return `${header}
 
-Controparte: scrivi un messaggio o entra nel gruppo.`;
+${missingRole}: entra o scrivi un messaggio nel gruppo.`;
     }
 
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
@@ -276,10 +315,26 @@ Controparte: scrivi un messaggio o entra nel gruppo.`;
       `• Buyer: ${buyer}`,
       `• Seller: ${seller}`,
       formatTosBullets(deal),
-    ].join("\n");
+    ];
+
+    const fundedLike =
+      deal.status === "funded" ||
+      deal.status === "release_pending" ||
+      deal.status === "refund_pending" ||
+      deal.status === "released" ||
+      deal.status === "refunded" ||
+      Boolean(deal.depositDetectedAt);
+    if (fundedLike) {
+      bullets.push("• *DEPOSITO CONFERMATO*");
+      if (deal.sellerShippedAt) {
+        bullets.push("• Spedizione: segnata");
+      }
+    }
 
     let action: string | null = null;
-    if (tosAccepted(deal)) {
+    if (fundedLike) {
+      action = null;
+    } else if (tosAccepted(deal)) {
       // Wallet / deposito: istruzioni in messaggi dedicati — niente spoiler qui.
       action = null;
     } else if (
@@ -307,25 +362,27 @@ Controparte: scrivi un messaggio o entra nel gruppo.`;
       }
     }
 
-    return action
-      ? `${header}\n${bullets}\n\n${action}`
-      : `${header}\n${bullets}`;
+    const body = bullets.join("\n");
+    return action ? `${header}\n${body}\n\n${action}` : `${header}\n${body}`;
   },
 
   autoBindTooMany:
     "Troppi membri. Solo *buyer*, *seller* e il bot. Rimuovi gli altri, poi /avvia.",
 
   /**
-   * Unica frase controparte (card + eventuali hint).
-   * Non duplicare in chat: la card vivente basta; niente secondo prompt uguale.
+   * Role-aware: opener seller → chiedi Buyer; opener buyer → chiedi Seller.
+   * Non duplicare in chat: la card vivente basta.
    */
-  counterpartAsk: "Controparte: scrivi un messaggio o entra nel gruppo.",
+  counterpartAsk: (deal: Pick<Deal, "creatorRole">) => {
+    const missingRole = deal.creatorRole === "seller" ? "Buyer" : "Seller";
+    return `${missingRole}: entra o scrivi un messaggio nel gruppo.`;
+  },
 
-  /** @deprecated alias → counterpartAsk */
-  autoBindNone: "Controparte: scrivi un messaggio o entra nel gruppo.",
+  /** @deprecated Preferire counterpartAsk(deal). */
+  autoBindNone: "Controparte: entra o scrivi un messaggio nel gruppo.",
 
-  /** @deprecated alias → counterpartAsk */
-  autoBindNeedMessage: "Controparte: scrivi un messaggio o entra nel gruppo.",
+  /** @deprecated Preferire counterpartAsk(deal). */
+  autoBindNeedMessage: "Controparte: entra o scrivi un messaggio nel gruppo.",
 
   tosAccepted: (deal: Deal) =>
     deal.amount
@@ -418,7 +475,10 @@ Controparte: scrivi un messaggio o entra nel gruppo.`;
   dealActivated: depositPrompt,
   depositAddress: depositPrompt,
 
-  /** Post-deposito: tagga seller + prodotto. */
+  /**
+   * Post-deposito: tagga seller + prodotto (stato funded è sulla card pinnata).
+   * Niente riga shouty «DEPOSITO…» qui — resta sulla pin.
+   */
   shipAsk: (deal: Deal) => {
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
     const product = deal.tosProduct

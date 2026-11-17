@@ -5,7 +5,10 @@ import {
   detectIdentityChange,
   isParty,
 } from "../services/deal-logic.js";
-import { kickUnauthorized } from "../services/group-setup.js";
+import {
+  kickUnauthorized,
+  refreshGroupSetupCard,
+} from "../services/group-setup.js";
 
 function isForwardedMessage(msg: {
   forward_origin?: unknown;
@@ -86,7 +89,15 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
       displayNameOf(ctx.from),
     );
     if (detected) {
-      ctx.store.update(deal.id, detected.patch);
+      const updated = ctx.store.update(deal.id, detected.patch) ?? deal;
+      if (
+        detected.patch.buyerUsername != null ||
+        detected.patch.sellerUsername != null
+      ) {
+        await refreshGroupSetupCard(ctx.api, ctx.store, updated).catch(
+          () => undefined,
+        );
+      }
       if (detected.alert) {
         const who =
           deal.buyerId === ctx.from.id
