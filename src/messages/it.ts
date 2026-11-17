@@ -374,16 +374,34 @@ Controparte: scrivi un messaggio — nel gruppo o fuori — per collegarti al de
   dealActivated: depositPrompt,
   depositAddress: depositPrompt,
 
-  depositDetected: (deal: Deal, balanceSol: string) =>
-    `💰 Deal *#${deal.id}* fondato (*${balanceSol} SOL*).
+  depositDetected: (deal: Deal, balanceSol: string) => {
+    const feeLine = deal.collaboratorWallet
+      ? "Fee release: *2.5%* piattaforma + *2.5%* collaboratore (seller 95%). Rimborso: senza fee."
+      : "Fee release: *5%* piattaforma (seller 95%). Rimborso: senza fee.";
+    return `💰 Deal *#${deal.id}* fondato (*${balanceSol} SOL*).
 
-Fee release: *5%* piattaforma (seller 95%). Rimborso: senza fee.
+${feeLine}
 
-Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
+Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`;
+  },
 
   /** Disclosure corta fee (card/status). */
-  feeDisclosureShort:
-    "Alla release: fee *5%* (seller riceve 95%). Nessuna fee sul rimborso.",
+  feeDisclosureShort: (deal?: Deal) =>
+    deal?.collaboratorWallet
+      ? "Alla release: *2.5%* piattaforma + *2.5%* collaboratore (seller 95%). Nessuna fee sul rimborso."
+      : "Alla release: fee *5%* (seller riceve 95%). Nessuna fee sul rimborso.",
+
+  /** Stessa parte riconferma 1/2. */
+  alreadyVoted: (deal: Deal, kind: "release" | "refund") =>
+    kind === "release"
+      ? `Hai già confermato *pay_seller* (#${deal.id}). Aspetta l'altra parte.`
+      : `Hai già confermato *refund_buyer* (#${deal.id}). Aspetta l'altra parte.`,
+
+  /** Tentativo verso opposto mentre una conferma è aperta. */
+  confirmConflict: (deal: Deal, open: "release" | "refund") =>
+    open === "release"
+      ? `Conferma *pay_seller* già aperta (#${deal.id}). Completatela o apri /dispute.`
+      : `Conferma *refund_buyer* già aperta (#${deal.id}). Completatela o apri /dispute.`,
 
   depositCheckResult: (
     deal: Deal,
@@ -592,7 +610,9 @@ export function formatDealStatus(deal: Deal): string {
     amountLine(deal),
     `• Buyer ${buyer} · Seller ${seller}`,
     `• Escrow: \`${deal.escrowAddress}\``,
-    `• Fee release: 5% (seller 95%; rimborso senza fee)`,
+    deal.collaboratorWallet
+      ? `• Fee release: 2.5% piattaforma + 2.5% collab (seller 95%; rimborso senza fee)`
+      : `• Fee release: 5% → FEE_WALLET (seller 95%; rimborso senza fee)`,
   ];
   if (deal.inviteCode) {
     lines.push(`• Invito: \`${deal.inviteCode}\``);

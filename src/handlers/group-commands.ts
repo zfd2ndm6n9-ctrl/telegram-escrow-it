@@ -567,6 +567,21 @@ async function handlePayOrRefund(
     return;
   }
 
+  // Conflitto verso opposto: release_pending ≠ refund e viceversa
+  if (
+    (kind === "release" && deal.status === "refund_pending") ||
+    (kind === "refund" && deal.status === "release_pending")
+  ) {
+    await ctx.reply(
+      it.confirmConflict(
+        deal,
+        deal.status === "release_pending" ? "release" : "refund",
+      ),
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
   const allowed =
     kind === "release"
       ? ["funded", "release_pending"]
@@ -595,6 +610,19 @@ async function handlePayOrRefund(
     await ctx.reply(it.payoutAlreadyDone(latest), { parse_mode: "Markdown" });
     return;
   }
+  if (
+    (kind === "release" && latest.status === "refund_pending") ||
+    (kind === "refund" && latest.status === "release_pending")
+  ) {
+    await ctx.reply(
+      it.confirmConflict(
+        latest,
+        latest.status === "release_pending" ? "release" : "refund",
+      ),
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
   const allowedNow =
     kind === "release"
       ? ["funded", "release_pending"]
@@ -605,7 +633,12 @@ async function handlePayOrRefund(
   }
 
   const voteKey = kind === "release" ? "releaseVotes" : "refundVotes";
-  const votes = addUniqueVote(latest[voteKey], ctx.from.id);
+  const prevVotes = latest[voteKey];
+  if (prevVotes.includes(ctx.from.id)) {
+    await ctx.reply(it.alreadyVoted(latest, kind), { parse_mode: "Markdown" });
+    return;
+  }
+  const votes = addUniqueVote(prevVotes, ctx.from.id);
   const pendingStatus = kind === "release" ? "release_pending" : "refund_pending";
   const done = votes.length >= 2;
 

@@ -398,7 +398,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       `Fee collaboratori: *${lamportsToSolString(collab)} SOL*`,
       `Payout seller: *${lamportsToSolString(seller)} SOL*`,
       "",
-      it.feeDisclosureShort,
+      it.feeDisclosureShort(),
     ].join("\n");
     await ctx.reply(body, { parse_mode: "Markdown" });
   });

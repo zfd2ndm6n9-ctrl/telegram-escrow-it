@@ -46,7 +46,8 @@ services:
       # Hot wallet Solana MAINNET — solo su Render, mai in git
       - key: SOLANA_PRIVATE_KEY
         sync: false
-      # Opzionale: destinazione fee 5% (default = master pubkey)
+      # Fee 5% release (prod): 57fv8agNAjcsaLgodeNDjexTo5azsJpjLyMigaZnfVNP
+      # Se assente → fee va sulla master pubkey
       - key: FEE_WALLET_PUBKEY
         sync: false
       - key: SOLANA_RPC_URL
