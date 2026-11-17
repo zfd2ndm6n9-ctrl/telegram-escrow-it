@@ -2,11 +2,13 @@ import type { Deal, DmTermsStep } from "../types.js";
 import {
   amountConfirmed,
   bothPartiesPresent,
+  commercialReleaseSplitEur,
   escMd,
   formatTosBullets,
   mentionPendingVoter,
   mentionUser,
   missingEssentialTerms,
+  stripRepeatedLabel,
   termsReadyForConfirm,
   tosAccepted,
   type EssentialTermsField,
@@ -34,8 +36,8 @@ const STATUS_LABELS: Record<Deal["status"], string> = {
   awaiting_buyer_wallet: "in attesa wallet buyer",
   awaiting_deposit: "in attesa deposito",
   funded: "fondato",
-  release_pending: "pay_seller in corso",
-  refund_pending: "refund in corso",
+  release_pending: "rilascio in corso",
+  refund_pending: "rimborso in corso",
   released: "rilasciato",
   refunded: "rimborsato",
   disputed: "in disputa",
@@ -374,34 +376,85 @@ Controparte: scrivi un messaggio — nel gruppo o fuori — per collegarti al de
   dealActivated: depositPrompt,
   depositAddress: depositPrompt,
 
-  depositDetected: (deal: Deal, balanceSol: string) => {
-    const feeLine = deal.collaboratorWallet
-      ? "Fee release: *2.5%* piattaforma + *2.5%* collaboratore (seller 95%). Rimborso: senza fee."
-      : "Fee release: *5%* piattaforma (seller 95%). Rimborso: senza fee.";
-    return `💰 Deal *#${deal.id}* fondato (*${balanceSol} SOL*).
+  /** Post-deposito: tagga seller + prodotto. */
+  shipAsk: (deal: Deal) => {
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    const product = deal.tosProduct
+      ? escMd(stripRepeatedLabel(deal.tosProduct, "Prodotto"))
+      : "—";
+    return `${seller}, spedisci:
 
-${feeLine}
+• ${product}
 
-Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`;
+Poi: *Ho spedito*`;
+  },
+
+  /** @deprecated Preferire shipAsk; alias per watcher legacy. */
+  depositDetected: (deal: Deal, _balanceSol: string) => {
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    const product = deal.tosProduct
+      ? escMd(stripRepeatedLabel(deal.tosProduct, "Prodotto"))
+      : "—";
+    return `${seller}, spedisci:
+
+• ${product}
+
+Poi: *Ho spedito*`;
+  },
+
+  shipOnlySeller: (deal: Deal) => {
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    return `Solo ${seller} può segnare la spedizione.`;
+  },
+
+  alreadyShipped: (deal: Deal) =>
+    `Spedizione già segnata (#${deal.id}).`,
+
+  needShipFirst: (deal: Deal) => {
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    return `Prima ${seller} deve segnare *Ho spedito*.`;
+  },
+
+  /** Buyer dopo «ho spedito». */
+  buyerAfterShip: (deal: Deal) => {
+    const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    return `${buyer} — seller ha spedito.
+
+Scegli:`;
+  },
+
+  buyerOnlyPay: (deal: Deal) => {
+    const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    return `Solo ${buyer} può avviare il pagamento.`;
+  },
+
+  sellerOnlyConfirm: (deal: Deal) => {
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    return `Solo ${seller} può confermare il rilascio.`;
+  },
+
+  askSellerMoreInfo: (deal: Deal) => {
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    return `${seller}: il buyer chiede altre info.`;
   },
 
   /** Disclosure corta fee (card/status). */
   feeDisclosureShort: (deal?: Deal) =>
     deal?.collaboratorWallet
-      ? "Alla release: *2.5%* piattaforma + *2.5%* collaboratore (seller 95%). Nessuna fee sul rimborso."
-      : "Alla release: fee *5%* (seller riceve 95%). Nessuna fee sul rimborso.",
+      ? "Alla release: *2.5%* admin + *2.5%* collaboratore (seller 95%). Nessuna fee sul rimborso."
+      : "Alla release: fee *5%* admin (seller riceve 95%). Nessuna fee sul rimborso.",
 
   /** Stessa parte riconferma 1/2. */
   alreadyVoted: (deal: Deal, kind: "release" | "refund") =>
     kind === "release"
-      ? `Hai già confermato *pay_seller* (#${deal.id}). Aspetta l'altra parte.`
-      : `Hai già confermato *refund_buyer* (#${deal.id}). Aspetta l'altra parte.`,
+      ? `Hai già confermato il rilascio (#${deal.id}). Aspetta l'altra parte.`
+      : `Hai già confermato il rimborso (#${deal.id}). Aspetta l'altra parte.`,
 
   /** Tentativo verso opposto mentre una conferma è aperta. */
   confirmConflict: (deal: Deal, open: "release" | "refund") =>
     open === "release"
-      ? `Conferma *pay_seller* già aperta (#${deal.id}). Completatela o apri /dispute.`
-      : `Conferma *refund_buyer* già aperta (#${deal.id}). Completatela o apri /dispute.`,
+      ? `Conferma rilascio già aperta (#${deal.id}). Completatela o apri disputa.`
+      : `Conferma rimborso già aperta (#${deal.id}). Completatela o apri disputa.`,
 
   depositCheckResult: (
     deal: Deal,
@@ -417,20 +470,24 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`;
 
   releaseVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `Conferma *1/2* — *pay_seller* (#${deal.id}). Aspetta ${mentionPendingVoter(deal, deal.releaseVotes)}.`
-      : `🔓 Rilascio al seller in corso (#${deal.id})…`,
+      ? `${mentionPendingVoter(deal, deal.releaseVotes)}: conferma rilascio (1/2).`
+      : `🔓 Rilascio in corso (#${deal.id})…`,
 
   refundVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `Conferma *1/2* — *refund_buyer* (#${deal.id}). Aspetta ${mentionPendingVoter(deal, deal.refundVotes)}.`
-      : `↩️ Rimborso al buyer in corso (#${deal.id})…`,
+      ? `Conferma *1/2* — rimborso (#${deal.id}). Aspetta ${mentionPendingVoter(deal, deal.refundVotes)}.`
+      : `↩️ Rimborso in corso (#${deal.id})…`,
 
+  /**
+   * Rilascio: importi in €, @handles, fee «admin», senza tx link.
+   * La signature resta dietro al bottone Hash.
+   */
   payoutSuccess: (
     deal: Deal,
     kind: "release" | "refund",
-    sig: string,
+    _sig: string,
     sol: string,
-    fees?: {
+    _fees?: {
       platformFeeSol?: string;
       collaboratorFeeSol?: string;
       feeWallet?: string;
@@ -438,30 +495,36 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`;
     },
   ) => {
     if (kind === "refund") {
-      return `✅ *Rimborso completato* (#${deal.id}).\n*${sol} SOL* → buyer \`${deal.buyerWallet}\`\nTx: \`${sig}\``;
+      const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+      const split = commercialReleaseSplitEur(deal);
+      if (split) {
+        return `✅ *Rimborso completato* (#${deal.id}).\n• ${buyer}: *${split.totalEur} €*`;
+      }
+      return `✅ *Rimborso completato* (#${deal.id}).\n• ${buyer}: *${sol} SOL*`;
     }
-    const lines = [
-      `✅ *Rilascio completato* (#${deal.id}).`,
-      `*${sol} SOL* → seller \`${deal.sellerWallet}\``,
-    ];
-    if (fees?.platformFeeSol && fees.platformFeeSol !== "0") {
-      const dest = fees.feeWallet ? ` \`${fees.feeWallet}\`` : "";
-      lines.push(`Fee piattaforma: *${fees.platformFeeSol} SOL*${dest}`);
+    const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+    const split = commercialReleaseSplitEur(deal);
+    if (split) {
+      const lines = [
+        `✅ *Rilascio completato* (#${deal.id}).`,
+        `• ${seller}: *${split.sellerEur} €*`,
+        `• admin: *${split.adminEur} €*`,
+      ];
+      if (split.collaboratorEur && split.collaboratorEur !== "0") {
+        lines.push(`• collaboratore: *${split.collaboratorEur} €*`);
+      }
+      return lines.join("\n");
     }
-    if (fees?.collaboratorFeeSol && fees.collaboratorFeeSol !== "0") {
-      const dest = fees.collaboratorWallet
-        ? ` \`${fees.collaboratorWallet}\``
-        : "";
-      lines.push(`Fee collaboratore: *${fees.collaboratorFeeSol} SOL*${dest}`);
-    }
-    lines.push(`Tx: \`${sig}\``);
-    return lines.join("\n");
+    // Fallback senza priceEur (deal legacy): niente wallet/pubkey in chiaro.
+    return `✅ *Rilascio completato* (#${deal.id}).\n• ${seller}: *${sol} SOL*\n• admin: fee trattenuta`;
   },
 
+  payoutHashReveal: (sig: string) => `\`${sig}\``,
+
+  payoutHashMissing: "Nessuna signature disponibile.",
+
   payoutAlreadyDone: (deal: Deal) =>
-    deal.payoutTxSig
-      ? `Payout già completato (#${deal.id}). Tx: \`${deal.payoutTxSig}\``
-      : `Payout già completato (#${deal.id}).`,
+    `Payout già completato (#${deal.id}).`,
 
   payoutFailed: (deal: Deal, error: string) =>
     `❌ Payout non riuscito (#${deal.id}).\n${error}`,
@@ -470,9 +533,9 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`;
     `Manca il wallet del *${who}*. Usa \`/wallet Indirizzo\`.`,
 
   adminForceRelease: (deal: Deal) =>
-    `🔓 Admin: *pay_seller* su #${deal.id}…`,
+    `🔓 Admin: rilascio su #${deal.id}…`,
   adminForceRefund: (deal: Deal) =>
-    `↩️ Admin: *refund_buyer* su #${deal.id}…`,
+    `↩️ Admin: rimborso su #${deal.id}…`,
 
   adminOnly: "Solo admin.",
 
@@ -499,7 +562,7 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`;
     `❌ Escrow derivato diverso dall'atteso per *#${dealId}*.\nAtteso: \`${expected}\`\nDerivato: \`${derived}\`\nNon procedere: verifica che la master key su Render sia quella originale.`,
 
   ripristinaOk: (deal: Deal, balanceSol: string) =>
-    `✅ Deal *#${deal.id}* ricollegato a questo gruppo.\nStato: \`${deal.status}\` · saldo escrow ~*${balanceSol} SOL*\nSeller: \`${deal.sellerWallet}\`\nBuyer: \`${deal.buyerWallet}\`\nPoi: /payseller o /refundbuyer (o /admin_payout).`,
+    `✅ Deal *#${deal.id}* ricollegato a questo gruppo.\nStato: \`${deal.status}\` · saldo escrow ~*${balanceSol} SOL*\nSeller: \`${deal.sellerWallet}\`\nBuyer: \`${deal.buyerWallet}\`\nPoi: spedizione → paga seller (o /admin_payout).`,
 
   adminPayoutUsage:
     "Uso (solo admin): `/admin_payout <dealId> seller|buyer`\nEs: `/admin_payout 82978c05 seller`",
@@ -548,19 +611,19 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`;
     "Controlla l'indirizzo escrow *solo* nei messaggi di Escrowita in questo gruppo. Non fidarti di altri canali o forward.",
 
   disputeOpened: (deal: Deal) =>
-    `⚠️ Disputa aperta (#${deal.id}). Supporto avvisato: può entrare e usare /pay_seller o /refund_buyer.`,
+    `⚠️ Disputa aperta (#${deal.id}). Supporto avvisato: può entrare e risolvere.`,
 
   supportGroup:
-    "Supporto Escrowita: usa /dispute per aprire un caso. In disputa può entrare un operatore. Niente arbitraggio automatico «With-Admin»: se serve un umano, /dispute.",
+    "Supporto Escrowita: usa *Disputa* nel gruppo. In disputa può entrare un operatore.",
 
   supportDm:
-    "Supporto Escrowita: nel gruppo del deal usa /dispute. L'operatore riceve notifica e può entrare.",
+    "Supporto Escrowita: nel gruppo del deal apri *Disputa*. L'operatore riceve notifica e può entrare.",
 
   blockchainLink: (deal: Deal, url: string) =>
     `🔗 Tx deal *#${deal.id}*:\n${url}`,
 
   blockchainMissing:
-    "Nessuna tx di payout ancora. Dopo /pay_seller o /refund_buyer usa di nuovo /blockchain.",
+    "Nessuna tx di payout ancora. Dopo il rilascio usa di nuovo /blockchain.",
 
   disputeAdminNotify: (
     deal: Deal,
@@ -576,7 +639,7 @@ Stato: ${deal.status}
 Gruppo: ${deal.groupChatId ?? "n/d"}
 ${link ? `Link one-time admin:\n${link}` : "Nessun link (bot senza permesso invita)."}
 
-In gruppo: /pay_seller o /refund_buyer (potere admin in disputa).`,
+In gruppo: comandi admin silenti di payout (potere admin in disputa).`,
 
   adminMissing: "Disputa registrata, ma ADMIN_TELEGRAM_ID non è configurato.",
 
@@ -611,14 +674,17 @@ export function formatDealStatus(deal: Deal): string {
     `• Buyer ${buyer} · Seller ${seller}`,
     `• Escrow: \`${deal.escrowAddress}\``,
     deal.collaboratorWallet
-      ? `• Fee release: 2.5% piattaforma + 2.5% collab (seller 95%; rimborso senza fee)`
-      : `• Fee release: 5% → FEE_WALLET (seller 95%; rimborso senza fee)`,
+      ? `• Fee release: 2.5% admin + 2.5% collab (seller 95%; rimborso senza fee)`
+      : `• Fee release: 5% admin (seller 95%; rimborso senza fee)`,
   ];
   if (deal.inviteCode) {
     lines.push(`• Invito: \`${deal.inviteCode}\``);
   }
+  if (deal.sellerShippedAt && deal.status === "funded") {
+    lines.push(`• Spedizione: segnata`);
+  }
   if (deal.payoutTxSig) {
-    lines.push(`• Tx: \`${deal.payoutTxSig}\``);
+    lines.push(`• Hash: disponibile (bottone)`);
   }
   return lines.join("\n");
 }

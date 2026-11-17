@@ -65,6 +65,50 @@ export function formatEuroPrice(priceEur: string): string {
   return `${priceEur.trim()} €`;
 }
 
+/** Numero → display IT (`5` / `12,50`). */
+export function formatEuroNumber(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "0";
+  const rounded = Math.round(n * 100) / 100;
+  if (Number.isInteger(rounded)) return String(rounded);
+  return rounded.toFixed(2).replace(".", ",");
+}
+
+/**
+ * Split commerciale in € per messaggio di rilascio (UI only; fee on-chain invariata).
+ * 95% seller · 5% fee (2.5/2.5 se collaboratore).
+ */
+export function commercialReleaseSplitEur(deal: Deal): {
+  sellerEur: string;
+  adminEur: string;
+  collaboratorEur?: string;
+  totalEur: string;
+} | null {
+  const raw = deal.priceEur?.trim();
+  if (!raw) return null;
+  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
+  const total = Number(normalized);
+  if (!Number.isFinite(total) || total <= 0) return null;
+
+  const hasCollab = Boolean(deal.collaboratorWallet?.trim());
+  const feeTotal = Math.round(total * 0.05 * 100) / 100;
+  const seller = Math.round((total - feeTotal) * 100) / 100;
+  if (!hasCollab) {
+    return {
+      totalEur: formatEuroNumber(total),
+      sellerEur: formatEuroNumber(seller),
+      adminEur: formatEuroNumber(feeTotal),
+    };
+  }
+  const collab = Math.round(total * 0.025 * 100) / 100;
+  const admin = Math.round((feeTotal - collab) * 100) / 100;
+  return {
+    totalEur: formatEuroNumber(total),
+    sellerEur: formatEuroNumber(seller),
+    adminEur: formatEuroNumber(admin),
+    collaboratorEur: formatEuroNumber(collab),
+  };
+}
+
 export function isParty(deal: Deal, userId: number): boolean {
   return deal.buyerId === userId || deal.sellerId === userId;
 }

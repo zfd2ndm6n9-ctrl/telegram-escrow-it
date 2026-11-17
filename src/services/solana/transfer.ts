@@ -349,7 +349,7 @@ export function classifyPayoutError(err: unknown): {
     return {
       code: "blockhash",
       message:
-        "Rete Solana occupata (blockhash scaduto). Riprova /payseller tra qualche secondo.",
+        "Rete Solana occupata (blockhash scaduto). Riprova tra qualche secondo.",
     };
   }
   if (
@@ -359,7 +359,7 @@ export function classifyPayoutError(err: unknown): {
     return {
       code: "expired",
       message:
-        "Transazione scaduta prima della conferma. Riprova /payseller.",
+        "Transazione scaduta prima della conferma. Riprova il rilascio.",
     };
   }
   if (
@@ -396,6 +396,6 @@ export function classifyPayoutError(err: unknown): {
   return {
     code: "unknown",
     message:
-      "Payout on-chain non riuscito. Riprova /payseller oppure apri /dispute.",
+      "Payout on-chain non riuscito. Riprova il rilascio oppure apri disputa.",
   };
 }

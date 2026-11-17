@@ -93,6 +93,11 @@ export interface Deal {
   /** Lamports rilevati al funding (stringa per JSON) */
   depositLamports?: string;
   depositDetectedAt?: string;
+  /**
+   * Seller ha segnato «ho spedito» (post-deposito).
+   * Stato on-chain resta `funded` finché non partono i voti di release.
+   */
+  sellerShippedAt?: string;
   /** Signature payout on-chain */
   payoutTxSig?: string;
   /**

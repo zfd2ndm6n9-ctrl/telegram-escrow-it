@@ -1,4 +1,6 @@
 import { InlineKeyboard, Keyboard } from "grammy";
+import type { Deal } from "../types.js";
+import { mentionUser } from "../services/deal-logic.js";
 
 export function mainMenuKeyboard(): Keyboard {
   return new Keyboard()
@@ -76,7 +78,37 @@ export function amountConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo importo", `amtok:${dealId}`);
 }
 
-export function groupActionsKeyboard(status: string): InlineKeyboard {
+/** Post-deposito: seller segna spedizione. */
+export function shipAskKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("📦 Ho spedito", "shipped");
+}
+
+/** Dopo spedizione: CTA buyer (paga / info / disputa). */
+export function buyerAfterShipKeyboard(deal: Deal): InlineKeyboard {
+  const sellerLabel = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+  return new InlineKeyboard()
+    .text(`🔓 Paga ${sellerLabel}`, "buyer_pay")
+    .row()
+    .text("ℹ️ Altre info", "buyer_info")
+    .text("⚠️ Disputa", "buyer_dispute");
+}
+
+/** Dual-confirm: seller conferma il rilascio avviato dal buyer. */
+export function sellerConfirmPayKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("✅ Confermo", "seller_confirm_pay");
+}
+
+/** Sotto il messaggio di rilascio: mostra solo la signature. */
+export function payoutHashKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("Hash", "show_hash");
+}
+
+/**
+ * Tastiera azioni gruppo.
+ * Niente «Paga seller» / pay_seller in UI: rilascio via flusso ship→buyer.
+ * Refund resta silenzioso (comando) o via disputa/admin.
+ */
+export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboard {
   const kb = new InlineKeyboard();
 
   const depositReady =
@@ -96,15 +128,15 @@ export function groupActionsKeyboard(status: string): InlineKeyboard {
     kb.text("💰 Verifica deposito", "funded").row();
   }
 
-  if (
-    status === "funded" ||
-    status === "release_pending" ||
-    status === "refund_pending" ||
-    status === "disputed"
-  ) {
-    kb.text("🔓 Paga seller", "pay_seller")
-      .text("↩️ Rimborsa buyer", "refund_buyer")
-      .row();
+  // Post-deposito: se non ancora spedito, bottone ship (CTA dedicate altrimenti).
+  if (status === "funded" && deal && !deal.sellerShippedAt) {
+    kb.text("📦 Ho spedito", "shipped").row();
+  }
+
+  if (status === "disputed") {
+    // In disputa: niente label /payseller; admin usa comandi silenti.
+    kb.text("📄 Stato", "stato");
+    return kb;
   }
 
   kb.text("⚠️ Disputa", "dispute").text("📄 Stato", "stato");

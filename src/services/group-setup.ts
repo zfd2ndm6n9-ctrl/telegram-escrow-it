@@ -4,7 +4,9 @@ import type { Deal } from "../types.js";
 import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
 import {
+  buyerAfterShipKeyboard,
   groupActionsKeyboard,
+  shipAskKeyboard,
   tosConfirmKeyboard,
 } from "../keyboards/menus.js";
 import {
@@ -522,7 +524,34 @@ export async function postDealActivated(
 ): Promise<Deal> {
   return sendTrackedPrompt(api, store, deal, it.dealActivated(deal), {
     parse_mode: "Markdown",
-    reply_markup: groupActionsKeyboard(deal.status),
+    reply_markup: groupActionsKeyboard(deal.status, deal),
+  });
+}
+
+/** Dopo deposito confermato: cancella prompt deposito e chiede al seller di spedire. */
+export async function postShipAsk(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  if (deal.sellerShippedAt) {
+    return postBuyerAfterShip(api, store, deal);
+  }
+  return sendTrackedPrompt(api, store, deal, it.shipAsk(deal), {
+    parse_mode: "Markdown",
+    reply_markup: shipAskKeyboard(),
+  });
+}
+
+/** Seller ha spedito: CTA buyer (paga / info / disputa). */
+export async function postBuyerAfterShip(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  return sendTrackedPrompt(api, store, deal, it.buyerAfterShip(deal), {
+    parse_mode: "Markdown",
+    reply_markup: buyerAfterShipKeyboard(deal),
   });
 }
 
