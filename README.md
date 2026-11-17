@@ -126,6 +126,10 @@ Admin: `/iscritti`, `/codice`, `/codici`, `/fee`.
 ```bash
 npm run recover:escrow -- --deal 82978c05
 npm run recover:escrow -- --deal 82978c05 --to seller --execute
+
+# Bulk: tutti i deal in DATA_DIR + orfani noti → dry-run, poi sweep 0-fee
+npm run recover:escrow:bulk -- --to FEE_WALLET_PUBKEY
+npm run recover:escrow:bulk -- --to FEE_WALLET_PUBKEY --execute
 ```
 
 - Admin in gruppo: `/ripristina 82978c05` · `/admin_payout 82978c05 seller`

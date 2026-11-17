@@ -110,9 +110,13 @@ npm run recover:escrow -- --deal 82978c05 --to buyer --execute
 
 # Indirizzo libero = sweep intero (nessuna fee servizio — recovery)
 npm run recover:escrow -- --deal 82978c05 --to <PUBKEY> --execute
+
+# Bulk sweep residui (store + orfani + stuck noti; default dry-run)
+npm run recover:escrow:bulk -- --to FEE_WALLET_PUBKEY
+npm run recover:escrow:bulk -- --to 57fv8agNAjcsaLgodeNDjexTo5azsJpjLyMigaZnfVNP --execute
 ```
 
-In produzione (dopo `npm run build`): `npm run recover:escrow:prod -- …`.
+In produzione (dopo `npm run build`): `npm run recover:escrow:prod -- …` / `npm run recover:escrow:bulk:prod -- …`.
 
 Admin in Telegram (dopo deploy):
 
