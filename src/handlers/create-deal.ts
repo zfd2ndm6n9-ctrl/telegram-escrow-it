@@ -30,6 +30,7 @@ import {
 import {
   getDealEscrowAddress,
   isSolanaConfigured,
+  isValidSolAddress,
 } from "../services/solana/index.js";
 import { requireRegistered } from "../services/registration.js";
 import type { Asset, PartyRole } from "../types.js";
@@ -399,12 +400,17 @@ function resolveCreatorInvite(ctx: BotContext): {
   const code = member?.inviteCode;
   if (!code) return {};
   const invite = ctx.invites.get(code);
-  if (!invite || !invite.active || !invite.collaboratorWallet) {
-    return { inviteCode: code };
+  // Solo wallet dall'InviteStore admin — mai da input utente / member fields
+  if (!invite || !invite.active) {
+    return {};
+  }
+  const wallet = invite.collaboratorWallet?.trim();
+  if (!wallet || !isValidSolAddress(wallet)) {
+    return {};
   }
   return {
     inviteCode: invite.code,
     collaboratorUserId: invite.collaboratorUserId,
-    collaboratorWallet: invite.collaboratorWallet,
+    collaboratorWallet: wallet,
   };
 }

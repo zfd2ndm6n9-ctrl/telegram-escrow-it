@@ -3,6 +3,8 @@
  * Usata dopo Accetto per fissare l'importo escrow on-chain senza chiedere SOL all'utente.
  */
 
+import { solToLamports } from "../solana/amounts.js";
+
 const CACHE_TTL_MS = 60_000;
 const FETCH_TIMEOUT_MS = 8_000;
 
@@ -81,8 +83,12 @@ export function eurToSolAmount(eur: number, eurPerSol: number): string | null {
   if (!Number.isFinite(sol) || sol <= 0) return null;
   // Evita dust inutile; minimo ~1e-9 SOL
   if (sol < 1e-9) return null;
+  // Fissa a 9 decimali (lamports); strip zeri finali restando parseabile da solToLamports
   const fixed = sol.toFixed(9).replace(/\.?0+$/, "");
-  return fixed === "0" ? null : fixed;
+  if (fixed === "0" || !fixed) return null;
+  // Guard: deve convertire in lamports senza ambiguità (no scientific notation / NaN)
+  if (solToLamports(fixed) == null) return null;
+  return fixed;
 }
 
 /** EUR display (`12,50` / `5`) → numero. */

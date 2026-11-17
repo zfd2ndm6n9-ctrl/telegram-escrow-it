@@ -336,6 +336,18 @@ Scrivi un messaggio all'altro utente per collegarlo al deal.`;
   walletSaved: (deal: Deal, role: string, address: string) =>
     `👛 Wallet *${role}* salvato (#${deal.id}):\n\`${address}\``,
 
+  /** Dopo deposito / funded: wallet bloccati (anti-swap destinazione payout). */
+  walletLockedAfterDeposit: (deal: Deal) =>
+    `Wallet bloccati per #${deal.id} (deposito già attivo o completato). Per cambiare destinazione apri /dispute.`,
+
+  payoutBusy: (deal: Deal) =>
+    `Payout già in corso per #${deal.id}. Attendi qualche secondo.`,
+
+  payoutReconciledEmpty: (deal: Deal) =>
+    deal.payoutTxSig
+      ? `Escrow vuoto: payout già avvenuto on-chain (#${deal.id}). Tx: \`${deal.payoutTxSig}\``
+      : `Escrow vuoto: fondi già trasferiti on-chain (#${deal.id}). Controlla Solscan sull'indirizzo escrow.`,
+
   walletWrongTurn: (deal: Deal, expected: "seller" | "buyer") => {
     const who =
       expected === "seller"

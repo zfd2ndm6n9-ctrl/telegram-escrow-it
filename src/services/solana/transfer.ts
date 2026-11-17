@@ -262,9 +262,10 @@ export async function payoutDealSol(
       };
     } catch (err) {
       lastErr = err;
+      // Solo messaggio classificato — mai dump che possa includere secret/env
+      const classified = classifyPayoutError(err);
       console.error(
-        `payoutDealSol #${dealId} attempt ${attempt}/${MAX_PAYOUT_ATTEMPTS} failed:`,
-        err,
+        `payoutDealSol #${dealId} attempt ${attempt}/${MAX_PAYOUT_ATTEMPTS} failed: ${classified.code} — ${classified.message}`,
       );
       if (!isRetryableBlockhashError(err) || attempt === MAX_PAYOUT_ATTEMPTS) {
         break;

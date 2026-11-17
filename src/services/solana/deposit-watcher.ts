@@ -56,6 +56,10 @@ export function startDepositWatcher(
 
         if (balance < expected) continue;
 
+        // Race: /depositato o altro tick può aver già avanzato lo status
+        const latest = store.get(deal.id);
+        if (!latest || latest.status !== "awaiting_deposit") continue;
+
         const updated = store.update(deal.id, {
           status: "funded",
           depositLamports: balance.toString(),
