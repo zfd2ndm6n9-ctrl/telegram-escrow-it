@@ -4,33 +4,75 @@ import {
   Transaction,
   sendAndConfirmTransaction,
   type Commitment,
+  type TransactionInstruction,
 } from "@solana/web3.js";
+import { config } from "../../config.js";
 import {
   getDealEscrowKeypair,
   getMasterKeypair,
   getSolanaConnection,
 } from "./client.js";
 import { lamportsToSolString } from "./amounts.js";
+import { computeReleaseFeeSplit } from "./fees.js";
+
+export type PayoutKind = "release" | "refund";
+
+export type PayoutOptions = {
+  kind: PayoutKind;
+  /** Solo release: wallet collaboratore (2.5%). Se assente → 5% tutto a platform. */
+  collaboratorWallet?: string;
+};
 
 export type TransferResult =
-  | { ok: true; signature: string; lamports: bigint; sol: string }
+  | {
+      ok: true;
+      signature: string;
+      lamports: bigint;
+      sol: string;
+      kind: PayoutKind;
+      sellerLamports?: bigint;
+      platformFeeLamports?: bigint;
+      collaboratorFeeLamports?: bigint;
+      feeWallet?: string;
+      collaboratorWallet?: string;
+      alreadyDone?: boolean;
+    }
   | { ok: false; error: string; errorCode?: string };
 
 const MAX_PAYOUT_ATTEMPTS = 3;
 const COMMITMENT: Commitment = "confirmed";
 
+async function resolveFeeWalletPubkey(
+  masterPubkey: PublicKey,
+): Promise<{ ok: true; pubkey: PublicKey } | { ok: false; error: string }> {
+  const raw = config.feeWalletPubkey?.trim();
+  if (!raw) {
+    return { ok: true, pubkey: masterPubkey };
+  }
+  try {
+    return { ok: true, pubkey: new PublicKey(raw) };
+  } catch {
+    return {
+      ok: false,
+      error: "FEE_WALLET_PUBKEY non valido",
+    };
+  }
+}
+
 /**
- * Trasferisce tutto il saldo SOL dell'account deal verso `toAddress`.
- * Fee pagata dalla master (hot wallet), così il deposito può essere inviato per intero.
+ * Payout escrow → destinazione.
+ * - refund: intero saldo → buyer (nessuna fee servizio)
+ * - release: 95% seller + 5% fee (split 2.5/2.5 se collaboratore)
  *
- * Imposta sempre blockhash+lastValidBlockHeight a *confirmed* (stesso livello del
- * preflight): senza questo, su RPC pubblici/laggati compare spesso #7050008
- * (Blockhash not found) in simulazione.
+ * Fee di rete pagata dalla master (hot wallet).
+ * Una sola tx atomica (multi-ix) — fail-safe: o tutto o niente.
  */
 export async function payoutDealSol(
   dealId: string,
   toAddress: string,
+  options: PayoutOptions = { kind: "refund" },
 ): Promise<TransferResult> {
+  const kind = options.kind ?? "refund";
   const master = await getMasterKeypair();
   if (!master) {
     return { ok: false, error: "SOLANA_PRIVATE_KEY non configurata", errorCode: "no_master" };
@@ -58,17 +100,19 @@ export async function payoutDealSol(
 
   const connection = getSolanaConnection();
   const balance = await connection.getBalance(escrow.publicKey);
+
+  // Idempotenza on-chain: escrow già vuoto → niente da fare (caller marca completed)
   if (balance <= 0n) {
     return {
       ok: false,
-      error: "Saldo escrow a 0: niente da trasferire",
+      error: "Saldo escrow a 0: niente da trasferire (già pagato?)",
       errorCode: "empty_escrow",
     };
   }
 
   const masterBal = await connection.getBalance(master.publicKey);
-  // ~5000 lamports per signature tipica; teniamo margine
-  if (masterBal < 20_000n) {
+  // Multi-ix release può richiedere un po' più di fee di rete
+  if (masterBal < 30_000n) {
     return {
       ok: false,
       error:
@@ -77,24 +121,116 @@ export async function payoutDealSol(
     };
   }
 
+  let instructions: TransactionInstruction[];
+  let sellerLamports: bigint | undefined;
+  let platformFeeLamports: bigint | undefined;
+  let collaboratorFeeLamports: bigint | undefined;
+  let feeWalletStr: string | undefined;
+  let collabWalletStr: string | undefined;
+
+  if (kind === "refund") {
+    instructions = [
+      SystemProgram.transfer({
+        fromPubkey: escrow.publicKey,
+        toPubkey: dest,
+        lamports: balance,
+      }),
+    ];
+  } else {
+    const feeDest = await resolveFeeWalletPubkey(master.publicKey);
+    if (!feeDest.ok) {
+      return { ok: false, error: feeDest.error, errorCode: "bad_fee_wallet" };
+    }
+
+    let collabPk: PublicKey | undefined;
+    const collabRaw = options.collaboratorWallet?.trim();
+    if (collabRaw) {
+      try {
+        collabPk = new PublicKey(collabRaw);
+      } catch {
+        return {
+          ok: false,
+          error: "Indirizzo SOL collaboratore non valido",
+          errorCode: "bad_collab",
+        };
+      }
+      // Evita ix duplicate se collab = fee wallet o = seller
+      if (
+        collabPk.equals(feeDest.pubkey) ||
+        collabPk.equals(dest)
+      ) {
+        collabPk = undefined;
+      }
+    }
+
+    const split = computeReleaseFeeSplit(balance, Boolean(collabPk));
+    sellerLamports = split.sellerLamports;
+    platformFeeLamports = split.platformLamports;
+    collaboratorFeeLamports = split.collaboratorLamports;
+    feeWalletStr = feeDest.pubkey.toBase58();
+    collabWalletStr = collabPk?.toBase58();
+
+    instructions = [];
+    if (split.sellerLamports > 0n) {
+      instructions.push(
+        SystemProgram.transfer({
+          fromPubkey: escrow.publicKey,
+          toPubkey: dest,
+          lamports: split.sellerLamports,
+        }),
+      );
+    }
+    if (split.platformLamports > 0n) {
+      instructions.push(
+        SystemProgram.transfer({
+          fromPubkey: escrow.publicKey,
+          toPubkey: feeDest.pubkey,
+          lamports: split.platformLamports,
+        }),
+      );
+    }
+    if (collabPk && split.collaboratorLamports > 0n) {
+      instructions.push(
+        SystemProgram.transfer({
+          fromPubkey: escrow.publicKey,
+          toPubkey: collabPk,
+          lamports: split.collaboratorLamports,
+        }),
+      );
+    }
+
+    // Safety: somma quote = balance (seller tiene il resto degli arrotondamenti)
+    const accounted =
+      split.sellerLamports +
+      split.platformLamports +
+      split.collaboratorLamports;
+    if (accounted !== balance) {
+      return {
+        ok: false,
+        error: "Errore interno split fee (somma ≠ saldo). Avvisa admin.",
+        errorCode: "fee_math",
+      };
+    }
+    if (instructions.length === 0) {
+      return {
+        ok: false,
+        error: "Niente da trasferire dopo lo split fee",
+        errorCode: "empty_split",
+      };
+    }
+  }
+
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_PAYOUT_ATTEMPTS; attempt++) {
     try {
       const { blockhash, lastValidBlockHeight } =
         await connection.getLatestBlockhash(COMMITMENT);
 
-      // web3.js v3: TransactionBlockhashCtor usa `blockhash` + lastValidBlockHeight
       const tx = new Transaction({
         feePayer: master.publicKey,
         blockhash,
         lastValidBlockHeight,
-      }).add(
-        SystemProgram.transfer({
-          fromPubkey: escrow.publicKey,
-          toPubkey: dest,
-          lamports: balance,
-        }),
-      );
+      }).add(...instructions);
 
       const signature = await sendAndConfirmTransaction(
         connection,
@@ -106,11 +242,23 @@ export async function payoutDealSol(
           maxRetries: 5n,
         },
       );
+
+      const paidLamports =
+        kind === "release" && sellerLamports != null
+          ? sellerLamports
+          : balance;
+
       return {
         ok: true,
         signature,
-        lamports: balance,
-        sol: lamportsToSolString(balance),
+        lamports: paidLamports,
+        sol: lamportsToSolString(paidLamports),
+        kind,
+        sellerLamports,
+        platformFeeLamports,
+        collaboratorFeeLamports,
+        feeWallet: feeWalletStr,
+        collaboratorWallet: collabWalletStr,
       };
     } catch (err) {
       lastErr = err;
@@ -139,6 +287,15 @@ export async function getEscrowBalanceLamports(
   const connection = getSolanaConnection();
   const pk = new PublicKey(escrowAddress);
   return connection.getBalance(pk);
+}
+
+/** Pubkey destinazione fee piattaforma (master se FEE_WALLET_PUBKEY assente). */
+export async function getPlatformFeeWalletPubkey(): Promise<string | null> {
+  const master = await getMasterKeypair();
+  if (!master) return null;
+  const resolved = await resolveFeeWalletPubkey(master.publicKey);
+  if (!resolved.ok) return master.publicKey.toBase58();
+  return resolved.pubkey.toBase58();
 }
 
 function sleep(ms: number): Promise<void> {
@@ -196,7 +353,7 @@ export function classifyPayoutError(err: unknown): {
   }
   if (
     lower.includes("block height exceeded") ||
-    lower.includes("expired") && lower.includes("block")
+    (lower.includes("expired") && lower.includes("block"))
   ) {
     return {
       code: "expired",

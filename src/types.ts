@@ -96,6 +96,20 @@ export interface Deal {
   /** Signature payout on-chain */
   payoutTxSig?: string;
   /**
+   * Codice invito del creator (attribuzione deal).
+   * Alla RELEASE: 2.5% → collaboratorWallet se presente.
+   */
+  inviteCode?: string;
+  collaboratorUserId?: number;
+  /** Indirizzo SOL collaboratore (snapshot al create deal) */
+  collaboratorWallet?: string;
+  /** Contabilità fee release (lamports, stringhe JSON-safe) */
+  platformFeeLamports?: string;
+  collaboratorFeeLamports?: string;
+  sellerPayoutLamports?: string;
+  /** true dopo payout release/refund riuscito (idempotenza) */
+  payoutCompleted?: boolean;
+  /**
    * Message id dei prompt di stage del bot nel gruppo (wallet/deposit/…).
    * Cancellabili all’avanzamento; non sono evidenze utente.
    * Non include `setupMessageId` / `tosAcceptedMessageId` (card setup vivente).
@@ -141,4 +155,8 @@ export type CreateDealInput = {
   amount?: string;
   asset: Asset;
   escrowAddress: string;
+  /** Attribuzione invito del creator (snapshot) */
+  inviteCode?: string;
+  collaboratorUserId?: number;
+  collaboratorWallet?: string;
 };

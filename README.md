@@ -39,12 +39,13 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | Variabile | Obbligatoria | Descrizione |
 |-----------|--------------|-------------|
 | `TELEGRAM_BOT_TOKEN` | sì | Token BotFather |
-| `SOLANA_PRIVATE_KEY` | sì (per escrow) | Secret hot wallet: **base58** o **JSON array** (64 byte). Solo env Render |
+| `SOLANA_PRIVATE_KEY` | sì (per escrow) | Secret hot wallet: **base58** o **JSON array** (64 byte). Solo env Render. Master = fee-payer + fee 5% default |
+| `FEE_WALLET_PUBKEY` | no | Pubkey destinazione fee piattaforma; se assente = master |
 | `SOLANA_RPC_URL` | no | RPC mainnet. Default pubblico. Consigliato: Helius / QuickNode / Alchemy |
 | `SOLANA_WATCH_INTERVAL_MS` | no | Poll depositi (default `20000`) |
-| `ADMIN_TELEGRAM_ID` | no | User id admin (dispute + force + `/iscritti`) |
+| `ADMIN_TELEGRAM_ID` | no | User id admin (dispute + force + `/iscritti` + `/codice`) |
 | `TOS_URL` | no | Link Termini |
-| `DATA_DIR` | sì in prod | Store deal + iscritti (`deals.json`, `members.json`). Render: `/var/data` su Persistent Disk (starter+). Default `data` |
+| `DATA_DIR` | sì in prod | Store deal + iscritti + inviti (`deals.json`, `members.json`, `invites.json`). Render: `/var/data` |
 | `UPDATES_CHANNEL_ID` | no | Canale pubblico «N iscritti» (id `-100…` o `@nome`). Bot admin del canale |
 | `UPDATES_CHANNEL_MESSAGE_ID` | no | Message id vivente da editare; se assente → aggiorna *description* del canale |
 | `PORT` | no | Se impostato: `GET /healthz` (Render/Fly) |
@@ -87,10 +88,11 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
 8. Rilevamento automatico (o `/depositato`)
-9. `/pay_seller` (alias `/payseller`, `/release`) o `/refund_buyer` (alias `/refundbuyer`) — doppia conferma → transfer on-chain
+9. `/pay_seller` (alias `/payseller`, `/release`) o `/refund_buyer` (alias `/refundbuyer`) — doppia conferma → transfer on-chain (release: seller 95% + fee 5%; refund: 100% buyer)
 10. `/dispute` / `/support` → admin forza release/refund on-chain
 
-Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato). Admin: `/iscritti`.
+Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato), `/invito CODICE`.  
+Admin: `/iscritti`, `/codice`, `/codici`, `/fee`.
 
 ### Igiene anti-truffa
 
@@ -102,6 +104,7 @@ Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato). Admin: `/iscrit
 
 - **Indirizzo univoco per deal** (HMAC dalla master key → keypair derivata)
 - Fee di rete pagate dalla **master** al payout (ricarica la master con poco SOL)
+- Fee servizio **5%** solo su release (2.5%+2.5% se invito collaboratore); **0** su refund
 
 ## Test deal piccolo (mainnet)
 

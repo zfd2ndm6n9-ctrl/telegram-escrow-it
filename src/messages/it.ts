@@ -77,7 +77,8 @@ Per iscriverti invia la tua *@* Telegram (es. \`@nome\`).`,
 Escrow crypto tra due parti già d'accordo.
 
 /crea — nuovo deal
-/miei — i tuoi deal`,
+/miei — i tuoi deal
+/invito CODICE — codice collaboratore (opz.)`,
 
   /** Stesso profilo / @ già nota (anche dopo delete bot). */
   welcomeBack: (username?: string) =>
@@ -90,6 +91,24 @@ Escrow crypto tra due parti già d'accordo.
 
 /crea — nuovo deal
 /miei — i tuoi deal`,
+
+  askInviteOptional:
+    "Hai un *codice invito*? Invia il codice oppure /skip.",
+
+  inviteRedeemOk: (code: string) =>
+    `✅ Codice *${escMd(code)}* applicato. I deal che crei lo useranno.`,
+
+  inviteRedeemAlready: (code: string) =>
+    `Codice *${escMd(code)}* già attivo sul tuo profilo.`,
+
+  inviteRedeemOther:
+    "Hai già un codice invito. Non si può cambiarlo.",
+
+  inviteNotFound: "Codice invito non valido o scaduto.",
+
+  inviteUsage: "Uso: `/invito CODICE` (es. `/invito ESC-A1B2C3`).",
+
+  inviteSkipped: "Ok, nessun codice. Puoi usare /invito più tardi.",
 
   handleMismatch: (expected?: string) =>
     expected
@@ -350,7 +369,13 @@ Scrivi un messaggio all'altro utente per collegarlo al deal.`;
   depositDetected: (deal: Deal, balanceSol: string) =>
     `💰 Deal *#${deal.id}* fondato (*${balanceSol} SOL*).
 
+Fee release: *5%* piattaforma (seller 95%). Rimborso: senza fee.
+
 Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
+
+  /** Disclosure corta fee (card/status). */
+  feeDisclosureShort:
+    "Alla release: fee *5%* (seller riceve 95%). Nessuna fee sul rimborso.",
 
   depositCheckResult: (
     deal: Deal,
@@ -374,10 +399,43 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
       ? `Conferma *1/2* — *refund_buyer* (#${deal.id}). Aspetta ${mentionPendingVoter(deal, deal.refundVotes)}.`
       : `↩️ Rimborso al buyer in corso (#${deal.id})…`,
 
-  payoutSuccess: (deal: Deal, kind: "release" | "refund", sig: string, sol: string) =>
-    kind === "release"
-      ? `✅ *Rilascio completato* (#${deal.id}).\n*${sol} SOL* → seller \`${deal.sellerWallet}\`\nTx: \`${sig}\``
-      : `✅ *Rimborso completato* (#${deal.id}).\n*${sol} SOL* → buyer \`${deal.buyerWallet}\`\nTx: \`${sig}\``,
+  payoutSuccess: (
+    deal: Deal,
+    kind: "release" | "refund",
+    sig: string,
+    sol: string,
+    fees?: {
+      platformFeeSol?: string;
+      collaboratorFeeSol?: string;
+      feeWallet?: string;
+      collaboratorWallet?: string;
+    },
+  ) => {
+    if (kind === "refund") {
+      return `✅ *Rimborso completato* (#${deal.id}).\n*${sol} SOL* → buyer \`${deal.buyerWallet}\`\nTx: \`${sig}\``;
+    }
+    const lines = [
+      `✅ *Rilascio completato* (#${deal.id}).`,
+      `*${sol} SOL* → seller \`${deal.sellerWallet}\``,
+    ];
+    if (fees?.platformFeeSol && fees.platformFeeSol !== "0") {
+      const dest = fees.feeWallet ? ` \`${fees.feeWallet}\`` : "";
+      lines.push(`Fee piattaforma: *${fees.platformFeeSol} SOL*${dest}`);
+    }
+    if (fees?.collaboratorFeeSol && fees.collaboratorFeeSol !== "0") {
+      const dest = fees.collaboratorWallet
+        ? ` \`${fees.collaboratorWallet}\``
+        : "";
+      lines.push(`Fee collaboratore: *${fees.collaboratorFeeSol} SOL*${dest}`);
+    }
+    lines.push(`Tx: \`${sig}\``);
+    return lines.join("\n");
+  },
+
+  payoutAlreadyDone: (deal: Deal) =>
+    deal.payoutTxSig
+      ? `Payout già completato (#${deal.id}). Tx: \`${deal.payoutTxSig}\``
+      : `Payout già completato (#${deal.id}).`,
 
   payoutFailed: (deal: Deal, error: string) =>
     `❌ Payout non riuscito (#${deal.id}).\n${error}`,
@@ -391,6 +449,19 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
     `↩️ Admin: *refund_buyer* su #${deal.id}…`,
 
   adminOnly: "Solo admin.",
+
+  codiceUsage:
+    "Uso (admin): `/codice <WALLET_SOL> <@user|userId> [CODICE]`\nEs: `/codice So111… @mario`\nEs: `/codice So111… 123456789 ESC-PROMO1`",
+
+  codiceCreated: (code: string, wallet: string, who: string) =>
+    `✅ Codice *${escMd(code)}*\nCollab: ${who}\nWallet: \`${wallet}\`\nL'utente: \`/invito ${code}\``,
+
+  codiceListEmpty: "Nessun codice invito.",
+
+  codiceListHeader: (n: number) => `Codici invito (*${n}*):`,
+
+  feeSummaryHeader: (released: number, refunded: number) =>
+    `Fee summary — released *${released}* · refunded *${refunded}*`,
 
   ripristinaUsage:
     "Uso: `/ripristina <dealId>` nel gruppo escrow (solo admin).\nEs: `/ripristina 82978c05`",
@@ -513,7 +584,11 @@ export function formatDealStatus(deal: Deal): string {
     amountLine(deal),
     `• Buyer ${buyer} · Seller ${seller}`,
     `• Escrow: \`${deal.escrowAddress}\``,
+    `• Fee release: 5% (seller 95%; rimborso senza fee)`,
   ];
+  if (deal.inviteCode) {
+    lines.push(`• Invito: \`${deal.inviteCode}\``);
+  }
   if (deal.payoutTxSig) {
     lines.push(`• Tx: \`${deal.payoutTxSig}\``);
   }

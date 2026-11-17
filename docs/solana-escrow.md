@@ -24,9 +24,10 @@
 2. Per deal `id`: `HMAC-SHA256(masterSecret, "telegram-escrow-it:deal:"+id)` → 32 byte seed → keypair
 3. Buyer invia SOL a quell’indirizzo
 4. Watcher (~20s) o `/depositato` (verifica saldo) → `funded` se saldo ≥ importo
-5. Dual-confirm `/pay_seller` (alias `/payseller`) / `/refund_buyer` (alias `/refundbuyer`) (o admin in disputa) → transfer **intero saldo** deal → wallet seller/buyer
-6. **Fee di rete** pagate dalla **master** (`feePayer`): ricarica la master con poco SOL (es. 0.05)
-7. Payout: `getLatestBlockhash("confirmed")` + stesso `preflightCommitment`, con retry su #7050008 (Blockhash not found)
+5. Dual-confirm `/pay_seller` (alias `/payseller`) / `/refund_buyer` (alias `/refundbuyer`) (o admin in disputa)
+6. **Release:** una tx atomica — **95%** → seller, **5%** fee piattaforma. Se il deal ha invito collaboratore: **2.5%** → master/`FEE_WALLET_PUBKEY`, **2.5%** → wallet collaboratore. **Refund:** 100% → buyer (nessuna fee servizio)
+7. **Fee di rete** pagate dalla **master** (`feePayer`): ricarica la master con poco SOL (es. 0.05)
+8. Payout: `getLatestBlockhash("confirmed")` + stesso `preflightCommitment`, con retry su #7050008 (Blockhash not found). Contabilità idempotente (`payoutCompleted` + `payoutTxSig`)
 
 ## Avviso rischio
 
@@ -42,12 +43,13 @@ Sul **Web Service** (o Background Worker) che esegue il bot — Environment:
 | Nome | Obbligatorio | Valore |
 |------|--------------|--------|
 | `TELEGRAM_BOT_TOKEN` | sì | Token BotFather |
-| `SOLANA_PRIVATE_KEY` | sì | Output di `npm run solana:keygen` (base58 **oppure** JSON array) |
+| `SOLANA_PRIVATE_KEY` | sì | Output di `npm run solana:keygen` (base58 **oppure** JSON array). Master = fee-payer rete + destinazione fee 5% di default |
+| `FEE_WALLET_PUBKEY` | no | Pubkey destinazione fee piattaforma. Se assente = master pubkey |
 | `SOLANA_RPC_URL` | consigliato | Es. Helius/QuickNode; default pubblico ok per test |
 | `SOLANA_WATCH_INTERVAL_MS` | no | Default `20000` |
-| `ADMIN_TELEGRAM_ID` | sì per dispute | Tuo user id Telegram |
+| `ADMIN_TELEGRAM_ID` | sì per dispute / codici | Tuo user id Telegram |
 | `TOS_URL` | no | Link ToS |
-| `DATA_DIR` | sì in prod | Persistenza deal. Su Render: `/var/data` su Persistent Disk (piano starter+). Default locale `data` (ephemeral su free) |
+| `DATA_DIR` | sì in prod | Persistenza deal + iscritti + inviti (`deals.json`, `members.json`, `invites.json`). Su Render: `/var/data` |
 | `PORT` | auto su Web | Per `/healthz` |
 
 ### Generare la chiave (una tantum)
@@ -63,7 +65,9 @@ npm run solana:keygen
 - **Non** salvare il secret nel repo, in `docs/`, né in transcript agent
 - Se una chiave è stata stampata in un log agent, **scartala** e generane una nuova
 
-All’avvio i log Render stampano: `Escrow SOL mainnet attivo. Master pubkey: …` ← quella è l’address da finanziare per le fee.
+All’avvio i log Render stampano:
+- `Escrow SOL mainnet attivo. Master pubkey: …` ← address da finanziare per le **fee di rete**
+- `Fee piattaforma (5% release): …` ← destinazione fee servizio (master o `FEE_WALLET_PUBKEY`)
 
 ## Test deal tiny mainnet
 
@@ -103,15 +107,37 @@ Admin in Telegram (dopo deploy):
 - `/ripristina 82978c05` nel gruppo orfano → riscrive il deal nello store e collega il gruppo
 - `/admin_payout 82978c05 seller` (o `buyer`) → payout one-shot anche senza store
 
+## Fee 5% + codici invito
+
+| Path | Split |
+|------|-------|
+| Release senza invito | 95% seller · 5% fee wallet |
+| Release con invito | 95% seller · 2.5% fee wallet · 2.5% collaboratore |
+| Refund | 100% buyer · **0** fee servizio |
+
+### Creare un codice (admin)
+
+```
+/codice <WALLET_SOL_COLLAB> <@user|userId> [CODICE_OPZ]
+```
+
+Esempio: `/codice So111…abc @mario` → genera `ESC-XXXXXX`.  
+L’utente: `/invito ESC-XXXXXX` (o dopo soft signup, oppure `/start ESC-XXXXXX`).  
+I deal che **crea** ereditano il codice → split 2.5/2.5 alla release.
+
+Altri comandi admin: `/codici` (lista), `/fee` (riepilogo fee da deal released).
+
+Persistenza: `DATA_DIR/invites.json`.
+
 ## Admin
 
 - In disputa: `/pay_seller` o `/refund_buyer` forza payout on-chain
 - Emergenza: `/depositato force` (solo `ADMIN_TELEGRAM_ID`) marca `funded` senza saldo (non crea SOL)
 - `/ripristina` · `/admin_payout` — recovery orfani (solo admin)
+- `/codice` · `/codici` · `/fee` — inviti e fee summary
 
 ## Fuori scope (dopo)
 
 - LTC / ETH
 - KMS / cold / multi-sig
-- Fee di servizio sul payout
 - Postgres / replica off-site del JSON

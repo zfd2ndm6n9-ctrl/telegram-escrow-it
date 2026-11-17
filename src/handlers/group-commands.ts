@@ -387,6 +387,16 @@ async function runPayout(
   deal: Deal,
   kind: "release" | "refund",
 ): Promise<void> {
+  // Idempotenza: già completato → non ritentare on-chain
+  if (
+    deal.payoutCompleted ||
+    (deal.payoutTxSig &&
+      (deal.status === "released" || deal.status === "refunded"))
+  ) {
+    await ctx.reply(it.payoutAlreadyDone(deal), { parse_mode: "Markdown" });
+    return;
+  }
+
   const dest = kind === "release" ? deal.sellerWallet : deal.buyerWallet;
   const who = kind === "release" ? "seller" : "buyer";
   if (!dest) {
@@ -399,8 +409,26 @@ async function runPayout(
     { parse_mode: "Markdown" },
   );
 
-  const result = await payoutDealSol(deal.id, dest);
+  const result = await payoutDealSol(deal.id, dest, {
+    kind,
+    collaboratorWallet:
+      kind === "release" ? deal.collaboratorWallet : undefined,
+  });
+
   if (!result.ok) {
+    // Escrow vuoto + già released/refunded in race: marca e avvisa
+    if (result.errorCode === "empty_escrow") {
+      const bal = deal.escrowAddress
+        ? await getEscrowBalanceLamports(deal.escrowAddress).catch(() => 0n)
+        : 0n;
+      if (bal === 0n && (deal.status === "released" || deal.status === "refunded")) {
+        await ctx.reply(it.payoutAlreadyDone(deal), { parse_mode: "Markdown" });
+        return;
+      }
+      console.error(
+        `Payout empty_escrow #${deal.id} kind=${kind}: fondi a 0 senza payoutCompleted. Admin!`,
+      );
+    }
     await ctx.reply(it.payoutFailed(deal, result.error), {
       parse_mode: "Markdown",
       reply_markup: groupActionsKeyboard(deal.status),
@@ -412,11 +440,42 @@ async function runPayout(
   let updated = ctx.store.update(deal.id, {
     status: doneStatus,
     payoutTxSig: result.signature,
+    payoutCompleted: true,
+    sellerPayoutLamports:
+      kind === "release" && result.sellerLamports != null
+        ? String(result.sellerLamports)
+        : kind === "refund"
+          ? String(result.lamports)
+          : deal.sellerPayoutLamports,
+    platformFeeLamports:
+      kind === "release" && result.platformFeeLamports != null
+        ? String(result.platformFeeLamports)
+        : kind === "release"
+          ? "0"
+          : deal.platformFeeLamports,
+    collaboratorFeeLamports:
+      kind === "release" && result.collaboratorFeeLamports != null
+        ? String(result.collaboratorFeeLamports)
+        : kind === "release"
+          ? "0"
+          : deal.collaboratorFeeLamports,
   })!;
   updated = await clearBotPrompts(ctx.api, ctx.store, updated);
 
   await ctx.reply(
-    it.payoutSuccess(updated, kind, result.signature, result.sol),
+    it.payoutSuccess(updated, kind, result.signature, result.sol, {
+      platformFeeSol:
+        result.platformFeeLamports != null
+          ? lamportsToSolString(result.platformFeeLamports)
+          : undefined,
+      collaboratorFeeSol:
+        result.collaboratorFeeLamports != null &&
+        result.collaboratorFeeLamports > 0n
+          ? lamportsToSolString(result.collaboratorFeeLamports)
+          : undefined,
+      feeWallet: result.feeWallet,
+      collaboratorWallet: result.collaboratorWallet,
+    }),
     { parse_mode: "Markdown" },
   );
 }
@@ -733,7 +792,21 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
     { parse_mode: "Markdown" },
   );
 
-  const result = await payoutDealSol(dealId, dest);
+  const kind = who === "seller" ? "release" : "refund";
+  if (
+    fromStore?.payoutCompleted ||
+    (fromStore?.payoutTxSig &&
+      (fromStore.status === "released" || fromStore.status === "refunded"))
+  ) {
+    await ctx.reply(it.payoutAlreadyDone(fromStore), { parse_mode: "Markdown" });
+    return;
+  }
+
+  const result = await payoutDealSol(dealId, dest, {
+    kind,
+    collaboratorWallet:
+      kind === "release" ? fromStore?.collaboratorWallet : undefined,
+  });
   if (!result.ok) {
     await ctx.reply(it.payoutFailed({ id: dealId } as Deal, result.error), {
       parse_mode: "Markdown",
@@ -742,23 +815,55 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
   }
 
   const doneStatus = who === "seller" ? "released" : "refunded";
+  let updated: Deal | undefined;
   if (fromStore) {
-    ctx.store.update(dealId, {
+    updated = ctx.store.update(dealId, {
       status: doneStatus,
       payoutTxSig: result.signature,
+      payoutCompleted: true,
+      sellerPayoutLamports:
+        kind === "release" && result.sellerLamports != null
+          ? String(result.sellerLamports)
+          : String(result.lamports),
+      platformFeeLamports:
+        kind === "release" && result.platformFeeLamports != null
+          ? String(result.platformFeeLamports)
+          : kind === "release"
+            ? "0"
+            : undefined,
+      collaboratorFeeLamports:
+        kind === "release" && result.collaboratorFeeLamports != null
+          ? String(result.collaboratorFeeLamports)
+          : kind === "release"
+            ? "0"
+            : undefined,
     });
   }
 
   await ctx.reply(
     it.payoutSuccess(
-      {
-        id: dealId,
-        sellerWallet: who === "seller" ? dest : fromStore?.sellerWallet,
-        buyerWallet: who === "buyer" ? dest : fromStore?.buyerWallet,
-      } as Deal,
-      who === "seller" ? "release" : "refund",
+      updated ??
+        ({
+          id: dealId,
+          sellerWallet: who === "seller" ? dest : fromStore?.sellerWallet,
+          buyerWallet: who === "buyer" ? dest : fromStore?.buyerWallet,
+        } as Deal),
+      kind,
       result.signature,
       result.sol,
+      {
+        platformFeeSol:
+          result.platformFeeLamports != null
+            ? lamportsToSolString(result.platformFeeLamports)
+            : undefined,
+        collaboratorFeeSol:
+          result.collaboratorFeeLamports != null &&
+          result.collaboratorFeeLamports > 0n
+            ? lamportsToSolString(result.collaboratorFeeLamports)
+            : undefined,
+        feeWallet: result.feeWallet,
+        collaboratorWallet: result.collaboratorWallet,
+      },
     ),
     { parse_mode: "Markdown" },
   );

@@ -1,6 +1,7 @@
 import { Bot, session } from "grammy";
 import type { BotContext, SessionData } from "./context.js";
 import { DealStore } from "./store/deals.js";
+import { InviteStore } from "./store/invites.js";
 import { MemberStore } from "./store/members.js";
 import { config } from "./config.js";
 import { registerStartHandlers } from "./handlers/start.js";
@@ -15,16 +16,19 @@ export type CreatedBot = {
   bot: Bot<BotContext>;
   store: DealStore;
   members: MemberStore;
+  invites: InviteStore;
 };
 
 export function createBot(token: string): CreatedBot {
   const store = new DealStore(config.dataDir);
   const members = new MemberStore(config.dataDir);
+  const invites = new InviteStore(config.dataDir);
   const bot = new Bot<BotContext>(token);
 
   bot.use(async (ctx, next) => {
     ctx.store = store;
     ctx.members = members;
+    ctx.invites = invites;
     ctx.botUsername = config.botUsername;
     await next();
   });
@@ -49,11 +53,16 @@ export function createBot(token: string): CreatedBot {
   // Solo in privato: messaggio sconosciuto (non spammare i gruppi)
   bot.on("message:text", async (ctx) => {
     if (ctx.chat?.type !== "private") return;
-    if (ctx.session.creating || ctx.session.termsQa || ctx.session.awaitingHandle) {
+    if (
+      ctx.session.creating ||
+      ctx.session.termsQa ||
+      ctx.session.awaitingHandle ||
+      ctx.session.awaitingInviteCode
+    ) {
       return;
     }
     await ctx.reply(it.unknownPrivate);
   });
 
-  return { bot, store, members };
+  return { bot, store, members, invites };
 }
