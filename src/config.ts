@@ -55,7 +55,37 @@ export const config = {
   telegramBotCreatesGroups: ["1", "true", "yes"].includes(
     (process.env.TELEGRAM_BOT_CREATES_GROUPS?.trim() || "").toLowerCase(),
   ),
+  /**
+   * Canale pubblico aggiornamenti (CoinXpert-style «N iscritti»).
+   * Il bot deve essere admin del canale.
+   * Accetta id numerico (-100…) o @username del canale.
+   */
+  updatesChannelId: parseChannelId(process.env.UPDATES_CHANNEL_ID),
+  /**
+   * Opzionale: message_id di un messaggio vivente (idealmente fissato) da editare
+   * con il conteggio. Se assente → aggiorna la description del canale.
+   */
+  updatesChannelMessageId: parsePositiveInt(
+    process.env.UPDATES_CHANNEL_MESSAGE_ID,
+  ),
 };
+
+function parseChannelId(
+  raw: string | undefined,
+): string | number | undefined {
+  const v = raw?.trim();
+  if (!v) return undefined;
+  if (v.startsWith("@")) return v;
+  const n = Number(v);
+  if (Number.isFinite(n)) return n;
+  return v;
+}
+
+function parsePositiveInt(raw: string | undefined): number | undefined {
+  const n = Number(raw?.trim() || "");
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.floor(n);
+}
 
 export function assertConfig(): void {
   requireEnv("TELEGRAM_BOT_TOKEN");

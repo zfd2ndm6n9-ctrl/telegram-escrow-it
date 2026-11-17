@@ -198,4 +198,29 @@ export class DealStore {
   listByStatus(status: DealStatus): Deal[] {
     return [...this.deals.values()].filter((d) => d.status === status);
   }
+
+  /**
+   * Riconnessione membro: se Telegram userId cambia ma la @ è la stessa,
+   * aggiorna creator/buyer/seller id sui deal collegati.
+   */
+  remapUserId(previousUserId: number, newUserId: number): number {
+    if (previousUserId === newUserId) return 0;
+    let n = 0;
+    for (const deal of this.deals.values()) {
+      const patch: Partial<Deal> = {};
+      if (deal.creatorId === previousUserId) patch.creatorId = newUserId;
+      if (deal.buyerId === previousUserId) patch.buyerId = newUserId;
+      if (deal.sellerId === previousUserId) patch.sellerId = newUserId;
+      if (Object.keys(patch).length === 0) continue;
+      const next: Deal = {
+        ...deal,
+        ...patch,
+        updatedAt: nowIso(),
+      };
+      this.deals.set(deal.id, next);
+      n += 1;
+    }
+    if (n > 0) this.persist();
+    return n;
+  }
 }

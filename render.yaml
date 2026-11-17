@@ -29,6 +29,11 @@ services:
         sync: false
       - key: TOS_URL
         sync: false
+      # Canale pubblico «N iscritti» (bot admin del canale). Vedi README / .env.example.
+      - key: UPDATES_CHANNEL_ID
+        sync: false
+      - key: UPDATES_CHANNEL_MESSAGE_ID
+        sync: false
       # Opzionale: TELEGRAM_BOT_CREATES_GROUPS=1 + helper MTProto (default = gruppo manuale).
       - key: TELEGRAM_BOT_CREATES_GROUPS
         sync: false

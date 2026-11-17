@@ -198,14 +198,21 @@ async function handlePrivateTermsReply(
     return true;
   }
 
-  // Completo
+  // Completo — un solo messaggio in DM (niente overlap Termini salvati + Deal pronto)
   ctx.session.termsQa = undefined;
 
   if (result.deal.groupChatId != null) {
+    await ctx.reply(it.dmTermsComplete(result.deal), {
+      parse_mode: "Markdown",
+    });
     await refreshGroupSetupCard(ctx.api, ctx.store, result.deal);
   } else if (result.deal.creatorId === ctx.from.id) {
-    // Seller opener: ora istruzioni gruppo
+    // Seller opener: solo istruzioni gruppo (già «Termini già compilati»)
     await finishDealReady(ctx, result.deal);
+  } else {
+    await ctx.reply(it.dmTermsComplete(result.deal), {
+      parse_mode: "Markdown",
+    });
   }
 
   return true;

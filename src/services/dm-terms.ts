@@ -269,13 +269,6 @@ export async function applySellerTermsAnswer(
       dmTermsPromptMessageId: undefined,
     }) ?? current;
 
-  try {
-    await api.sendMessage(sellerChatId, it.dmTermsComplete(current), {
-      parse_mode: "Markdown",
-    });
-  } catch (err) {
-    console.warn(`dmTermsComplete notify #${current.id} failed:`, err);
-  }
-
+  // Nessun notify qui: il caller decide (evita overlap «Termini salvati» + «Deal pronto»).
   return { ok: true, deal: current, done: true };
 }

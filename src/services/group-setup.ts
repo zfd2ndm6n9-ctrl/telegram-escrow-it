@@ -69,38 +69,90 @@ export type AutoBindFailure =
   | "none"
   | "need_message";
 
+type AdminFlags = {
+  can_delete_messages?: boolean;
+  can_restrict_members?: boolean;
+  can_invite_users?: boolean;
+};
+
+function missingFromFlags(flags: AdminFlags): RequiredBotPerm[] {
+  const missing: RequiredBotPerm[] = [];
+  if (!flags.can_delete_messages) missing.push("can_delete_messages");
+  if (!flags.can_restrict_members) missing.push("can_restrict_members");
+  if (!flags.can_invite_users) missing.push("can_invite_users");
+  return missing;
+}
+
 /**
- * Verifica admin + permessi obbligatori via getChatMember.
- * Creator del gruppo ⇒ ok. Altrimenti servono i tre flag.
+ * Verifica admin + permessi obbligatori.
+ * Separato: «non admin» vs «admin ma mancano flag».
+ * Fallback su getChatAdministrators se getChatMember fallisce o non vede admin
+ * (evita falso negativo «deve essere amministratore» con badge admin in UI).
  */
 export async function checkRequiredBotAdminPerms(
   api: Api,
   chatId: number,
 ): Promise<BotAdminCheck> {
+  let meId: number;
   try {
-    const me = await api.getMe();
-    const member = await api.getChatMember(chatId, me.id);
+    meId = (await api.getMe()).id;
+  } catch (err) {
+    console.warn(`checkRequiredBotAdminPerms getMe failed:`, err);
+    return { ok: false, missing: [...REQUIRED_BOT_PERMS], notAdmin: true };
+  }
 
+  let status: string | undefined;
+  let flags: AdminFlags | undefined;
+
+  try {
+    const member = await api.getChatMember(chatId, meId);
+    status = member.status;
     if (member.status === "creator") {
       return { ok: true };
     }
-
-    if (member.status !== "administrator") {
-      return { ok: false, missing: [...REQUIRED_BOT_PERMS], notAdmin: true };
+    if (member.status === "administrator") {
+      flags = member;
     }
+  } catch (err) {
+    console.warn(
+      `getChatMember bot self in ${chatId} failed, provo getChatAdministrators:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
 
-    const missing: RequiredBotPerm[] = [];
-    if (!member.can_delete_messages) missing.push("can_delete_messages");
-    if (!member.can_restrict_members) missing.push("can_restrict_members");
-    if (!member.can_invite_users) missing.push("can_invite_users");
-
-    if (missing.length > 0) {
-      return { ok: false, missing, notAdmin: false };
+  if (!flags) {
+    try {
+      const admins = await api.getChatAdministrators(chatId);
+      const self = admins.find((a) => a.user.id === meId);
+      if (self?.status === "creator") {
+        return { ok: true };
+      }
+      if (self?.status === "administrator") {
+        status = "administrator";
+        flags = self;
+      }
+      // getChatAdministrators restituisce solo creator/administrator
+    } catch (err) {
+      console.warn(
+        `getChatAdministrators ${chatId} failed:`,
+        err instanceof Error ? err.message : err,
+      );
     }
-    return { ok: true };
-  } catch {
+  }
+
+  if (!flags) {
+    console.warn(
+      `Bot non admin in ${chatId} (status=${status ?? "unknown"})`,
+    );
     return { ok: false, missing: [...REQUIRED_BOT_PERMS], notAdmin: true };
   }
+
+  const missing = missingFromFlags(flags);
+  if (missing.length > 0) {
+    // Admin in Telegram: non dire mai «deve essere amministratore».
+    return { ok: false, missing, notAdmin: false };
+  }
+  return { ok: true };
 }
 
 function displayNameFromUser(user: {

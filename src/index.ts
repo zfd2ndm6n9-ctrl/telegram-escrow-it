@@ -46,8 +46,20 @@ async function main(): Promise<void> {
       "Su Render serve Persistent Disk: senza volume i deal spariscono al redeploy.",
   );
   console.log(
-    `Persistenza iscritti: ${members.path} (${members.size} iscritti).`,
+    `Persistenza iscritti: ${members.path} (${members.registeredCount} iscritti).`,
   );
+  if (config.updatesChannelId != null) {
+    console.log(
+      `Contatore pubblico: UPDATES_CHANNEL_ID=${config.updatesChannelId}` +
+        (config.updatesChannelMessageId != null
+          ? ` message=${config.updatesChannelMessageId}`
+          : " (description)"),
+    );
+  } else {
+    console.log(
+      "UPDATES_CHANNEL_ID non impostato: conteggio iscritti solo via /iscritti (admin).",
+    );
+  }
   const me = await bot.api.getMe();
   config.botUsername = me.username;
 

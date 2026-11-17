@@ -19,6 +19,10 @@ export interface SessionData {
     dealId: string;
     step: DmTermsStep;
   };
+  /** Soft signup: in attesa della @ dopo /start. */
+  awaitingHandle?: boolean;
+  /** Message id della domanda «Invia la tua @» (igiene Q/A). */
+  signupPromptMessageId?: number;
 }
 
 export type BotContext = Context &
