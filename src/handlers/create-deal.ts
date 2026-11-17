@@ -197,14 +197,18 @@ async function handlePrivateTermsReply(
     return false;
   }
 
-  // Gate soft signup solo se il proponente è l'opener del deal.
-  // Controparte che Proponi i ToS: OK senza /start + @ (DM già aperta).
+  // Gate soft signup: wizard DM è solo per l'opener (/crea).
   if (
     deal.creatorId === ctx.from.id &&
     !(await requireRegistered(ctx))
   ) {
     ctx.session.termsQa = undefined;
     return true;
+  }
+  // Proponi i ToS risponde nel gruppo — ignora testo in DM mid-propose.
+  if (deal.termsWizardInGroup) {
+    ctx.session.termsQa = undefined;
+    return false;
   }
   if (termsReadyForConfirm(deal) || deal.status === "cancelled") {
     ctx.session.termsQa = undefined;

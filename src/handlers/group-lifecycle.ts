@@ -9,12 +9,16 @@ import {
   isParty,
   isPreDepositSetup,
   isTermsProposer,
+  nextDmTermsStep,
   parseAmount,
   parseStartGroupPayload,
   termsReadyForConfirm,
   tosAccepted,
 } from "../services/deal-logic.js";
-import { startProposeTermsWizard } from "../services/dm-terms.js";
+import {
+  applyGroupTermsAnswer,
+  startProposeTermsWizard,
+} from "../services/dm-terms.js";
 import { convertPriceEurToSol } from "../services/fx/sol-eur.js";
 import { hardenGroupPermissions } from "../services/group-creator.js";
 import {
@@ -30,9 +34,11 @@ import {
 } from "../services/group-setup.js";
 import {
   clearBotPrompts,
+  clearEphemeralReplies,
+  clearRoleError,
   deleteMessageSafe,
   pinAcceptedTos,
-  replaceActionReply,
+  replaceRoleError,
   sendTrackedPrompt,
   untrackPrompt,
 } from "../services/prompt-cleanup.js";
@@ -483,7 +489,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
-  // Controparte Proponi i ToS → nuove 3 domande DM → card aggiornata
+  // Controparte Proponi i ToS → 3 domande nel gruppo → card Accetta/Proponi all'altra parte
   bot.callbackQuery(/^tospropose:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     const deal = ctx.store.get(dealId);
@@ -523,35 +529,18 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
 
     await ctx.answerCallbackQuery({ text: "Nuova proposta" });
+    let updated = await clearEphemeralReplies(ctx.api, ctx.store, deal);
     const wizard = await startProposeTermsWizard(
       ctx.api,
       ctx.store,
-      deal,
+      updated,
       ctx.from.id,
     );
-
-    if (!wizard.ok) {
-      await replaceActionReply(
-        ctx.api,
-        ctx.store,
-        wizard.deal,
-        it.tosProposeDmBlocked(wizard.deal),
-        { parse_mode: "Markdown" },
-      );
-      return;
-    }
-
-    let updated = wizard.deal;
+    updated = wizard.deal;
     updated =
       ctx.store.setStatus(updated.id, "awaiting_tos") ?? updated;
-    updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
-    await replaceActionReply(
-      ctx.api,
-      ctx.store,
-      updated,
-      it.tosProposeStarted(updated),
-      { parse_mode: "Markdown" },
-    );
+    // Card vuota + domande nel gruppo (niente «ti ho scritto in privato»).
+    await refreshGroupSetupCard(ctx.api, ctx.store, updated);
   });
 
   // Legacy dual-confirm importo (deal mid-flight pre-unificazione)
@@ -755,7 +744,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Termini solo in DM seller — niente parsing in gruppo
+    // Termini: Proponi → Q&A nel gruppo; opener incompleto resta in DM
     if (
       current.status === "awaiting_tos" ||
       current.status === "awaiting_tos_confirm"
@@ -764,11 +753,102 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         await ctx.reply(it.tosLocked);
         return;
       }
+
+      // Wizard gruppo attivo (Proponi i ToS / nuovo round)
+      if (
+        current.termsWizardInGroup &&
+        current.status === "awaiting_tos" &&
+        !termsReadyForConfirm(current)
+      ) {
+        const step = nextDmTermsStep(current);
+        if (!step) {
+          await next();
+          return;
+        }
+        if (!isTermsProposer(current, ctx.from.id)) {
+          await deleteMessageSafe(
+            ctx.api,
+            ctx.chat.id,
+            ctx.message.message_id,
+          );
+          await replaceRoleError(
+            ctx.api,
+            ctx.store,
+            current,
+            it.termsOnlyProposer(current),
+            { parse_mode: "Markdown" },
+          );
+          return;
+        }
+
+        const result = await applyGroupTermsAnswer(
+          ctx.api,
+          ctx.store,
+          current,
+          ctx.from.id,
+          step,
+          text,
+          ctx.message.message_id,
+        );
+
+        if (!result.ok) {
+          await deleteMessageSafe(
+            ctx.api,
+            ctx.chat.id,
+            ctx.message.message_id,
+          );
+          if (result.reason === "wrong_user") {
+            await replaceRoleError(
+              ctx.api,
+              ctx.store,
+              result.deal,
+              it.termsOnlyProposer(result.deal),
+              { parse_mode: "Markdown" },
+            );
+            return;
+          }
+          // Risposta invalida: prompt resta; errore corto
+          const errText =
+            result.reason === "price"
+              ? it.dmTermsInvalidPrice
+              : it.dmTermsTooShort;
+          await replaceRoleError(ctx.api, ctx.store, result.deal, errText, {
+            parse_mode: "Markdown",
+          });
+          return;
+        }
+
+        let updated = result.deal;
+        if (result.done) {
+          await clearRoleError(ctx.api, ctx.store, updated);
+          updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
+          return;
+        }
+        await clearRoleError(ctx.api, ctx.store, updated);
+        updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
+        return;
+      }
+
+      // Termini pronti: usa i bottoni, non testo libero
+      if (
+        current.status === "awaiting_tos_confirm" &&
+        termsReadyForConfirm(current)
+      ) {
+        await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+        const notice = await ctx.reply(it.termsUseButtons, {
+          parse_mode: "Markdown",
+        });
+        setTimeout(() => {
+          void deleteMessageSafe(ctx.api, ctx.chat!.id, notice.message_id);
+        }, 8_000);
+        return;
+      }
+
+      // Opener ancora in DM
       await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
       const notice = await ctx.reply(it.termsOnlyInDm(current), {
         parse_mode: "Markdown",
       });
-      // Messaggio guida effimero: cancella dopo breve igiene best-effort
       setTimeout(() => {
         void deleteMessageSafe(ctx.api, ctx.chat!.id, notice.message_id);
       }, 8_000);

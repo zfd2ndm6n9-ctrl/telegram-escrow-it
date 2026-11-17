@@ -61,10 +61,15 @@ export interface Deal {
    */
   tosNotes?: string;
   /**
-   * Chi ha compilato (o sta compilando) gli ultimi termini in DM.
+   * Chi ha compilato (o sta compilando) gli ultimi termini.
    * Controparte: Accetta o Proponi i ToS. Legacy senza campo → seller.
    */
   tosProposedBy?: number;
+  /**
+   * true = wizard termini attivo nel gruppo («Proponi i ToS» / nuovo round).
+   * false/assente = wizard opener in DM.
+   */
+  termsWizardInGroup?: boolean;
   /** Quando la controparte ha accettato la card termini */
   tosAcceptedAt?: string;
   /**
@@ -170,6 +175,11 @@ export interface Deal {
    * Cancellato dopo ogni risposta.
    */
   dmTermsPromptMessageId?: number;
+  /**
+   * Gruppo: ultimo prompt domanda termini (Proponi i ToS).
+   * Cancellato dopo ogni risposta + a fine wizard.
+   */
+  groupTermsPromptMessageId?: number;
   createdAt: string;
   updatedAt: string;
 }

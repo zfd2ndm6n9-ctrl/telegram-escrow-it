@@ -294,7 +294,13 @@ Controparte: scrivi un messaggio o entra nel gruppo.`;
     } else {
       const who = mentionTermsProposer(deal, "proponente");
       const missing = missingEssentialTerms(deal);
-      if (missing.length > 0 && missing.length < 3) {
+      if (deal.termsWizardInGroup) {
+        if (missing.length > 0 && missing.length < 3) {
+          action = `${who}: nel gruppo manca ancora ${formatMissingList(missing)}.`;
+        } else {
+          action = `${who}: rispondi alle *3 domande* nel gruppo.`;
+        }
+      } else if (missing.length > 0 && missing.length < 3) {
         action = `${who}: in privato manca ancora ${formatMissingList(missing)}.`;
       } else {
         action = `${who}: completa i termini in *chat privata* col bot.`;
@@ -372,20 +378,31 @@ Controparte: scrivi un messaggio o entra nel gruppo.`;
   notReadyForDeposit:
     "L'indirizzo escrow appare dopo termini e wallet di seller e buyer.",
 
+  /** Opener ancora in DM (non Proponi). */
   termsOnlyInDm: (deal: Deal) => {
     const who = mentionTermsProposer(deal, "proponente");
-    return `I termini si compilano in *privato*. ${who}: rispondi alle domande del bot in DM.`;
+    return `${who}: completa i termini in *chat privata* col bot.`;
   },
 
+  /** Proponi i ToS: domanda già in gruppo — niente DM. */
   tosProposeStarted: (deal: Deal) => {
     const who = mentionTermsProposer(deal, "proponente");
-    return `${who}: ti ho scritto in privato — 3 domande per i nuovi termini.`;
+    return `${who}: rispondi alle *3 domande* nel gruppo.`;
   },
 
+  /** @deprecated Proponi è in gruppo; tenuto per compat. */
   tosProposeDmBlocked: (deal: Deal) => {
     const who = mentionTermsProposer(deal, "proponente");
-    return `${who}: apri una chat *privata* col bot (/start), poi riprova *Proponi i ToS*.`;
+    return `${who}: rispondi alle *3 domande* nel gruppo.`;
   },
+
+  termsOnlyProposer: (deal: Deal) => {
+    const who = mentionTermsProposer(deal, "proponente");
+    return `Solo ${who} può rispondere alle domande sui termini.`;
+  },
+
+  termsUseButtons:
+    "Usa *Accetta* o *Proponi i ToS* sulla card.",
 
   /** @deprecated Importo escrow fissato da Prezzo € (conversione automatica). */
   askEscrowAmount: (deal: Deal) => {
