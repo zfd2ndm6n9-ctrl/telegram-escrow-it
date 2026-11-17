@@ -43,8 +43,8 @@ Sul **Web Service** (o Background Worker) che esegue il bot — Environment:
 | Nome | Obbligatorio | Valore |
 |------|--------------|--------|
 | `TELEGRAM_BOT_TOKEN` | sì | Token BotFather |
-| `SOLANA_PRIVATE_KEY` | sì | Output di `npm run solana:keygen` (base58 **oppure** JSON array). Master = fee-payer rete + destinazione fee 5% di default |
-| `FEE_WALLET_PUBKEY` | no | Pubkey destinazione fee piattaforma. Se assente = master pubkey |
+| `SOLANA_PRIVATE_KEY` | sì | Output di `npm run solana:keygen` (base58 **oppure** JSON array). Master = **fee-payer rete** (gas). Non è la destinazione fee servizio se `FEE_WALLET_PUBKEY` è settata |
+| `FEE_WALLET_PUBKEY` | **sì in prod** | Destinazione fee piattaforma (5% release senza invito). **Render:** `FEE_WALLET_PUBKEY=57fv8agNAjcsaLgodeNDjexTo5azsJpjLyMigaZnfVNP`. Se assente = master pubkey |
 | `SOLANA_RPC_URL` | consigliato | Es. Helius/QuickNode; default pubblico ok per test |
 | `SOLANA_WATCH_INTERVAL_MS` | no | Default `20000` |
 | `ADMIN_TELEGRAM_ID` | sì per dispute / codici | Tuo user id Telegram |
@@ -67,7 +67,7 @@ npm run solana:keygen
 
 All’avvio i log Render stampano:
 - `Escrow SOL mainnet attivo. Master pubkey: …` ← address da finanziare per le **fee di rete**
-- `Fee piattaforma (5% release): …` ← destinazione fee servizio (master o `FEE_WALLET_PUBKEY`)
+- `Fee piattaforma (5% release): …` ← deve coincidere con `57fv8agNAjcsaLgodeNDjexTo5azsJpjLyMigaZnfVNP` se `FEE_WALLET_PUBKEY` è settata
 
 ## Test deal tiny mainnet
 
@@ -115,10 +115,13 @@ Admin in Telegram (dopo deploy):
 
 ## Fee 5% + codici invito
 
+**Destinazione fee piattaforma (prod):** `FEE_WALLET_PUBKEY=57fv8agNAjcsaLgodeNDjexTo5azsJpjLyMigaZnfVNP`  
+(Render → Environment → Save → Manual Deploy / restart. Boot log: `Fee piattaforma (5% release): 57fv…`.)
+
 | Path | Split |
 |------|-------|
-| Release senza invito | 95% seller · 5% fee wallet |
-| Release con invito | 95% seller · 2.5% fee wallet · 2.5% collaboratore |
+| Release senza invito | 95% seller · **5%** → `FEE_WALLET_PUBKEY` |
+| Release con invito | 95% seller · **2.5%** → `FEE_WALLET_PUBKEY` · **2.5%** → wallet collaboratore |
 | Refund | 100% buyer · **0** fee servizio |
 
 ### Creare un codice (admin)

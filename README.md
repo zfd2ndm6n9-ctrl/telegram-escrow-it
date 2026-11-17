@@ -40,7 +40,7 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 |-----------|--------------|-------------|
 | `TELEGRAM_BOT_TOKEN` | sì | Token BotFather |
 | `SOLANA_PRIVATE_KEY` | sì (per escrow) | Secret hot wallet: **base58** o **JSON array** (64 byte). Solo env Render. Master = fee-payer + fee 5% default |
-| `FEE_WALLET_PUBKEY` | no | Pubkey destinazione fee piattaforma; se assente = master |
+| `FEE_WALLET_PUBKEY` | sì in prod | Fee 5% release → `57fv8agNAjcsaLgodeNDjexTo5azsJpjLyMigaZnfVNP`. Se assente = master |
 | `SOLANA_RPC_URL` | no | RPC mainnet. Default pubblico. Consigliato: Helius / QuickNode / Alchemy |
 | `SOLANA_WATCH_INTERVAL_MS` | no | Poll depositi (default `20000`) |
 | `ADMIN_TELEGRAM_ID` | no | User id admin (dispute + force + `/iscritti` + `/codice`) |
