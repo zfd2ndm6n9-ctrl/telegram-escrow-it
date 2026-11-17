@@ -65,16 +65,30 @@ function depositPrompt(deal: Deal): string {
 export const it = {
   welcome: `Ciao, benvenuto su *Escrowita*.
 
-Escrow crypto tra due parti già d'accordo.
+Sei iscritto. Escrow crypto tra due parti già d'accordo.
 
 /crea — nuovo deal
 /miei — i tuoi deal
 /menu — comandi
 /aiuto — guida`,
 
+  /** Re-/start: già iscritto, aggiorna last_seen (no doppio conteggio). */
+  welcomeBack: `Bentornato su *Escrowita* — sei già iscritto.
+
+/crea — nuovo deal
+/miei — i tuoi deal
+/menu — comandi
+/aiuto — guida`,
+
+  /** Gate: utente non registrato prova deal (/crea, /avvia, termini, wallet). */
+  needPrivateStart:
+    "Per usare l'escrow apri una chat *privata* con il bot e invia `/start`.",
+
+  iscrittiCount: (n: number) => `Iscritti: *${n}*`,
+
   help: `*Guida Escrowita*
 
-1. In privato: /crea → ruolo (buyer/seller) → crypto
+1. In privato: /start (iscrizione) → /crea → ruolo (buyer/seller) → crypto
 2. Il *seller* risponde a 3 domande in DM (Prodotto, Prezzo €, Condizioni)
 3. Gruppo privato → bot admin → /avvia (buyer o seller) → card Accetto → wallet → deposito
 4. /pay_seller (o /payseller) · /refund_buyer (o /refundbuyer) — doppia conferma

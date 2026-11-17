@@ -33,7 +33,7 @@ export const config = {
   ),
   defaultAsset: "SOL" as const,
   /**
-   * Cartella persistente per deals.json.
+   * Cartella persistente per deals.json e members.json.
    * Su Render: montare un Persistent Disk e puntare qui (es. /var/data).
    * Default locale: `data` (gitignored).
    */

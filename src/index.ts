@@ -40,10 +40,13 @@ async function main(): Promise<void> {
     );
   }
 
-  const { bot, store } = createBot(config.botToken);
+  const { bot, store, members } = createBot(config.botToken);
   console.log(
     `Persistenza deal: DATA_DIR=${store.dataDir} → ${store.path} (${store.size} deal). ` +
       "Su Render serve Persistent Disk: senza volume i deal spariscono al redeploy.",
+  );
+  console.log(
+    `Persistenza iscritti: ${members.path} (${members.size} iscritti).`,
   );
   const me = await bot.api.getMe();
   config.botUsername = me.username;

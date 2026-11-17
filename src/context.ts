@@ -1,5 +1,6 @@
 import { Context, SessionFlavor } from "grammy";
 import type { DealStore } from "./store/deals.js";
+import type { MemberStore } from "./store/members.js";
 import type { Asset, DmTermsStep, PartyRole } from "./types.js";
 
 export type CreateDealStep = "role" | "asset";
@@ -23,5 +24,6 @@ export interface SessionData {
 export type BotContext = Context &
   SessionFlavor<SessionData> & {
     store: DealStore;
+    members: MemberStore;
     botUsername?: string;
   };

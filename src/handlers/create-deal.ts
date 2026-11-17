@@ -31,6 +31,7 @@ import {
   getDealEscrowAddress,
   isSolanaConfigured,
 } from "../services/solana/index.js";
+import { requireRegistered } from "../services/registration.js";
 import type { Asset, PartyRole } from "../types.js";
 
 function botCreatesGroupsEnabled(): boolean {
@@ -48,6 +49,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.onlyPrivate, { parse_mode: "Markdown" });
       return;
     }
+    if (!(await requireRegistered(ctx))) return;
     if (!isSolanaConfigured()) {
       await ctx.reply(it.solanaNotConfigured);
       return;
@@ -153,6 +155,12 @@ async function handlePrivateTermsReply(
     dealId = open.id;
     step = next;
     ctx.session.termsQa = { dealId, step };
+  }
+
+  // Wizard termini: serve iscrizione (anche se session già aperta).
+  if (!(await requireRegistered(ctx))) {
+    ctx.session.termsQa = undefined;
+    return true;
   }
 
   const deal = ctx.store.get(dealId);

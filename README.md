@@ -7,7 +7,7 @@ Bot Telegram di **escrow crypto** per il mercato italiano (**Escrowita**).
 - UI in italiano · asset MVP: **SOL (Solana mainnet)** — soldi veri
 - Roadmap asset: SOL → LTC → ETH (niente USDT)
 
-Stack: **Node.js + TypeScript + [grammY](https://grammy.dev) + [teleproto](https://docs.teleproto.dev) (opzionale) + [@solana/web3.js](https://github.com/solana-foundation/solana-web3.js)** · store JSON (`data/deals.json`)
+Stack: **Node.js + TypeScript + [grammY](https://grammy.dev) + [teleproto](https://docs.teleproto.dev) (opzionale) + [@solana/web3.js](https://github.com/solana-foundation/solana-web3.js)** · store JSON (`data/deals.json`, `data/members.json`)
 
 ## ⚠️ Sicurezza hot wallet
 
@@ -44,7 +44,7 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `SOLANA_WATCH_INTERVAL_MS` | no | Poll depositi (default `20000`) |
 | `ADMIN_TELEGRAM_ID` | no | User id admin (dispute + force) |
 | `TOS_URL` | no | Link Termini |
-| `DATA_DIR` | sì in prod | Store deal. Render: `/var/data` su Persistent Disk (starter+). Default `data` |
+| `DATA_DIR` | sì in prod | Store deal + iscritti (`deals.json`, `members.json`). Render: `/var/data` su Persistent Disk (starter+). Default `data` |
 | `PORT` | no | Se impostato: `GET /healthz` (Render/Fly) |
 | `TELEGRAM_BOT_CREATES_GROUPS` | no | `1` per tentare create automatica gruppo (default off) |
 | `TELEGRAM_API_ID` / `HASH` / `HELPER_SESSION` | no | Solo con gate sopra; altrimenti soft-fallback manuale |
@@ -74,7 +74,7 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 
 ### In privato
 
-1. `/start` → `/crea`
+1. `/start` (iscrizione) → `/crea`
 2. Ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) → importo — **niente wallet in DM**
 3. Istruzioni: crea gruppo privato → aggiungi bot admin → `/avvia`
 
