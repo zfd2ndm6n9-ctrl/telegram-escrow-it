@@ -4,8 +4,6 @@ export function mainMenuKeyboard(): Keyboard {
   return new Keyboard()
     .text("➕ Crea escrow")
     .text("📋 I miei deal")
-    .row()
-    .text("❓ Aiuto")
     .resized()
     .persistent();
 }

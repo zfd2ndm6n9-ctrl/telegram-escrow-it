@@ -42,9 +42,11 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `SOLANA_PRIVATE_KEY` | sì (per escrow) | Secret hot wallet: **base58** o **JSON array** (64 byte). Solo env Render |
 | `SOLANA_RPC_URL` | no | RPC mainnet. Default pubblico. Consigliato: Helius / QuickNode / Alchemy |
 | `SOLANA_WATCH_INTERVAL_MS` | no | Poll depositi (default `20000`) |
-| `ADMIN_TELEGRAM_ID` | no | User id admin (dispute + force) |
+| `ADMIN_TELEGRAM_ID` | no | User id admin (dispute + force + `/iscritti`) |
 | `TOS_URL` | no | Link Termini |
 | `DATA_DIR` | sì in prod | Store deal + iscritti (`deals.json`, `members.json`). Render: `/var/data` su Persistent Disk (starter+). Default `data` |
+| `UPDATES_CHANNEL_ID` | no | Canale pubblico «N iscritti» (id `-100…` o `@nome`). Bot admin del canale |
+| `UPDATES_CHANNEL_MESSAGE_ID` | no | Message id vivente da editare; se assente → aggiorna *description* del canale |
 | `PORT` | no | Se impostato: `GET /healthz` (Render/Fly) |
 | `TELEGRAM_BOT_CREATES_GROUPS` | no | `1` per tentare create automatica gruppo (default off) |
 | `TELEGRAM_API_ID` / `HASH` / `HELPER_SESSION` | no | Solo con gate sopra; altrimenti soft-fallback manuale |
@@ -74,8 +76,8 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 
 ### In privato
 
-1. `/start` (iscrizione) → `/crea`
-2. Ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) → importo — **niente wallet in DM**
+1. `/start` → invia la tua `@` (iscrizione soft) → `/crea`
+2. Ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) — **niente wallet in DM**
 3. Istruzioni: crea gruppo privato → aggiungi bot admin → `/avvia`
 
 ### Nel gruppo
@@ -88,7 +90,7 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 9. `/pay_seller` (alias `/payseller`, `/release`) o `/refund_buyer` (alias `/refundbuyer`) — doppia conferma → transfer on-chain
 10. `/dispute` / `/support` → admin forza release/refund on-chain
 
-Altri: `/indirizzo`, `/stato`, `/blockchain`, `/menu`, `/miei` (privato), `/aiuto`
+Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato). Admin: `/iscritti`.
 
 ### Igiene anti-truffa
 

@@ -2,7 +2,7 @@ import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { config } from "../config.js";
 import { formatDealStatus, it } from "../messages/it.js";
-import { groupActionsKeyboard, mainMenuKeyboard } from "../keyboards/menus.js";
+import { groupActionsKeyboard } from "../keyboards/menus.js";
 import {
   addUniqueVote,
   isAdminUser,
@@ -106,10 +106,6 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
 
   bot.command("support", async (ctx) => {
     await replySupport(ctx);
-  });
-
-  bot.command("menu", async (ctx) => {
-    await replyMenu(ctx);
   });
 
   bot.command("blockchain", async (ctx) => {
@@ -504,25 +500,6 @@ async function replySupport(ctx: BotContext): Promise<void> {
     return;
   }
   await ctx.reply(it.supportGroup, { parse_mode: "Markdown" });
-}
-
-async function replyMenu(ctx: BotContext): Promise<void> {
-  if (ctx.chat?.type === "private") {
-    await ctx.reply(it.menuDm, {
-      parse_mode: "Markdown",
-      reply_markup: mainMenuKeyboard(),
-    });
-    return;
-  }
-  const deal = requireGroupDeal(ctx);
-  if (!deal) {
-    await ctx.reply(it.menuGroup, { parse_mode: "Markdown" });
-    return;
-  }
-  await ctx.reply(it.menuGroup, {
-    parse_mode: "Markdown",
-    reply_markup: groupActionsKeyboard(deal.status),
-  });
 }
 
 async function replyBlockchain(ctx: BotContext): Promise<void> {

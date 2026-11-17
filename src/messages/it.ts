@@ -63,55 +63,54 @@ function depositPrompt(deal: Deal): string {
 }
 
 export const it = {
-  welcome: `Ciao, benvenuto su *Escrowita*.
+  /** /start senza @ ancora: chiedi solo la @. */
+  welcomeAskHandle: `Ciao, benvenuto su *Escrowita*.
 
-Sei iscritto. Escrow crypto tra due parti già d'accordo.
+Per iscriverti invia la tua *@* Telegram (es. \`@nome\`).`,
+
+  askHandleAgain:
+    "Invia la tua *@* Telegram (es. `@nome`), così come appare nel tuo profilo.",
+
+  registeredOk: (username: string) =>
+    `✅ Iscrizione ok — @${escMd(username)}.
+
+Escrow crypto tra due parti già d'accordo.
 
 /crea — nuovo deal
-/miei — i tuoi deal
-/menu — comandi
-/aiuto — guida`,
+/miei — i tuoi deal`,
 
-  /** Re-/start: già iscritto, aggiorna last_seen (no doppio conteggio). */
-  welcomeBack: `Bentornato su *Escrowita* — sei già iscritto.
+  /** Stesso profilo / @ già nota (anche dopo delete bot). */
+  welcomeBack: (username?: string) =>
+    username
+      ? `Bentornato su *Escrowita* — @${escMd(username)}.
 
 /crea — nuovo deal
-/miei — i tuoi deal
-/menu — comandi
-/aiuto — guida`,
+/miei — i tuoi deal`
+      : `Bentornato su *Escrowita* — sei già iscritto.
+
+/crea — nuovo deal
+/miei — i tuoi deal`,
+
+  handleMismatch: (expected?: string) =>
+    expected
+      ? `Usa la tua @ Telegram: *@${escMd(expected)}* (come nel profilo).`
+      : "L'@ non corrisponde al tuo profilo Telegram.",
+
+  handleNeedTelegramUsername:
+    "Imposta un *username* nelle impostazioni Telegram, poi reinviami la tua @.",
+
+  handleInvalid:
+    "Non è un'@. Invia solo il tuo username (es. `@nome`).",
 
   /** Gate: utente non registrato prova deal (/crea, /avvia, termini, wallet). */
+  needRegistration:
+    "Per usare l'escrow apri una chat *privata* con il bot, invia `/start` e la tua *@*.",
+
+  /** @deprecated alias */
   needPrivateStart:
-    "Per usare l'escrow apri una chat *privata* con il bot e invia `/start`.",
+    "Per usare l'escrow apri una chat *privata* con il bot, invia `/start` e la tua *@*.",
 
   iscrittiCount: (n: number) => `Iscritti: *${n}*`,
-
-  help: `*Guida Escrowita*
-
-1. In privato: /start (iscrizione) → /crea → ruolo (buyer/seller) → crypto
-2. Il *seller* risponde a 3 domande in DM (Prodotto, Prezzo €, Condizioni)
-3. Gruppo privato → bot admin → /avvia (buyer o seller) → card Accetto → wallet → deposito
-4. /pay_seller (o /payseller) · /refund_buyer (o /refundbuyer) — doppia conferma
-
-Asset: *SOL* live. *ETH* e *LTC* presto.
-In dubbio: /dispute o /support.`,
-
-  menuDm: `*Menu Escrowita*
-
-/crea — nuovo escrow
-/miei — i tuoi deal
-/aiuto — guida
-/support — supporto`,
-
-  menuGroup: `*Comandi nel gruppo*
-
-/stato — stato deal
-/indirizzo — indirizzo escrow
-/depositato — verifica deposito
-/payseller · /refundbuyer — doppia conferma
-/blockchain — link tx
-/dispute · /support
-/menu — questo elenco`,
 
   askRole: "Che ruolo hai in questo deal?",
   askAsset: "Con quale crypto vuoi fare l'escrow?",
@@ -128,7 +127,7 @@ In dubbio: /dispute o /support.`,
   solanaNotConfigured:
     "Escrow SOL non configurato sul server. Avvisa il supporto.",
   cancelled: "Operazione annullata.",
-  unknownPrivate: "Non ho capito. Usa /menu oppure /aiuto.",
+  unknownPrivate: "Non ho capito. Usa /crea o /miei.",
 
   /** Riepilogo vivente in DM seller (elenco puntato). */
   dmTermsSummary: (deal: Deal) =>
@@ -458,7 +457,7 @@ Entrambe le parti: /payseller oppure /refundbuyer (doppia conferma).`,
     "Supporto Escrowita: usa /dispute per aprire un caso. In disputa può entrare un operatore. Niente arbitraggio automatico «With-Admin»: se serve un umano, /dispute.",
 
   supportDm:
-    "Supporto Escrowita: nel gruppo del deal usa /dispute. L'operatore riceve notifica e può entrare. Per dubbi sul flusso: /aiuto.",
+    "Supporto Escrowita: nel gruppo del deal usa /dispute. L'operatore riceve notifica e può entrare.",
 
   blockchainLink: (deal: Deal, url: string) =>
     `🔗 Tx deal *#${deal.id}*:\n${url}`,
