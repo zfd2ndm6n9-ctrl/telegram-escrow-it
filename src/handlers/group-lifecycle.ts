@@ -24,10 +24,13 @@ import {
   refreshGroupTitle,
   startDealInGroup,
   trackSeenGroupUser,
+  type BotAdminCheck,
 } from "../services/group-setup.js";
 import {
+  clearBotPrompts,
   deleteMessageSafe,
   pinAcceptedTos,
+  sendTrackedPrompt,
   untrackPrompt,
 } from "../services/prompt-cleanup.js";
 import { kickUnauthorizedBot } from "./group-hygiene.js";
@@ -38,6 +41,10 @@ function displayNameOf(user: {
 }): string | undefined {
   const parts = [user.first_name, user.last_name].filter(Boolean);
   return parts.length ? parts.join(" ") : undefined;
+}
+
+function adminPermsMessage(perms: Extract<BotAdminCheck, { ok: false }>): string {
+  return it.missingBotPerms(perms.missing, { notAdmin: perms.notAdmin });
 }
 
 function autoBindReply(reason: "too_many" | "none" | "need_message"): string {
@@ -101,11 +108,18 @@ async function onHumanJoined(
         (current.status === "awaiting_counterpart" ||
           current.status === "awaiting_bot_admin")
       ) {
-        await startDealInGroup(ctx.api, ctx.store, current, chatId, {
-          runnerId: userId,
-          runnerUsername: username,
-          runnerDisplayName: displayName,
-        });
+        const { deal: advanced } = await startDealInGroup(
+          ctx.api,
+          ctx.store,
+          current,
+          chatId,
+          {
+            runnerId: userId,
+            runnerUsername: username,
+            runnerDisplayName: displayName,
+          },
+        );
+        await clearBotPrompts(ctx.api, ctx.store, advanced);
       }
     }
     return;
@@ -135,6 +149,24 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     if (already) {
       if (status === "administrator") {
         await hardenGroupPermissions(ctx.api, chat.id);
+        const perms = await checkRequiredBotAdminPerms(ctx.api, chat.id);
+        if (!perms.ok) {
+          // Admin ma senza flag obbligatori: una sola notifica (replace).
+          if (!perms.notAdmin) {
+            await sendTrackedPrompt(
+              ctx.api,
+              ctx.store,
+              already,
+              adminPermsMessage(perms),
+              { parse_mode: "Markdown" },
+            );
+          }
+        } else {
+          // Domanda admin «risposta»: cancella hint, card/deal restano.
+          let current = ctx.store.get(already.id) ?? already;
+          current = await clearBotPrompts(ctx.api, ctx.store, current);
+          void current;
+        }
       }
       console.log(`Bot in chat ${chat.id} (deal #${already.id} già collegato)`);
       return;
@@ -227,16 +259,34 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     );
 
     if (!perms.ok) {
-      await ctx.reply(it.missingBotPerms(perms.missing), {
-        parse_mode: "Markdown",
-      });
+      // Hint cancellabile (igiene Q→A); Accetto/card vivente non toccati.
+      await sendTrackedPrompt(
+        ctx.api,
+        ctx.store,
+        started,
+        adminPermsMessage(perms),
+        { parse_mode: "Markdown" },
+      );
       return;
     }
 
     if (autoBind) {
-      await ctx.reply(autoBindReply(autoBind), { parse_mode: "Markdown" });
+      // none/need_message: la living card chiede già di scrivere all'altro (edit).
+      // too_many: errore esplicito, hint tracciato e cancellabile.
+      if (autoBind === "too_many") {
+        await sendTrackedPrompt(
+          ctx.api,
+          ctx.store,
+          started,
+          autoBindReply(autoBind),
+          { parse_mode: "Markdown" },
+        );
+      }
       return;
     }
+
+    // Deal ok: cancella hint di setup (admin / scrivi messaggio), non la card.
+    await clearBotPrompts(ctx.api, ctx.store, started);
 
     if (
       bothPartiesPresent(started) &&
@@ -272,9 +322,13 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     const perms = await checkRequiredBotAdminPerms(ctx.api, ctx.chat.id);
     if (!perms.ok) {
       await ctx.answerCallbackQuery({ text: "Permessi bot mancanti" });
-      await ctx.reply(it.missingBotPerms(perms.missing), {
-        parse_mode: "Markdown",
-      });
+      await sendTrackedPrompt(
+        ctx.api,
+        ctx.store,
+        deal,
+        adminPermsMessage(perms),
+        { parse_mode: "Markdown" },
+      );
       return;
     }
 
@@ -293,7 +347,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
             runnerDisplayName: displayNameOf(ctx.from),
           },
         );
-        void advanced;
+        await clearBotPrompts(ctx.api, ctx.store, advanced);
       }
       return;
     }
@@ -311,16 +365,29 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     );
     if (!bind.ok) {
       await ctx.answerCallbackQuery({ text: "Auto-bind fallito" });
-      await ctx.reply(autoBindReply(bind.reason), { parse_mode: "Markdown" });
+      await sendTrackedPrompt(
+        ctx.api,
+        ctx.store,
+        bind.deal,
+        autoBindReply(bind.reason),
+        { parse_mode: "Markdown" },
+      );
       return;
     }
 
     await ctx.answerCallbackQuery({ text: "Ruoli ok" });
-    await startDealInGroup(ctx.api, ctx.store, bind.deal, ctx.chat.id, {
-      runnerId: ctx.from.id,
-      runnerUsername: ctx.from.username,
-      runnerDisplayName: displayNameOf(ctx.from),
-    });
+    const { deal: advanced } = await startDealInGroup(
+      ctx.api,
+      ctx.store,
+      bind.deal,
+      ctx.chat.id,
+      {
+        runnerId: ctx.from.id,
+        runnerUsername: ctx.from.username,
+        runnerDisplayName: displayNameOf(ctx.from),
+      },
+    );
+    await clearBotPrompts(ctx.api, ctx.store, advanced);
   });
 
   // Buyer Accetta termini → lock + pin → converti €→SOL → wallet seller
@@ -532,11 +599,19 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         },
       );
       if (bind.ok) {
-        await startDealInGroup(ctx.api, ctx.store, bind.deal, ctx.chat.id, {
-          runnerId: ctx.from.id,
-          runnerUsername: ctx.from.username,
-          runnerDisplayName: displayNameOf(ctx.from),
-        });
+        // Risposta alla ask «scrivi un messaggio»: cancella hint, aggiorna card.
+        const { deal: advanced } = await startDealInGroup(
+          ctx.api,
+          ctx.store,
+          bind.deal,
+          ctx.chat.id,
+          {
+            runnerId: ctx.from.id,
+            runnerUsername: ctx.from.username,
+            runnerDisplayName: displayNameOf(ctx.from),
+          },
+        );
+        await clearBotPrompts(ctx.api, ctx.store, advanced);
         return;
       }
       current = bind.deal;

@@ -185,27 +185,35 @@ Usa il percorso manuale: crea un gruppo privato → aggiungi il bot → /avvia.`
   tosComingSoon:
     "📄 Termini della piattaforma: in arrivo. I ToS del deal li compila il seller in privato.",
 
-  needBotAdmin:
-    "⚠️ Promuovimi ad *amministratore* (Elimina messaggi, Blocca utenti, Invita utenti), poi /avvia.",
+  /** Bot non admin: una sola riga. */
+  needBotAdmin: "Per iniziare il deal il bot deve essere amministratore.",
 
-  missingBotPerms: (missing: string[]) => {
+  /**
+   * Admin ma senza i flag obbligatori.
+   * Notifica chiara; il caller evita spam (replace / un solo hint).
+   */
+  missingRequiredPerms: (missing: string[]) => {
     const labels: Record<string, string> = {
       can_delete_messages: "Elimina messaggi",
       can_restrict_members: "Blocca utenti",
       can_invite_users: "Invita utenti",
     };
-    const lines = missing.map((k) => `• ${labels[k] ?? k}`);
-    return `⚠️ Servono permessi admin.
+    const list = missing.map((k) => labels[k] ?? k).join(", ");
+    return `Mancano ancora i permessi richiesti: ${list}.`;
+  },
 
-Promuovimi con:
-• Elimina messaggi
-• Blocca utenti
-• Invita utenti
-
-*Manca ancora:*
-${lines.join("\n")}
-
-Poi /avvia.`;
+  /** Non-admin → riga corta; admin incompleto → permessi ancora mancanti. */
+  missingBotPerms: (missing: string[], opts?: { notAdmin?: boolean }) => {
+    if (opts?.notAdmin) {
+      return "Per iniziare il deal il bot deve essere amministratore.";
+    }
+    const labels: Record<string, string> = {
+      can_delete_messages: "Elimina messaggi",
+      can_restrict_members: "Blocca utenti",
+      can_invite_users: "Invita utenti",
+    };
+    const list = missing.map((k) => labels[k] ?? k).join(", ");
+    return `Mancano ancora i permessi richiesti: ${list}.`;
   },
 
   /**
@@ -222,8 +230,7 @@ Poi /avvia.`;
     if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
       return `${header}
 
-Ruoli automatici: *buyer* + *seller* (+ bot).
-Invita la controparte nel gruppo, poi /avvia.`;
+Scrivi un messaggio all'altro utente per collegarlo al deal.`;
     }
 
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
@@ -261,12 +268,13 @@ Invita la controparte nel gruppo, poi /avvia.`;
   autoBindTooMany:
     "Troppi membri. Solo *buyer*, *seller* e il bot. Rimuovi gli altri, poi /avvia.",
 
+  /** Controparte assente o non ancora visibile: chiedi un messaggio. */
   autoBindNone:
-    "Manca la controparte. Invitala nel gruppo, poi /avvia.",
+    "Scrivi un messaggio all'altro utente per collegarlo al deal.",
 
   /** Controparte in gruppo ma non ancora visibile alle API bot. */
   autoBindNeedMessage:
-    "Controparte ancora non riconosciuta. Assicurati che sia nel gruppo, poi /avvia.",
+    "Scrivi un messaggio all'altro utente per collegarlo al deal.",
 
   tosAccepted: (deal: Deal) =>
     deal.amount

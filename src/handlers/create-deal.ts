@@ -305,13 +305,16 @@ async function finishDealReady(
       );
 
       if (!perms.ok) {
-        await ctx.reply(it.missingBotPerms(perms.missing), {
-          parse_mode: "Markdown",
-          reply_markup: groupInviteKeyboard(
-            created.inviteLink,
-            config.tosUrl,
-          ),
-        });
+        await ctx.reply(
+          it.missingBotPerms(perms.missing, { notAdmin: perms.notAdmin }),
+          {
+            parse_mode: "Markdown",
+            reply_markup: groupInviteKeyboard(
+              created.inviteLink,
+              config.tosUrl,
+            ),
+          },
+        );
         return;
       }
 
