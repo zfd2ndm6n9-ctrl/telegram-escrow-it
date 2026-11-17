@@ -327,20 +327,16 @@ async function applyWallet(
   const chatId = deal.groupChatId ?? ctx.chat?.id;
   const userMessageId = ctx.message?.message_id;
 
-  /** Igiene Q/A: cancella msg utente + conferma bot; wallet resta solo nello store. */
-  const confirmThenWipe = async (
-    current: Deal,
-    role: "seller" | "buyer",
-  ): Promise<Deal> => {
+  /**
+   * Igiene wallet: clear prompt ask → delete risposta utente → next stage.
+   * Niente conferma flash (send+delete immediato = flicker).
+   */
+  const wipeWalletQa = async (current: Deal): Promise<Deal> => {
     let next = await clearRoleError(ctx.api, ctx.store, current);
+    next = await clearBotPrompts(ctx.api, ctx.store, next);
     if (chatId != null && userMessageId != null) {
+      ctx.dealLogs.markDeletedByBot(current.id, userMessageId);
       await deleteMessageSafe(ctx.api, chatId, userMessageId);
-    }
-    const confirm = await ctx.reply(it.walletSaved(next, role, address), {
-      parse_mode: "Markdown",
-    });
-    if (chatId != null) {
-      await deleteMessageSafe(ctx.api, chatId, confirm.message_id);
     }
     return next;
   };
@@ -361,7 +357,8 @@ async function applyWallet(
       sellerWallet: address,
       status: "awaiting_buyer_wallet",
     })!;
-    const cleaned = await confirmThenWipe(updated, "seller");
+    ctx.dealLogs.appendEvent(updated.id, "Seller: wallet salvato");
+    const cleaned = await wipeWalletQa(updated);
     await postAskBuyerWallet(ctx.api, ctx.store, cleaned);
     return;
   }
@@ -381,7 +378,8 @@ async function applyWallet(
       buyerWallet: address,
       status: "awaiting_deposit",
     })!;
-    const cleaned = await confirmThenWipe(updated, "buyer");
+    ctx.dealLogs.appendEvent(updated.id, "Buyer: wallet salvato");
+    const cleaned = await wipeWalletQa(updated);
     await postDealActivated(ctx.api, ctx.store, cleaned);
     return;
   }
@@ -520,7 +518,7 @@ function markPayoutCompleted(
   },
 ): Deal | undefined {
   const doneStatus = kind === "release" ? "released" : "refunded";
-  return ctx.store.update(dealId, {
+  const updated = ctx.store.update(dealId, {
     status: doneStatus,
     payoutTxSig: result.signature,
     payoutCompleted: true,
@@ -543,6 +541,13 @@ function markPayoutCompleted(
           ? "0"
           : undefined,
   });
+  ctx.dealLogs.appendEvent(
+    dealId,
+    kind === "release"
+      ? `Payout release ok · ${result.signature.slice(0, 8)}…`
+      : `Payout refund ok · ${result.signature.slice(0, 8)}…`,
+  );
+  return updated;
 }
 
 /**
@@ -891,6 +896,13 @@ async function handleReviewText(
     }
     return;
   }
+  if (ctx.message?.message_id != null) {
+    ctx.dealLogs.markDeletedByBot(deal.id, ctx.message.message_id);
+  }
+  ctx.dealLogs.appendEvent(
+    result.deal.id,
+    who === "seller" ? "Review seller ricevuta" : "Review buyer ricevuta",
+  );
   await clearRoleError(ctx.api, ctx.store, result.deal);
   if (result.readyForPayout) {
     await runPayout(ctx, result.deal, "release");
@@ -928,6 +940,7 @@ async function handleSellerShipped(
 
   const chatId = deal.groupChatId;
   if (chatId != null && opts?.userMessageId != null) {
+    ctx.dealLogs.markDeletedByBot(deal.id, opts.userMessageId);
     await deleteMessageSafe(ctx.api, chatId, opts.userMessageId);
   }
 
@@ -935,6 +948,8 @@ async function handleSellerShipped(
     ctx.store.update(deal.id, {
       sellerShippedAt: new Date().toISOString(),
     }) ?? deal;
+
+  ctx.dealLogs.appendEvent(updated.id, "Seller: ho spedito");
 
   updated = await clearRoleError(ctx.api, ctx.store, updated);
   await clearBotPrompts(ctx.api, ctx.store, updated);
@@ -1099,6 +1114,11 @@ export async function openDispute(
     adminInviteLink: adminLink,
   })!;
 
+  ctx.dealLogs.appendEvent(
+    updated.id,
+    `Disputa aperta da ${ctx.from.username ? `@${ctx.from.username}` : ctx.from.id}`,
+  );
+
   const opened = it.disputeOpened(updated);
   if (opts?.ephemeral) {
     await replaceActionReply(ctx.api, ctx.store, updated, opened, {
@@ -1109,23 +1129,28 @@ export async function openDispute(
     await ctx.reply(opened, { parse_mode: "Markdown" });
   }
 
-  if (!config.adminTelegramId) {
+  const adminIds = config.adminTelegramIds;
+  if (!adminIds.length) {
     await ctx.reply(it.adminMissing);
     return;
   }
 
-  try {
-    await ctx.api.sendMessage(
-      config.adminTelegramId,
-      it.disputeAdminNotify(
-        updated,
-        ctx.from.id,
-        ctx.from.username,
-        adminLink,
-      ),
-    );
-  } catch (err) {
-    console.error("Notifica admin fallita:", err);
+  const notifyBody = it.disputeAdminNotify(
+    updated,
+    ctx.from.id,
+    ctx.from.username,
+    adminLink,
+  );
+  let anyOk = false;
+  for (const adminId of adminIds) {
+    try {
+      await ctx.api.sendMessage(adminId, notifyBody);
+      anyOk = true;
+    } catch (err) {
+      console.error(`Notifica admin ${adminId} fallita:`, err);
+    }
+  }
+  if (!anyOk) {
     await ctx.reply(
       "Disputa aperta ma non riesco a scrivere all'admin in privato (deve aver avviato il bot).",
     );

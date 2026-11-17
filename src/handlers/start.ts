@@ -337,6 +337,48 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     await ctx.reply(it.inviteSkipped, { reply_markup: mainMenuKeyboard() });
   });
 
+  /**
+   * Admin DM: transcript messaggi parte + eventi chiave per dispute.
+   * Uso: /log #250538a0 | /log 250538a0
+   */
+  bot.command("log", async (ctx) => {
+    if (!ctx.from || !isAdminUser(ctx.from.id)) {
+      await ctx.reply(it.adminOnly);
+      return;
+    }
+    if (ctx.chat?.type !== "private") {
+      await ctx.reply("Usa `/log` in privato col bot.", {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+    const raw = (ctx.message?.text ?? "").trim();
+    const m = raw.match(/^\/log(?:@\w+)?\s+#?([a-fA-F0-9]{8})\b/);
+    const dealId = (m?.[1] ?? "").toLowerCase();
+    if (!dealId) {
+      await ctx.reply(it.logUsage, { parse_mode: "Markdown" });
+      return;
+    }
+    ctx.dealLogs.pruneExpired();
+    const body = ctx.dealLogs.formatTranscript(dealId);
+    if (!body) {
+      await ctx.reply(it.logEmpty(dealId), { parse_mode: "Markdown" });
+      return;
+    }
+    const entries = ctx.dealLogs.getEntries(dealId);
+    const header = it.logHeader(dealId, entries.length);
+    const full = `${header}\n\n${body}`;
+    // Telegram hard limit ~4096; spezza se serve.
+    if (full.length <= 3900) {
+      await ctx.reply(full, { parse_mode: "Markdown" });
+      return;
+    }
+    await ctx.reply(header, { parse_mode: "Markdown" });
+    for (let i = 0; i < body.length; i += 3500) {
+      await ctx.reply(body.slice(i, i + 3500));
+    }
+  });
+
   /** Admin: conteggio iscritti (+ ultimi recenti). */
   bot.command("iscritti", async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {

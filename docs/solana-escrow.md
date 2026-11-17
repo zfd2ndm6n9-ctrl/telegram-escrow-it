@@ -54,9 +54,10 @@ Sul **Web Service** (o Background Worker) che esegue il bot — Environment:
 | `FEE_WALLET_PUBKEY` | **sì in prod** | Destinazione fee piattaforma (5% release senza invito). **Render:** `FEE_WALLET_PUBKEY=57fv8agNAjcsaLgodeNDjexTo5azsJpjLyMigaZnfVNP`. Se assente = master pubkey |
 | `SOLANA_RPC_URL` | consigliato | Es. Helius/QuickNode; default pubblico ok per test |
 | `SOLANA_WATCH_INTERVAL_MS` | no | Default `20000` |
-| `ADMIN_TELEGRAM_ID` | sì per dispute / codici | Tuo user id Telegram |
+| `ADMIN_TELEGRAM_ID` | sì per dispute / `/log` / codici | Tuo user id Telegram |
+| `ADMIN_TELEGRAM_IDS` | no | Lista admin csv (oltre al singolo) |
 | `TOS_URL` | no | Link ToS |
-| `DATA_DIR` | sì in prod | Persistenza deal + iscritti + inviti (`deals.json`, `members.json`, `invites.json`). Su Render: `/var/data` |
+| `DATA_DIR` | sì in prod | Persistenza deal + iscritti + inviti + log (`deals.json`, `members.json`, `invites.json`, `deal-logs.json`). Su Render: `/var/data` |
 | `VOUCH_CHANNEL_ID` | sì in prod | Canale vouch + gate `/crea` (id `-100…`). Bot **admin** Post + `getChatMember`. Fail post → log `[vouch] FAIL …` |
 | `VOUCH_INVITE_LINK` | no | Invite a `/start`. Default `https://t.me/+tww-HqO8htBiMzdk` (override Render) |
 | `PORT` | auto su Web | Per `/healthz` |

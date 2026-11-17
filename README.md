@@ -30,7 +30,7 @@ git clone https://github.com/zfd2ndm6n9-ctrl/telegram-escrow-it.git
 cd telegram-escrow-it
 npm install
 cp .env.example .env
-# Imposta TELEGRAM_BOT_TOKEN, SOLANA_PRIVATE_KEY, opzionalmente ADMIN_TELEGRAM_ID
+# Imposta TELEGRAM_BOT_TOKEN, SOLANA_PRIVATE_KEY, opzionalmente ADMIN_TELEGRAM_ID(S)
 npm run solana:keygen   # genera keypair; salva secret offline / su Render
 ```
 
@@ -43,9 +43,10 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `FEE_WALLET_PUBKEY` | sì in prod | Fee 5% release → `57fv8agNAjcsaLgodeNDjexTo5azsJpjLyMigaZnfVNP`. Se assente = master |
 | `SOLANA_RPC_URL` | no | RPC mainnet. Default pubblico. Consigliato: Helius / QuickNode / Alchemy |
 | `SOLANA_WATCH_INTERVAL_MS` | no | Poll depositi (default `20000`) |
-| `ADMIN_TELEGRAM_ID` | no | User id admin (dispute + force + `/iscritti` + `/codice`) |
+| `ADMIN_TELEGRAM_ID` | sì in prod | User id admin (dispute + `/log` + force + `/iscritti` + `/codice`) |
+| `ADMIN_TELEGRAM_IDS` | no | Lista admin (csv). Unita a `ADMIN_TELEGRAM_ID` |
 | `TOS_URL` | no | Link Termini |
-| `DATA_DIR` | sì in prod | Store deal + iscritti + inviti (`deals.json`, `members.json`, `invites.json`). Render: `/var/data` |
+| `DATA_DIR` | sì in prod | Store deal + iscritti + inviti + log dispute (`deals.json`, `members.json`, `invites.json`, `deal-logs.json`). Render: `/var/data` |
 | `UPDATES_CHANNEL_ID` | no | Canale pubblico «N iscritti» (id `-100…` o `@nome`). Bot admin del canale |
 | `UPDATES_CHANNEL_MESSAGE_ID` | no | Message id vivente da editare; se assente → aggiorna *description* del canale |
 | `VOUCH_CHANNEL_ID` | no (sì in prod) | Canale vouch + **gate /crea** (id `-100…` preferito). Bot **admin** + Post + `getChatMember`. Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
@@ -90,17 +91,26 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
 8. Rilevamento automatico → seller *Ho spedito* → buyer *Paga* (dual-confirm; alias silenti `/payseller` per admin)
-9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → post su canale vouch → release on-chain (seller 95% + fee 5%). Refund: payout immediato senza review
-10. `/dispute` / `/support` → admin forza release/refund on-chain (salta review)
+9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (Prodotto/Prezzo/Condizioni + review @) → release on-chain (seller 95% + fee 5%). Refund: payout immediato senza review
+10. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; admin forza release/refund on-chain (salta review)
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato), `/invito CODICE`.  
-Admin: `/iscritti`, `/codice`, `/codici`, `/fee`.
+Admin: `/log #dealId` (DM), `/iscritti`, `/codice`, `/codici`, `/fee`.
+
+### Log dispute (`/log`) — privacy
+
+- Mentre un deal è attivo, il bot **trattiene** i testi delle parti nel gruppo (user-to-user) + eventi chiave (wallet, spedito, disputa, payout). **Non** i prompt effimeri del bot.
+- Quando l’igiene cancella un messaggio utente, resta la copia locale (`[del]` nel transcript).
+- **Solo admin** (DM): `/log #250538a0` o `/log 250538a0`.
+- Cap: max **200** voci/deal; retention **30 giorni** dall’ultimo aggiornamento del bucket (`deal-logs.json` in `DATA_DIR`).
+- Scopo: supporto dispute se qualcuno cancella messaggi in chat. Non è archivio completo né sostituto di processo legale.
 
 ### Igiene anti-truffa
 
 - Kick utenti extra e bot non autorizzati
 - Blocco messaggi inoltrati (delete se possibile)
 - Avviso se buyer/seller cambiano nome o username
+- Wallet: delete prompt + risposta utente, poi step successivo (niente conferma flash)
 
 ### Modello deposito
 

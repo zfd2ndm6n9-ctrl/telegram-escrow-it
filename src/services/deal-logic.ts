@@ -114,8 +114,10 @@ export function isParty(deal: Deal, userId: number): boolean {
 }
 
 export function isAdminUser(userId: number): boolean {
-  if (!config.adminTelegramId) return false;
-  return String(userId) === config.adminTelegramId;
+  const ids = config.adminTelegramIds;
+  if (!ids.length) return false;
+  const s = String(userId);
+  return ids.includes(s);
 }
 
 export function isAllowedHuman(deal: Deal, userId: number): boolean {

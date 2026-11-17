@@ -47,7 +47,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const { bot, store, members, invites } = createBot(config.botToken);
+  const { bot, store, members, invites, dealLogs } = createBot(config.botToken);
   console.log(
     `Persistenza deal: DATA_DIR=${store.dataDir} → ${store.path} (${store.size} deal). ` +
       "Su Render serve Persistent Disk: senza volume i deal spariscono al redeploy.",
@@ -58,6 +58,18 @@ async function main(): Promise<void> {
   console.log(
     `Persistenza inviti: ${invites.path} (${invites.size} codici).`,
   );
+  console.log(
+    `Persistenza log dispute: ${dealLogs.path} (cap ${200} voci/deal, retention 30g).`,
+  );
+  if (config.adminTelegramIds.length) {
+    console.log(
+      `Admin ids: ${config.adminTelegramIds.join(", ")} (ADMIN_TELEGRAM_ID/S)`,
+    );
+  } else {
+    console.warn(
+      "Nessun ADMIN_TELEGRAM_ID / ADMIN_TELEGRAM_IDS: dispute notify e /log disabilitati.",
+    );
+  }
   if (config.updatesChannelId != null) {
     console.log(
       `Contatore pubblico: UPDATES_CHANNEL_ID=${config.updatesChannelId}` +

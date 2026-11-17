@@ -27,6 +27,9 @@ services:
         sync: false
       - key: ADMIN_TELEGRAM_ID
         sync: false
+      # Opzionale: lista admin csv (oltre / al posto del singolo)
+      - key: ADMIN_TELEGRAM_IDS
+        sync: false
       - key: TOS_URL
         sync: false
       # Canale pubblico «N iscritti» (bot admin del canale). Vedi README / .env.example.
