@@ -69,6 +69,13 @@ async function main(): Promise<void> {
       "UPDATES_CHANNEL_ID non impostato: conteggio iscritti solo via /iscritti (admin).",
     );
   }
+  if (config.vouchChannelId != null) {
+    console.log(`Vouch channel: VOUCH_CHANNEL_ID=${config.vouchChannelId}`);
+  } else {
+    console.log(
+      "VOUCH_CHANNEL_ID non impostato: review post-pay restano solo nel gruppo (no forward canale).",
+    );
+  }
   const me = await bot.api.getMe();
   config.botUsername = me.username;
 

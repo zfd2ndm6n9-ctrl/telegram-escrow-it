@@ -34,6 +34,9 @@ services:
         sync: false
       - key: UPDATES_CHANNEL_MESSAGE_ID
         sync: false
+      # Canale vouch post-release (bot admin). Invite t.me/+tww-HqO8htBiMzdk — id -100…
+      - key: VOUCH_CHANNEL_ID
+        sync: false
       # Opzionale: TELEGRAM_BOT_CREATES_GROUPS=1 + helper MTProto (default = gruppo manuale).
       - key: TELEGRAM_BOT_CREATES_GROUPS
         sync: false

@@ -24,10 +24,11 @@
 2. Per deal `id`: `HMAC-SHA256(masterSecret, "telegram-escrow-it:deal:"+id)` → 32 byte seed → keypair
 3. Buyer invia SOL a quell’indirizzo
 4. Watcher (~20s) o `/depositato` (verifica saldo) → `funded` se saldo ≥ importo
-5. Dual-confirm `/pay_seller` (alias `/payseller`) / `/refund_buyer` (alias `/refundbuyer`) (o admin in disputa)
-6. **Release:** una tx atomica — **95%** → seller, **5%** fee piattaforma. Se il deal ha invito collaboratore: **2.5%** → master/`FEE_WALLET_PUBKEY`, **2.5%** → wallet collaboratore. **Refund:** 100% → buyer (nessuna fee servizio)
-7. **Fee di rete** pagate dalla **master** (`feePayer`): ricarica la master con poco SOL (es. 0.05)
-8. Payout: `getLatestBlockhash("confirmed")` + stesso `preflightCommitment`, con retry su #7050008 (Blockhash not found). Contabilità idempotente (`payoutCompleted` + `payoutTxSig`)
+5. Dual-confirm paga-seller (UX buyer-first; alias silenti `/pay_seller` / `/payseller`) / `/refund_buyer` (o admin in disputa)
+6. Dopo 2/2 **release** (non refund): review breve seller → buyer → post su `VOUCH_CHANNEL_ID` → poi payout. Admin in disputa salta le review
+7. **Release:** una tx atomica — **95%** → seller, **5%** fee piattaforma. Se il deal ha invito collaboratore: **2.5%** → master/`FEE_WALLET_PUBKEY`, **2.5%** → wallet collaboratore. **Refund:** 100% → buyer (nessuna fee servizio, nessuna review)
+8. **Fee di rete** pagate dalla **master** (`feePayer`): ricarica la master con poco SOL (es. 0.05)
+9. Payout: `getLatestBlockhash("confirmed")` + stesso `preflightCommitment`, con retry su #7050008 (Blockhash not found). Contabilità idempotente (`payoutCompleted` + `payoutTxSig`)
 
 ## Avviso rischio
 
@@ -50,6 +51,7 @@ Sul **Web Service** (o Background Worker) che esegue il bot — Environment:
 | `ADMIN_TELEGRAM_ID` | sì per dispute / codici | Tuo user id Telegram |
 | `TOS_URL` | no | Link ToS |
 | `DATA_DIR` | sì in prod | Persistenza deal + iscritti + inviti (`deals.json`, `members.json`, `invites.json`). Su Render: `/var/data` |
+| `VOUCH_CHANNEL_ID` | sì in prod | Canale vouch (id `-100…`). Bot **admin**. Invite `https://t.me/+tww-HqO8htBiMzdk`. Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
 | `PORT` | auto su Web | Per `/healthz` |
 
 ### Generare la chiave (una tantum)

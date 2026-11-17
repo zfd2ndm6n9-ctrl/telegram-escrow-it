@@ -48,6 +48,7 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `DATA_DIR` | sì in prod | Store deal + iscritti + inviti (`deals.json`, `members.json`, `invites.json`). Render: `/var/data` |
 | `UPDATES_CHANNEL_ID` | no | Canale pubblico «N iscritti» (id `-100…` o `@nome`). Bot admin del canale |
 | `UPDATES_CHANNEL_MESSAGE_ID` | no | Message id vivente da editare; se assente → aggiorna *description* del canale |
+| `VOUCH_CHANNEL_ID` | no (sì in prod) | Canale vouch post-release (id `-100…` preferito). Bot **admin**. Invite: `https://t.me/+tww-HqO8htBiMzdk`. Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
 | `PORT` | no | Se impostato: `GET /healthz` (Render/Fly) |
 | `TELEGRAM_BOT_CREATES_GROUPS` | no | `1` per tentare create automatica gruppo (default off) |
 | `TELEGRAM_API_ID` / `HASH` / `HELPER_SESSION` | no | Solo con gate sopra; altrimenti soft-fallback manuale |
@@ -83,13 +84,13 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 
 ### Nel gruppo
 
-4. `/avvia` → la controparte scrive un messaggio per collegarsi (o entra dopo: bind al join). Soft signup solo per chi apre il deal (`/crea`); controparte: Accetto / `/wallet` / release senza `/start`
+4. `/avvia` → una sola frase «Controparte: scrivi un messaggio o entra nel gruppo.» Soft signup solo per chi apre il deal (`/crea`); controparte: Accetto / `/wallet` / release senza `/start`
 5. *ToS*: termini in DM seller; il buyer conferma con *Accetto*
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
-8. Rilevamento automatico (o `/depositato`)
-9. `/pay_seller` (alias `/payseller`, `/release`) o `/refund_buyer` (alias `/refundbuyer`) — doppia conferma → transfer on-chain (release: seller 95% + fee 5%; refund: 100% buyer)
-10. `/dispute` / `/support` → admin forza release/refund on-chain
+8. Rilevamento automatico → seller *Ho spedito* → buyer *Paga* (dual-confirm; alias silenti `/payseller` per admin)
+9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → post su canale vouch → release on-chain (seller 95% + fee 5%). Refund: payout immediato senza review
+10. `/dispute` / `/support` → admin forza release/refund on-chain (salta review)
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato), `/invito CODICE`.  
 Admin: `/iscritti`, `/codice`, `/codici`, `/fee`.
