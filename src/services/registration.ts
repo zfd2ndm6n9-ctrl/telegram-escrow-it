@@ -70,16 +70,20 @@ export async function registerHandleFromMessage(
     );
   }
 
-  // Igiene: cancella domanda @ + risposta utente
+  // Igiene: cancella domanda @, errori precedenti, risposte utente
   const promptId = ctx.session.signupPromptMessageId;
   if (promptId != null) {
     await deleteMessageSafe(ctx.api, ctx.chat.id, promptId);
+  }
+  for (const id of ctx.session.signupEphemeralIds ?? []) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, id);
   }
   if (ctx.message?.message_id != null) {
     await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
   }
   ctx.session.awaitingHandle = undefined;
   ctx.session.signupPromptMessageId = undefined;
+  ctx.session.signupEphemeralIds = undefined;
 
   if (result.isNew) {
     await publishIscrittiCount(ctx.api, ctx.members.registeredCount);

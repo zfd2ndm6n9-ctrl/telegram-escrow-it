@@ -7,21 +7,90 @@ import { registerHandleFromMessage } from "../services/registration.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
 import { isValidSolAddress, lamportsToSolString } from "../services/solana/index.js";
 
+/** Pulsanti menu / wizard: non sono un codice invito. */
+const MENU_TEXTS = new Set([
+  "➕ Crea escrow",
+  "📋 I miei deal",
+  "❌ Annulla",
+  "🛒 Sono il buyer",
+  "🏪 Sono il seller",
+  "◎ SOL",
+  "ETH (presto)",
+  "LTC (presto)",
+]);
+
+function trackSignupEphemeral(ctx: BotContext, messageId: number): void {
+  const prev = ctx.session.signupEphemeralIds ?? [];
+  ctx.session.signupEphemeralIds = [...prev, messageId];
+}
+
+function trackInviteEphemeral(ctx: BotContext, messageId: number): void {
+  const prev = ctx.session.inviteEphemeralIds ?? [];
+  ctx.session.inviteEphemeralIds = [...prev, messageId];
+}
+
+async function clearSignupEphemerals(ctx: BotContext): Promise<void> {
+  if (!ctx.chat) return;
+  for (const id of ctx.session.signupEphemeralIds ?? []) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, id);
+  }
+  ctx.session.signupEphemeralIds = undefined;
+}
+
+async function clearInvitePrompt(ctx: BotContext): Promise<void> {
+  if (!ctx.chat) return;
+  if (ctx.session.invitePromptMessageId != null) {
+    await deleteMessageSafe(
+      ctx.api,
+      ctx.chat.id,
+      ctx.session.invitePromptMessageId,
+    );
+  }
+  for (const id of ctx.session.inviteEphemeralIds ?? []) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, id);
+  }
+  ctx.session.invitePromptMessageId = undefined;
+  ctx.session.inviteEphemeralIds = undefined;
+}
+
+/** Chiude lo step invito opzionale senza rispostone (es. tap su Crea). */
+export async function dismissInviteStep(ctx: BotContext): Promise<void> {
+  if (!ctx.session.awaitingInviteCode) return;
+  await clearInvitePrompt(ctx);
+  ctx.session.awaitingInviteCode = undefined;
+}
+
 async function askForHandle(ctx: BotContext): Promise<void> {
   ctx.session.awaitingHandle = true;
   ctx.session.creating = undefined;
   ctx.session.termsQa = undefined;
-  if (ctx.session.signupPromptMessageId != null && ctx.chat) {
-    await deleteMessageSafe(
-      ctx.api,
-      ctx.chat.id,
-      ctx.session.signupPromptMessageId,
-    );
+  if (ctx.chat) {
+    if (ctx.session.signupPromptMessageId != null) {
+      await deleteMessageSafe(
+        ctx.api,
+        ctx.chat.id,
+        ctx.session.signupPromptMessageId,
+      );
+    }
+    await clearSignupEphemerals(ctx);
   }
   const msg = await ctx.reply(it.welcomeAskHandle, {
     parse_mode: "Markdown",
   });
   ctx.session.signupPromptMessageId = msg.message_id;
+}
+
+async function askInviteOptional(ctx: BotContext): Promise<void> {
+  ctx.session.awaitingInviteCode = true;
+  if (ctx.chat && ctx.session.invitePromptMessageId != null) {
+    await deleteMessageSafe(
+      ctx.api,
+      ctx.chat.id,
+      ctx.session.invitePromptMessageId,
+    );
+  }
+  const msg = await ctx.reply(it.askInviteOptional);
+  ctx.session.invitePromptMessageId = msg.message_id;
 }
 
 /** Payload `/start invito_CODE` o `invito CODE`. */
@@ -39,40 +108,59 @@ function parseStartInvitePayload(text: string | undefined): string | undefined {
 async function redeemInvite(
   ctx: BotContext,
   rawCode: string,
-): Promise<void> {
-  if (!ctx.from) return;
+  opts?: { userMessageId?: number },
+): Promise<boolean> {
+  if (!ctx.from) return false;
   if (!ctx.members.isRegistered(ctx.from.id)) {
     await ctx.reply(it.needRegistration, { parse_mode: "Markdown" });
-    return;
+    return false;
   }
 
   const code = rawCode.trim().toUpperCase();
   if (!code || code.length < 4) {
-    await ctx.reply(it.inviteUsage, { parse_mode: "Markdown" });
-    return;
+    const msg = await ctx.reply(it.inviteUsage, { parse_mode: "Markdown" });
+    trackInviteEphemeral(ctx, msg.message_id);
+    return false;
   }
 
   const member = ctx.members.get(ctx.from.id);
   if (member?.inviteCode && member.inviteCode !== code) {
-    await ctx.reply(it.inviteRedeemOther);
-    return;
+    const msg = await ctx.reply(it.inviteRedeemOther);
+    trackInviteEphemeral(ctx, msg.message_id);
+    return false;
   }
   if (member?.inviteCode === code) {
+    await clearInvitePrompt(ctx);
+    if (opts?.userMessageId != null && ctx.chat) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, opts.userMessageId);
+    }
+    ctx.session.awaitingInviteCode = undefined;
+    ctx.session.pendingInviteCode = undefined;
     await ctx.reply(it.inviteRedeemAlready(code), { parse_mode: "Markdown" });
-    return;
+    return true;
   }
 
   const result = ctx.invites.redeem(code, ctx.from.id, ctx.from.username);
   if (!result.ok) {
     if (result.reason === "already_other") {
-      await ctx.reply(it.inviteRedeemOther);
-      return;
+      const msg = await ctx.reply(it.inviteRedeemOther);
+      trackInviteEphemeral(ctx, msg.message_id);
+      return false;
     }
-    await ctx.reply(it.inviteNotFound);
-    return;
+    const msg = await ctx.reply(it.inviteNotFound);
+    trackInviteEphemeral(ctx, msg.message_id);
+    if (opts?.userMessageId != null && ctx.chat) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, opts.userMessageId);
+      trackInviteEphemeral(ctx, opts.userMessageId);
+    }
+    return false;
   }
 
   ctx.members.setInviteCode(ctx.from.id, result.invite.code);
+  await clearInvitePrompt(ctx);
+  if (opts?.userMessageId != null && ctx.chat) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, opts.userMessageId);
+  }
   ctx.session.awaitingInviteCode = undefined;
   ctx.session.pendingInviteCode = undefined;
 
@@ -80,11 +168,12 @@ async function redeemInvite(
     await ctx.reply(it.inviteRedeemAlready(result.invite.code), {
       parse_mode: "Markdown",
     });
-    return;
+    return true;
   }
   await ctx.reply(it.inviteRedeemOk(result.invite.code), {
     parse_mode: "Markdown",
   });
+  return true;
 }
 
 export function registerStartHandlers(bot: Bot<BotContext>): void {
@@ -106,6 +195,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
         const member = ctx.members.touch(ctx.from.id, ctx.from.username);
         ctx.session.awaitingHandle = undefined;
         ctx.session.signupPromptMessageId = undefined;
+        ctx.session.signupEphemeralIds = undefined;
 
         if (ctx.session.pendingInviteCode && !member.inviteCode) {
           await redeemInvite(ctx, ctx.session.pendingInviteCode);
@@ -147,12 +237,20 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.inviteUsage, { parse_mode: "Markdown" });
       return;
     }
-    await redeemInvite(ctx, code);
+    await redeemInvite(ctx, code, {
+      userMessageId: ctx.message?.message_id,
+    });
   });
 
   bot.command("skip", async (ctx) => {
     if (ctx.chat?.type !== "private" || !ctx.from) return;
     if (!ctx.session.awaitingInviteCode) return;
+
+    const userMsgId = ctx.message?.message_id;
+    await clearInvitePrompt(ctx);
+    if (userMsgId != null && ctx.chat) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, userMsgId);
+    }
     ctx.session.awaitingInviteCode = undefined;
     await ctx.reply(it.inviteSkipped, { reply_markup: mainMenuKeyboard() });
   });
@@ -324,12 +422,23 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       !ctx.session.creating &&
       !ctx.session.termsQa
     ) {
-      const maybe = text.replace(/^#/, "").trim();
-      if (/^[A-Za-z0-9-]{4,24}$/.test(maybe)) {
-        await redeemInvite(ctx, maybe);
+      // Menu / wizard → chiudi invito silenzioso e lascia passare (no prompt stack)
+      if (MENU_TEXTS.has(text)) {
+        await dismissInviteStep(ctx);
+        await next();
         return;
       }
-      await ctx.reply(it.askInviteOptional, { parse_mode: "Markdown" });
+
+      const maybe = text.replace(/^#/, "").trim();
+      if (/^[A-Za-z0-9-]{4,24}$/.test(maybe)) {
+        await redeemInvite(ctx, maybe, {
+          userMessageId: ctx.message.message_id,
+        });
+        return;
+      }
+
+      // Testo non-codice: non riesporre il prompt; cancella solo la risposta
+      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
       return;
     }
 
@@ -353,20 +462,34 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     const result = await registerHandleFromMessage(ctx, text);
     if (!result.ok) {
       if (result.reason === "no_telegram_username") {
-        await ctx.reply(it.handleNeedTelegramUsername, {
+        const msg = await ctx.reply(it.handleNeedTelegramUsername, {
           parse_mode: "Markdown",
         });
+        trackSignupEphemeral(ctx, msg.message_id);
+        if (ctx.message?.message_id != null) {
+          trackSignupEphemeral(ctx, ctx.message.message_id);
+        }
         return;
       }
       if (result.reason === "mismatch") {
-        await ctx.reply(it.handleMismatch(ctx.from.username), {
+        const msg = await ctx.reply(it.handleMismatch(ctx.from.username), {
           parse_mode: "Markdown",
         });
+        trackSignupEphemeral(ctx, msg.message_id);
+        if (ctx.message?.message_id != null) {
+          trackSignupEphemeral(ctx, ctx.message.message_id);
+        }
         return;
       }
       // invalid: se non stiamo aspettando handle esplicitamente, passa oltre
       if (ctx.session.awaitingHandle) {
-        await ctx.reply(it.handleInvalid, { parse_mode: "Markdown" });
+        const msg = await ctx.reply(it.handleInvalid, {
+          parse_mode: "Markdown",
+        });
+        trackSignupEphemeral(ctx, msg.message_id);
+        if (ctx.message?.message_id != null) {
+          trackSignupEphemeral(ctx, ctx.message.message_id);
+        }
         return;
       }
       await next();
@@ -381,14 +504,13 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       reply_markup: mainMenuKeyboard(),
     });
 
-    // Applica pending invite da /start, altrimenti chiedi codice opzionale
+    // Applica pending invite da /start, altrimenti chiedi codice opzionale una volta
     if (ctx.session.pendingInviteCode) {
       await redeemInvite(ctx, ctx.session.pendingInviteCode);
     } else if (!result.reconnected) {
       const m = ctx.members.get(ctx.from.id);
-      if (!m?.inviteCode) {
-        ctx.session.awaitingInviteCode = true;
-        await ctx.reply(it.askInviteOptional, { parse_mode: "Markdown" });
+      if (!m?.inviteCode && !ctx.session.awaitingInviteCode) {
+        await askInviteOptional(ctx);
       }
     }
   });

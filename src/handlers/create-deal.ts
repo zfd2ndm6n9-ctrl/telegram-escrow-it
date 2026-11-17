@@ -33,6 +33,7 @@ import {
   isValidSolAddress,
 } from "../services/solana/index.js";
 import { requireRegistered } from "../services/registration.js";
+import { dismissInviteStep } from "./start.js";
 import type { Asset, PartyRole } from "../types.js";
 
 function botCreatesGroupsEnabled(): boolean {
@@ -55,6 +56,8 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.solanaNotConfigured);
       return;
     }
+    // Invito opzionale: non bloccare /crea; chiudi prompt senza stack
+    await dismissInviteStep(ctx);
     ctx.session.creating = { step: "role" };
     ctx.session.termsQa = undefined;
     await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
