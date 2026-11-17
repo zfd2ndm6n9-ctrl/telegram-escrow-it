@@ -33,6 +33,7 @@ import {
   sendTrackedPrompt,
   untrackPrompt,
 } from "../services/prompt-cleanup.js";
+import { requireRegistered } from "../services/registration.js";
 import { kickUnauthorizedBot } from "./group-hygiene.js";
 
 function displayNameOf(user: {
@@ -204,6 +205,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
     if (!ctx.from) return;
+    // Iscrizione obbligatoria per /avvia; my_chat_member / promote restano aperti.
+    if (!(await requireRegistered(ctx))) return;
 
     const existing = ctx.store.findByGroupChatId(ctx.chat.id);
     // Già collegato oltre bind/auto-bind: niente seconda card completa.

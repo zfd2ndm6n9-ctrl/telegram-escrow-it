@@ -30,6 +30,7 @@ import {
   lamportsToSolString,
   payoutDealSol,
 } from "../services/solana/index.js";
+import { requireRegistered } from "../services/registration.js";
 import type { Deal } from "../types.js";
 
 function requireGroupDeal(ctx: BotContext): Deal | null {
@@ -240,6 +241,7 @@ async function applyWallet(
   address: string,
 ): Promise<void> {
   if (!ctx.from) return;
+  if (!(await requireRegistered(ctx))) return;
 
   const isBuyer = deal.buyerId === ctx.from.id;
   const isSeller = deal.sellerId === ctx.from.id;
