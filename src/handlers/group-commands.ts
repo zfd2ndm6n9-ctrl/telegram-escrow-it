@@ -2,7 +2,11 @@ import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { config } from "../config.js";
 import { formatDealStatus, it } from "../messages/it.js";
-import { groupActionsKeyboard } from "../keyboards/menus.js";
+import {
+  groupActionsKeyboard,
+  payoutHashKeyboard,
+  sellerConfirmPayKeyboard,
+} from "../keyboards/menus.js";
 import {
   addUniqueVote,
   isAdminUser,
@@ -12,13 +16,17 @@ import {
 import {
   createAdminInviteLink,
   postAskBuyerWallet,
+  postBuyerAfterShip,
   postDealActivated,
+  postShipAsk,
 } from "../services/group-setup.js";
 import {
   clearBotPrompts,
   clearEphemeralReplies,
+  deleteMessageSafe,
   replaceActionReply,
   replaceStatusMessage,
+  sendTrackedPrompt,
 } from "../services/prompt-cleanup.js";
 import { getOrphanProfile } from "../services/orphan-profiles.js";
 import {
@@ -31,6 +39,17 @@ import {
   payoutDealSol,
 } from "../services/solana/index.js";
 import type { Deal } from "../types.js";
+
+/** Conferma testuale corta «ho spedito» / «spedito». */
+function isShipConfirmText(raw: string): boolean {
+  const t = raw.trim().toLowerCase().replace(/[!!.]+$/g, "");
+  return (
+    t === "ho spedito" ||
+    t === "spedito" ||
+    t === "spedita" ||
+    t === "📦 ho spedito"
+  );
+}
 
 function requireGroupDeal(ctx: BotContext): Deal | null {
   if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
@@ -87,10 +106,11 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     }
     await replaceStatusMessage(ctx.api, ctx.store, deal, formatDealStatus(deal), {
       parse_mode: "Markdown",
-      reply_markup: groupActionsKeyboard(deal.status),
+      reply_markup: groupActionsKeyboard(deal.status, deal),
     });
   });
 
+  // Alias silenti: non in UI; restano per admin/compat.
   bot.command(["pay_seller", "payseller", "release"], async (ctx) => {
     await handlePayOrRefund(ctx, "release");
   });
@@ -147,6 +167,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     await verifyDeposit(ctx, { ephemeral: true });
   });
 
+  // Legacy callback id: redirect silenzioso (niente label UI).
   bot.callbackQuery("pay_seller", async (ctx) => {
     await ctx.answerCallbackQuery();
     await handlePayOrRefund(ctx, "release");
@@ -155,6 +176,36 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   bot.callbackQuery("refund_buyer", async (ctx) => {
     await ctx.answerCallbackQuery();
     await handlePayOrRefund(ctx, "refund");
+  });
+
+  bot.callbackQuery("shipped", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleSellerShipped(ctx);
+  });
+
+  bot.callbackQuery("buyer_pay", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleBuyerPay(ctx);
+  });
+
+  bot.callbackQuery("buyer_info", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleBuyerMoreInfo(ctx);
+  });
+
+  bot.callbackQuery("buyer_dispute", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await openDispute(ctx, { ephemeral: true });
+  });
+
+  bot.callbackQuery("seller_confirm_pay", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleSellerConfirmPay(ctx);
+  });
+
+  bot.callbackQuery("show_hash", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleShowHash(ctx);
   });
 
   bot.callbackQuery("dispute", async (ctx) => {
@@ -171,10 +222,11 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     await ctx.answerCallbackQuery();
     await replaceStatusMessage(ctx.api, ctx.store, deal, formatDealStatus(deal), {
       parse_mode: "Markdown",
+      reply_markup: groupActionsKeyboard(deal.status, deal),
     });
   });
 
-  // Incolla wallet in chiaro durante awaiting_*_wallet
+  // Incolla wallet in chiaro durante awaiting_*_wallet; oppure «ho spedito».
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -186,11 +238,23 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       return;
     }
     const deal = requireGroupDeal(ctx);
+    if (!deal || !ctx.from) {
+      await next();
+      return;
+    }
+
     if (
-      !deal ||
-      !ctx.from ||
-      (deal.status !== "awaiting_seller_wallet" &&
-        deal.status !== "awaiting_buyer_wallet")
+      deal.status === "funded" &&
+      !deal.sellerShippedAt &&
+      isShipConfirmText(text)
+    ) {
+      await handleSellerShipped(ctx, { userMessageId: ctx.message.message_id });
+      return;
+    }
+
+    if (
+      deal.status !== "awaiting_seller_wallet" &&
+      deal.status !== "awaiting_buyer_wallet"
     ) {
       await next();
       return;
@@ -334,7 +398,7 @@ async function verifyDeposit(
     const extra = {
       parse_mode: "Markdown" as const,
       ...(withKeyboard
-        ? { reply_markup: groupActionsKeyboard(current.status) }
+        ? { reply_markup: groupActionsKeyboard(current.status, current) }
         : {}),
     };
     if (opts?.ephemeral) {
@@ -354,7 +418,8 @@ async function verifyDeposit(
   ) {
     let updated = ctx.store.setStatus(deal.id, "funded")!;
     updated = await clearBotPrompts(ctx.api, ctx.store, updated);
-    await replyResult(updated, it.markFundedAdmin(updated), true);
+    await clearEphemeralReplies(ctx.api, ctx.store, updated);
+    await postShipAsk(ctx.api, ctx.store, updated);
     return;
   }
 
@@ -376,7 +441,10 @@ async function verifyDeposit(
 
   let fresh = ctx.store.get(deal.id)!;
   if (wasAwaiting && result.funded) {
-    fresh = await clearBotPrompts(ctx.api, ctx.store, fresh);
+    // Cancella istruzioni deposito e passa allo ship ask.
+    await clearEphemeralReplies(ctx.api, ctx.store, fresh);
+    await postShipAsk(ctx.api, ctx.store, fresh);
+    return;
   }
   await replyResult(
     fresh,
@@ -513,30 +581,33 @@ async function runPayout(
       }
       await ctx.reply(it.payoutFailed(fresh, result.error), {
         parse_mode: "Markdown",
-        reply_markup: groupActionsKeyboard(fresh.status),
+        reply_markup: groupActionsKeyboard(fresh.status, fresh),
       });
       return;
     }
 
     let updated = markPayoutCompleted(ctx, fresh.id, kind, result)!;
     updated = await clearBotPrompts(ctx.api, ctx.store, updated);
+    await clearEphemeralReplies(ctx.api, ctx.store, updated);
 
-    await ctx.reply(
-      it.payoutSuccess(updated, kind, result.signature, result.sol, {
-        platformFeeSol:
-          result.platformFeeLamports != null
-            ? lamportsToSolString(result.platformFeeLamports)
-            : undefined,
-        collaboratorFeeSol:
-          result.collaboratorFeeLamports != null &&
-          result.collaboratorFeeLamports > 0n
-            ? lamportsToSolString(result.collaboratorFeeLamports)
-            : undefined,
-        feeWallet: result.feeWallet,
-        collaboratorWallet: result.collaboratorWallet,
-      }),
-      { parse_mode: "Markdown" },
-    );
+    const body = it.payoutSuccess(updated, kind, result.signature, result.sol, {
+      platformFeeSol:
+        result.platformFeeLamports != null
+          ? lamportsToSolString(result.platformFeeLamports)
+          : undefined,
+      collaboratorFeeSol:
+        result.collaboratorFeeLamports != null &&
+        result.collaboratorFeeLamports > 0n
+          ? lamportsToSolString(result.collaboratorFeeLamports)
+          : undefined,
+      feeWallet: result.feeWallet,
+      collaboratorWallet: result.collaboratorWallet,
+    });
+    // Nessun link tx nel body: solo bottone Hash (sig in chiaro al tap).
+    await ctx.reply(body, {
+      parse_mode: "Markdown",
+      reply_markup: payoutHashKeyboard(),
+    });
   } finally {
     payoutInFlight.delete(fresh.id);
   }
@@ -653,13 +724,129 @@ async function handlePayOrRefund(
       kind === "release"
         ? it.releaseVote(pending, remaining)
         : it.refundVote(pending, remaining);
-    // Togli prompt con tastiere pay_seller accumulate; conferma 1/2 senza nuovi bottoni.
+    // Togli prompt CTAs precedenti; conferma 1/2 con bottone seller se release.
     await clearBotPrompts(ctx.api, ctx.store, pending);
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    if (kind === "release") {
+      await sendTrackedPrompt(ctx.api, ctx.store, pending, msg, {
+        parse_mode: "Markdown",
+        reply_markup: sellerConfirmPayKeyboard(),
+      });
+    } else {
+      await ctx.reply(msg, { parse_mode: "Markdown" });
+    }
     return;
   }
 
   await runPayout(ctx, pending, kind);
+}
+
+async function handleSellerShipped(
+  ctx: BotContext,
+  opts?: { userMessageId?: number },
+): Promise<void> {
+  const deal = requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    await ctx.reply(it.noDealInGroup);
+    return;
+  }
+  if (deal.sellerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
+    await ctx.reply(it.shipOnlySeller(deal), { parse_mode: "Markdown" });
+    return;
+  }
+  if (deal.status !== "funded" && deal.status !== "release_pending") {
+    await ctx.reply(it.wrongStatus(deal.status));
+    return;
+  }
+  if (deal.sellerShippedAt) {
+    // Idempotente: ripubblica CTA buyer se serve.
+    await postBuyerAfterShip(ctx.api, ctx.store, deal);
+    return;
+  }
+
+  const chatId = deal.groupChatId;
+  if (chatId != null && opts?.userMessageId != null) {
+    await deleteMessageSafe(ctx.api, chatId, opts.userMessageId);
+  }
+
+  const updated =
+    ctx.store.update(deal.id, {
+      sellerShippedAt: new Date().toISOString(),
+    }) ?? deal;
+
+  await clearBotPrompts(ctx.api, ctx.store, updated);
+  await clearEphemeralReplies(ctx.api, ctx.store, updated);
+  await postBuyerAfterShip(ctx.api, ctx.store, updated);
+}
+
+/** Buyer avvia rilascio (voto 1); dual-confirm → seller conferma. */
+async function handleBuyerPay(ctx: BotContext): Promise<void> {
+  const deal = requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    await ctx.reply(it.noDealInGroup);
+    return;
+  }
+  if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
+    await ctx.reply(it.buyerOnlyPay(deal), { parse_mode: "Markdown" });
+    return;
+  }
+  if (!deal.sellerShippedAt && deal.status === "funded") {
+    await ctx.reply(it.needShipFirst(deal), { parse_mode: "Markdown" });
+    return;
+  }
+  await handlePayOrRefund(ctx, "release");
+}
+
+/** Seller conferma il secondo voto di rilascio. */
+async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
+  const deal = requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    await ctx.reply(it.noDealInGroup);
+    return;
+  }
+  if (deal.sellerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
+    await ctx.reply(it.sellerOnlyConfirm(deal), { parse_mode: "Markdown" });
+    return;
+  }
+  await handlePayOrRefund(ctx, "release");
+}
+
+async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {
+  const deal = requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    await ctx.reply(it.noDealInGroup);
+    return;
+  }
+  if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
+    await ctx.reply(it.buyerOnlyPay(deal), { parse_mode: "Markdown" });
+    return;
+  }
+  // Avvisa seller; CTA buyer restano (replace sullo stesso slot).
+  await replaceActionReply(
+    ctx.api,
+    ctx.store,
+    deal,
+    it.askSellerMoreInfo(deal),
+    { parse_mode: "Markdown" },
+  );
+}
+
+async function handleShowHash(ctx: BotContext): Promise<void> {
+  const deal = requireGroupDeal(ctx);
+  if (!deal) {
+    await ctx.reply(it.noDealInGroup);
+    return;
+  }
+  if (!deal.payoutTxSig) {
+    await replaceActionReply(ctx.api, ctx.store, deal, it.payoutHashMissing);
+    return;
+  }
+  await replaceActionReply(
+    ctx.api,
+    ctx.store,
+    deal,
+    it.payoutHashReveal(deal.payoutTxSig),
+    { parse_mode: "Markdown" },
+  );
 }
 
 async function replySupport(ctx: BotContext): Promise<void> {
@@ -854,9 +1041,12 @@ async function adminRipristina(ctx: BotContext): Promise<void> {
     it.ripristinaOk(saved, lamportsToSolString(balance)),
     {
       parse_mode: "Markdown",
-      reply_markup: groupActionsKeyboard(saved.status),
+      reply_markup: groupActionsKeyboard(saved.status, saved),
     },
   );
+  if (saved.status === "funded" && !saved.sellerShippedAt) {
+    await postShipAsk(ctx.api, ctx.store, saved);
+  }
 }
 
 async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
@@ -972,6 +1162,10 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
             id: dealId,
             sellerWallet: who === "seller" ? dest : live?.sellerWallet,
             buyerWallet: who === "buyer" ? dest : live?.buyerWallet,
+            sellerUsername: live?.sellerUsername,
+            buyerUsername: live?.buyerUsername,
+            priceEur: live?.priceEur,
+            collaboratorWallet: live?.collaboratorWallet,
           } as Deal),
         kind,
         result.signature,
@@ -990,7 +1184,10 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
           collaboratorWallet: result.collaboratorWallet,
         },
       ),
-      { parse_mode: "Markdown" },
+      {
+        parse_mode: "Markdown",
+        reply_markup: payoutHashKeyboard(),
+      },
     );
   } finally {
     payoutInFlight.delete(dealId);

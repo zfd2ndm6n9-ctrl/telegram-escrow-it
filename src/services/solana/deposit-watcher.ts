@@ -1,8 +1,6 @@
 import type { Api } from "grammy";
 import type { DealStore } from "../../store/deals.js";
-import { it } from "../../messages/it.js";
-import { groupActionsKeyboard } from "../../keyboards/menus.js";
-import { sendTrackedPrompt } from "../prompt-cleanup.js";
+import { postShipAsk } from "../group-setup.js";
 import { solToLamports, lamportsToSolString } from "./amounts.js";
 import { getEscrowBalanceLamports } from "./transfer.js";
 import { isSolanaConfigured } from "./client.js";
@@ -15,6 +13,7 @@ export type DepositWatcherHandle = {
 
 /**
  * Poll periodico dei deal in `awaiting_deposit`: se il saldo ≥ importo → `funded`.
+ * Poi: cancella prompt deposito e chiede al seller di spedire.
  */
 export function startDepositWatcher(
   store: DealStore,
@@ -73,18 +72,9 @@ export function startDepositWatcher(
 
         if (updated.groupChatId != null) {
           try {
-            await sendTrackedPrompt(
-              api,
-              store,
-              updated,
-              it.depositDetected(updated, lamportsToSolString(balance)),
-              {
-                parse_mode: "Markdown",
-                reply_markup: groupActionsKeyboard(updated.status),
-              },
-            );
+            await postShipAsk(api, store, updated);
           } catch (err) {
-            console.warn(`Notify funded #${deal.id} failed:`, err);
+            console.warn(`Notify funded/ship #${deal.id} failed:`, err);
           }
         }
       }
