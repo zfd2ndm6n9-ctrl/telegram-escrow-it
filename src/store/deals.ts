@@ -202,6 +202,13 @@ export class DealStore {
     return [...this.deals.values()].filter((d) => d.status === status);
   }
 
+  /** Tutti i deal nello store (recovery bulk / audit). */
+  listAll(): Deal[] {
+    return [...this.deals.values()].sort((a, b) =>
+      a.id.localeCompare(b.id),
+    );
+  }
+
   /**
    * Riconnessione membro: se Telegram userId cambia ma la @ è la stessa,
    * aggiorna creator/buyer/seller id sui deal collegati.

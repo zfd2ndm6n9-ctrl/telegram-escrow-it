@@ -13,6 +13,8 @@
     "helper:login": "tsx scripts/helper-login.ts",
     "recover:escrow": "tsx src/cli/recover-escrow.ts",
     "recover:escrow:prod": "node dist/cli/recover-escrow.js",
+    "recover:escrow:bulk": "tsx src/cli/recover-escrow-bulk.ts",
+    "recover:escrow:bulk:prod": "node dist/cli/recover-escrow-bulk.js",
     "start:forever": "bash scripts/run-forever.sh"
   },
   "repository": {
