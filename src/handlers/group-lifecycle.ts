@@ -49,8 +49,8 @@ function adminPermsMessage(perms: Extract<BotAdminCheck, { ok: false }>): string
 
 function autoBindReply(reason: "too_many" | "none" | "need_message"): string {
   if (reason === "too_many") return it.autoBindTooMany;
-  if (reason === "need_message") return it.autoBindNeedMessage;
-  return it.autoBindNone;
+  // none / need_message: stessa unica frase (la card vivente di solito basta).
+  return it.counterpartAsk;
 }
 
 /** Buyer/seller/creator del deal (o slot ancora aperto per la controparte). */
@@ -273,9 +273,9 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
 
     if (autoBind) {
-      // Card vivente già chiede di scrivere; per need_message/too_many
-      // aggiungi hint tracciato (cancellato quando la controparte risponde).
-      if (autoBind === "too_many" || autoBind === "need_message") {
+      // Card vivente già mostra counterpartAsk — niente secondo messaggio uguale.
+      // Solo too_many ha copy diversa (gruppo troppo pieno).
+      if (autoBind === "too_many") {
         await sendTrackedPrompt(
           ctx.api,
           ctx.store,

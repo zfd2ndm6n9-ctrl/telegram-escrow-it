@@ -260,7 +260,7 @@ Usa il percorso manuale: crea un gruppo privato → aggiungi il bot → /avvia.`
     if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
       return `${header}
 
-Controparte: scrivi un messaggio — nel gruppo o fuori — per collegarti al deal.`;
+Controparte: scrivi un messaggio o entra nel gruppo.`;
     }
 
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
@@ -298,13 +298,17 @@ Controparte: scrivi un messaggio — nel gruppo o fuori — per collegarti al de
   autoBindTooMany:
     "Troppi membri. Solo *buyer*, *seller* e il bot. Rimuovi gli altri, poi /avvia.",
 
-  /** Controparte assente: invita a scrivere (o entrare poi). */
-  autoBindNone:
-    "Controparte: scrivi un messaggio — nel gruppo o fuori — per collegarti al deal.",
+  /**
+   * Unica frase controparte (card + eventuali hint).
+   * Non duplicare in chat: la card vivente basta; niente secondo prompt uguale.
+   */
+  counterpartAsk: "Controparte: scrivi un messaggio o entra nel gruppo.",
 
-  /** Controparte già in gruppo: deve scrivere per bind (niente discovery silenziosa). */
-  autoBindNeedMessage:
-    "Controparte: scrivi un messaggio nel gruppo per collegarti al deal.",
+  /** @deprecated alias → counterpartAsk */
+  autoBindNone: "Controparte: scrivi un messaggio o entra nel gruppo.",
+
+  /** @deprecated alias → counterpartAsk */
+  autoBindNeedMessage: "Controparte: scrivi un messaggio o entra nel gruppo.",
 
   tosAccepted: (deal: Deal) =>
     deal.amount
@@ -477,6 +481,45 @@ Scegli:`;
     remaining > 0
       ? `Conferma *1/2* — rimborso (#${deal.id}). Aspetta ${mentionPendingVoter(deal, deal.refundVotes)}.`
       : `↩️ Rimborso in corso (#${deal.id})…`,
+
+  /** Post 2/2 pay-seller: rating breve del bot (seller poi buyer). */
+  reviewAsk: (deal: Deal, who: "seller" | "buyer") => {
+    const tag =
+      who === "seller"
+        ? mentionUser(deal.sellerUsername, deal.sellerId, "seller")
+        : mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    return `${tag}: come valuti *Escrowita*? Una riga basta.`;
+  },
+
+  reviewThanks: "Grazie mille per la tua valutazione.",
+
+  reviewTooShort: "Troppo corto. Scrivi almeno un paio di caratteri.",
+
+  reviewWrongParty: (deal: Deal, who: "seller" | "buyer") => {
+    const tag =
+      who === "seller"
+        ? mentionUser(deal.sellerUsername, deal.sellerId, "seller")
+        : mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    return `Ora tocca a ${tag} lasciare la valutazione.`;
+  },
+
+  /** Post su canale vouch (plain / Markdown corto). */
+  vouchReviewLine: (
+    deal: Deal,
+    who: "seller" | "buyer",
+    text: string,
+  ) => {
+    const handle =
+      who === "seller"
+        ? deal.sellerUsername
+          ? `@${deal.sellerUsername}`
+          : `id:${deal.sellerId ?? "?"}`
+        : deal.buyerUsername
+          ? `@${deal.buyerUsername}`
+          : `id:${deal.buyerId ?? "?"}`;
+    const role = who === "seller" ? "seller" : "buyer";
+    return `⭐ #${deal.id} · ${role} ${handle}\n${text}`;
+  },
 
   /**
    * Rilascio: importi in €, @handles, fee «admin», senza tx link.

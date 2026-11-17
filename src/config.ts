@@ -75,6 +75,14 @@ export const config = {
   updatesChannelMessageId: parsePositiveInt(
     process.env.UPDATES_CHANNEL_MESSAGE_ID,
   ),
+  /**
+   * Canale vouch / recensioni post-release.
+   * Invite tipica: https://t.me/+tww-HqO8htBiMzdk
+   * Preferire id numerico (-100…). Bot deve essere *admin* del canale.
+   * Come ottenere l'id: aggiungi il bot admin → inoltra un msg del canale
+   * a @userinfobot / @getidsbot, oppure leggi il chat id nei log Telegram.
+   */
+  vouchChannelId: parseChannelId(process.env.VOUCH_CHANNEL_ID),
 };
 
 function parseChannelId(

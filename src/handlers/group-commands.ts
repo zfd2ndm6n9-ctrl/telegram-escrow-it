@@ -30,6 +30,12 @@ import {
 } from "../services/prompt-cleanup.js";
 import { getOrphanProfile } from "../services/orphan-profiles.js";
 import {
+  acceptReviewAnswer,
+  beginOrContinueReviews,
+  expectedReviewer,
+  reviewsPending,
+} from "../services/reviews.js";
+import {
   checkDealDeposit,
   deriveDealKeypair,
   getEscrowBalanceLamports,
@@ -226,7 +232,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     });
   });
 
-  // Incolla wallet in chiaro durante awaiting_*_wallet; oppure «ho spedito».
+  // Review post-pay, «ho spedito», oppure wallet in chiaro.
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -240,6 +246,11 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     const deal = requireGroupDeal(ctx);
     if (!deal || !ctx.from) {
       await next();
+      return;
+    }
+
+    if (reviewsPending(deal)) {
+      await handleReviewText(ctx, deal, text);
       return;
     }
 
@@ -705,6 +716,17 @@ async function handlePayOrRefund(
 
   const voteKey = kind === "release" ? "releaseVotes" : "refundVotes";
   const prevVotes = latest[voteKey];
+
+  // Già 2/2 release: riprendi review o payout (crash / re-tap / alreadyVoted).
+  if (
+    kind === "release" &&
+    prevVotes.length >= 2 &&
+    !latest.payoutCompleted
+  ) {
+    await afterReleaseVotesReady(ctx, latest);
+    return;
+  }
+
   if (prevVotes.includes(ctx.from.id)) {
     await ctx.reply(it.alreadyVoted(latest, kind), { parse_mode: "Markdown" });
     return;
@@ -737,7 +759,63 @@ async function handlePayOrRefund(
     return;
   }
 
-  await runPayout(ctx, pending, kind);
+  // Refund: payout immediato. Release: review seller→buyer, poi payout.
+  if (kind === "refund") {
+    await runPayout(ctx, pending, kind);
+    return;
+  }
+  await afterReleaseVotesReady(ctx, pending);
+}
+
+/**
+ * Dopo 2/2 pay-seller: gate review (seller poi buyer), poi on-chain release.
+ * Saltato su refund e su force admin in disputa.
+ */
+async function afterReleaseVotesReady(
+  ctx: BotContext,
+  deal: Deal,
+): Promise<void> {
+  const { deal: current, readyForPayout } = await beginOrContinueReviews(
+    ctx.api,
+    ctx.store,
+    deal,
+  );
+  if (readyForPayout) {
+    await runPayout(ctx, current, "release");
+  }
+}
+
+async function handleReviewText(
+  ctx: BotContext,
+  deal: Deal,
+  text: string,
+): Promise<void> {
+  if (!ctx.from) return;
+  const who = expectedReviewer(deal);
+  const result = await acceptReviewAnswer(
+    ctx.api,
+    ctx.store,
+    deal,
+    ctx.from.id,
+    text,
+    ctx.message?.message_id,
+  );
+  if (!result.ok) {
+    if (result.reason === "too_short") {
+      await ctx.reply(it.reviewTooShort);
+      return;
+    }
+    if (result.reason === "wrong_party" && who) {
+      await ctx.reply(it.reviewWrongParty(deal, who), {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+    return;
+  }
+  if (result.readyForPayout) {
+    await runPayout(ctx, result.deal, "release");
+  }
 }
 
 async function handleSellerShipped(

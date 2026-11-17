@@ -98,6 +98,17 @@ export interface Deal {
    * Stato on-chain resta `funded` finché non partono i voti di release.
    */
   sellerShippedAt?: string;
+  /**
+   * Dopo 2/2 pay-seller (non refund): review bot prima del payout on-chain.
+   * `seller` → `buyer` → `done` (poi release).
+   */
+  reviewPhase?: "seller" | "buyer" | "done";
+  /** Testo review seller (bot rating). */
+  sellerReviewText?: string;
+  /** Testo review buyer (bot rating). */
+  buyerReviewText?: string;
+  /** Prompt review corrente nel gruppo (cancellato con la risposta). */
+  reviewPromptMessageId?: number;
   /** Signature payout on-chain */
   payoutTxSig?: string;
   /**
