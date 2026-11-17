@@ -10,9 +10,35 @@ function requireEnv(name: string): string {
   return value;
 }
 
+/** `ADMIN_TELEGRAM_ID` + `ADMIN_TELEGRAM_IDS` (csv / spazi / `;`). Dedup. */
+function parseAdminTelegramIds(): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string | undefined) => {
+    if (!raw) return;
+    for (const part of raw.split(/[,;\s]+/)) {
+      const id = part.trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+  };
+  add(process.env.ADMIN_TELEGRAM_ID);
+  add(process.env.ADMIN_TELEGRAM_IDS);
+  return out;
+}
+
+const adminTelegramIds = parseAdminTelegramIds();
+
 export const config = {
   botToken: process.env.TELEGRAM_BOT_TOKEN?.trim() ?? "",
-  adminTelegramId: process.env.ADMIN_TELEGRAM_ID?.trim() || undefined,
+  /**
+   * Admin / supporto (dispute notify, `/log`, force payout, `/iscritti`, …).
+   * Preferire `ADMIN_TELEGRAM_IDS` (lista). `ADMIN_TELEGRAM_ID` resta supportato.
+   */
+  adminTelegramIds,
+  /** Primo admin (compat notify + messaggi che citano un solo id). */
+  adminTelegramId: adminTelegramIds[0],
   /** URL ToS pubblici; se assente il pulsante risponde “in arrivo” */
   tosUrl: process.env.TOS_URL?.trim() || undefined,
   /**

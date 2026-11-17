@@ -1,5 +1,6 @@
 import { Bot, session } from "grammy";
 import type { BotContext, SessionData } from "./context.js";
+import { DealLogStore } from "./store/deal-logs.js";
 import { DealStore } from "./store/deals.js";
 import { InviteStore } from "./store/invites.js";
 import { MemberStore } from "./store/members.js";
@@ -17,18 +18,21 @@ export type CreatedBot = {
   store: DealStore;
   members: MemberStore;
   invites: InviteStore;
+  dealLogs: DealLogStore;
 };
 
 export function createBot(token: string): CreatedBot {
   const store = new DealStore(config.dataDir);
   const members = new MemberStore(config.dataDir);
   const invites = new InviteStore(config.dataDir);
+  const dealLogs = new DealLogStore(config.dataDir);
   const bot = new Bot<BotContext>(token);
 
   bot.use(async (ctx, next) => {
     ctx.store = store;
     ctx.members = members;
     ctx.invites = invites;
+    ctx.dealLogs = dealLogs;
     ctx.botUsername = config.botUsername;
     await next();
   });
@@ -64,5 +68,5 @@ export function createBot(token: string): CreatedBot {
     await ctx.reply(it.unknownPrivate);
   });
 
-  return { bot, store, members, invites };
+  return { bot, store, members, invites, dealLogs };
 }

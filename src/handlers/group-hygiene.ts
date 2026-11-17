@@ -66,7 +66,7 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
     await next();
   });
 
-  // Cambio identità: su ogni messaggio di testo da una parte.
+  // Cambio identità + log testi parte (dispute / deleted-msg retention).
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -80,6 +80,31 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
     if (!isParty(deal, ctx.from.id)) {
       await next();
       return;
+    }
+
+    // Retention: testi user-to-user mentre il deal non è chiuso.
+    // Skip comandi bot; cap in DealLogStore. Prompt effimeri bot non qui.
+    if (
+      deal.status !== "released" &&
+      deal.status !== "refunded" &&
+      deal.status !== "cancelled"
+    ) {
+      const text = ctx.message?.text?.trim() ?? "";
+      if (text && !text.startsWith("/")) {
+        const role =
+          deal.buyerId === ctx.from.id
+            ? "buyer"
+            : deal.sellerId === ctx.from.id
+              ? "seller"
+              : "other";
+        ctx.dealLogs.appendUserMessage(deal.id, {
+          text,
+          fromId: ctx.from.id,
+          username: ctx.from.username,
+          role,
+          messageId: ctx.message?.message_id,
+        });
+      }
     }
 
     const detected = detectIdentityChange(

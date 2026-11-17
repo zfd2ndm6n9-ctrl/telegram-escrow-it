@@ -1,4 +1,5 @@
 import { Context, SessionFlavor } from "grammy";
+import type { DealLogStore } from "./store/deal-logs.js";
 import type { DealStore } from "./store/deals.js";
 import type { InviteStore } from "./store/invites.js";
 import type { MemberStore } from "./store/members.js";
@@ -49,5 +50,6 @@ export type BotContext = Context &
     store: DealStore;
     members: MemberStore;
     invites: InviteStore;
+    dealLogs: DealLogStore;
     botUsername?: string;
   };

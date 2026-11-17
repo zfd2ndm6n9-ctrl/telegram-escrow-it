@@ -157,8 +157,8 @@ export async function acceptReviewAnswer(
         sellerReviewText: text,
         reviewPhase: "buyer",
       }) ?? current;
-    await postReviewToVouch(api, current, "seller", text);
     // Grazie resta visibile; ask buyer senza cancellarlo subito.
+    // Vouch: un solo post a fine gate (entrambe le review).
     current = await sendTrackedPrompt(
       api,
       store,
@@ -177,7 +177,7 @@ export async function acceptReviewAnswer(
       buyerReviewText: text,
       reviewPhase: "done",
     }) ?? current;
-  await postReviewToVouch(api, current, "buyer", text);
+  await postDealReviewsToVouch(api, current);
   current = await sendTrackedPrompt(
     api,
     store,
@@ -190,30 +190,32 @@ export async function acceptReviewAnswer(
 }
 
 /**
- * Best-effort: post review sul canale vouch.
+ * Best-effort: un post sul canale vouch con card deal + review seller/buyer.
  * Fallimenti non silenziosi: log ERROR con dettaglio Telegram
  * (tipico: bot non admin / manca permesso «Gestire i messaggi» / Post messages).
  * Invite canale invariata: https://t.me/+tww-HqO8htBiMzdk
  */
-export async function postReviewToVouch(
+export async function postDealReviewsToVouch(
   api: Api,
   deal: Deal,
-  who: "seller" | "buyer",
-  text: string,
 ): Promise<void> {
   const channelId = config.vouchChannelId;
   if (channelId == null) {
     console.error(
-      `[vouch] VOUCH_CHANNEL_ID non impostato — skip post review deal=#${deal.id} who=${who}. ` +
+      `[vouch] VOUCH_CHANNEL_ID non impostato — skip post review deal=#${deal.id}. ` +
         "Imposta env su Render e Manual Deploy. Bot admin canale con permesso «Gestire i messaggi» (Post).",
     );
     return;
   }
+  if (!deal.sellerReviewText && !deal.buyerReviewText) {
+    console.warn(`[vouch] skip deal=#${deal.id}: nessuna review da postare`);
+    return;
+  }
   try {
-    await api.sendMessage(channelId, it.vouchReviewLine(deal, who, text));
-    console.log(
-      `[vouch] ok deal=#${deal.id} who=${who} channel=${channelId}`,
-    );
+    await api.sendMessage(channelId, it.vouchChannelPost(deal), {
+      parse_mode: "Markdown",
+    });
+    console.log(`[vouch] ok deal=#${deal.id} channel=${channelId}`);
   } catch (err) {
     const detail =
       err && typeof err === "object"
@@ -230,7 +232,7 @@ export async function postReviewToVouch(
           }
         : { message: String(err) };
     console.error(
-      `[vouch] FAIL post review deal=#${deal.id} who=${who} channel=${channelId}. ` +
+      `[vouch] FAIL post review deal=#${deal.id} channel=${channelId}. ` +
         "Verifica: bot admin del canale + permesso «Gestire i messaggi» (can_post_messages). " +
         "Invite invariata https://t.me/+tww-HqO8htBiMzdk",
       detail,

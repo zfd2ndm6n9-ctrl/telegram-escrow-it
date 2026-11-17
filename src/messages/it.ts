@@ -601,23 +601,42 @@ Scegli:`;
     return `Ora tocca a ${tag} lasciare la valutazione.`;
   },
 
-  /** Post su canale vouch (plain / Markdown corto). */
-  vouchReviewLine: (
-    deal: Deal,
-    who: "seller" | "buyer",
-    text: string,
-  ) => {
-    const handle =
-      who === "seller"
-        ? deal.sellerUsername
-          ? `@${deal.sellerUsername}`
-          : `id:${deal.sellerId ?? "?"}`
-        : deal.buyerUsername
-          ? `@${deal.buyerUsername}`
-          : `id:${deal.buyerId ?? "?"}`;
-    const role = who === "seller" ? "seller" : "buyer";
-    return `⭐ #${deal.id} · ${role} ${handle}\n${text}`;
+  /**
+   * Post canale vouch: card deal (Prodotto/Prezzo/Condizioni) + review
+   * seller/buyer con @. Un solo messaggio quando entrambe le review ci sono.
+   */
+  vouchChannelPost: (deal: Deal) => {
+    const bullets = formatTosBullets(deal);
+    const sellerHandle = deal.sellerUsername
+      ? `@${deal.sellerUsername}`
+      : `id:${deal.sellerId ?? "?"}`;
+    const buyerHandle = deal.buyerUsername
+      ? `@${deal.buyerUsername}`
+      : `id:${deal.buyerId ?? "?"}`;
+    const lines: string[] = [bullets, ""];
+    if (deal.sellerReviewText) {
+      lines.push(
+        `Seller ${sellerHandle}: ${escMd(deal.sellerReviewText)}`,
+      );
+    }
+    if (deal.buyerReviewText) {
+      lines.push(
+        `Buyer ${buyerHandle}: ${escMd(deal.buyerReviewText)}`,
+      );
+    }
+    lines.push("", `#${deal.id}`);
+    return lines.join("\n");
   },
+
+  logUsage:
+    "Uso: `/log #250538a0` oppure `/log 250538a0` (solo admin, in privato).",
+
+  logEmpty: (dealId: string) =>
+    `Nessun log trattenuto per #${dealId}.`,
+
+  logHeader: (dealId: string, n: number) =>
+    `📋 Log deal #${dealId} (${n} voci)\n` +
+    `_Messaggi parte + eventi chiave. Cap dimensione/età. Solo supporto dispute._`,
 
   /**
    * Rilascio: importi in €, @handles, fee «admin», senza tx link.
@@ -791,7 +810,8 @@ ${link ? `Link one-time admin:\n${link}` : "Nessun link (bot senza permesso invi
 
 In gruppo: comandi admin silenti di payout (potere admin in disputa).`,
 
-  adminMissing: "Disputa registrata, ma ADMIN_TELEGRAM_ID non è configurato.",
+  adminMissing:
+    "Disputa registrata, ma nessun admin configurato (`ADMIN_TELEGRAM_ID` / `ADMIN_TELEGRAM_IDS`).",
 
   botAddedHint:
     "Bot nel gruppo. *Buyer* o *seller*: /avvia (servono i permessi admin).",
