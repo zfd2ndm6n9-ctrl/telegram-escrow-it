@@ -105,6 +105,11 @@ Admin: `/log #dealId` (DM), `/iscritti`, `/codice`, `/codici`, `/fee`.
 - Cap: max **200** voci/deal; retention **30 giorni** dall’ultimo aggiornamento del bucket (`deal-logs.json` in `DATA_DIR`).
 - Scopo: supporto dispute se qualcuno cancella messaggi in chat. Non è archivio completo né sostituto di processo legale.
 
+### Branding gruppi
+
+- Alla prima `/avvia` il bot imposta la **foto del gruppo** (`assets/escrowita-group.png` via `setChatPhoto`, una volta per deal). Soft-fail se manca `can_change_info`.
+- La **foto profilo del bot** non è impostabile via API: caricala a mano su [@BotFather](https://t.me/BotFather) con lo stesso PNG (canale + bot).
+
 ### Igiene anti-truffa
 
 - Kick utenti extra e bot non autorizzati
