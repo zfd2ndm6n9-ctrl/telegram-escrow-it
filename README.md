@@ -83,8 +83,8 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 
 ### Nel gruppo
 
-4. Controparte conferma il ruolo
-5. *ToS*: il creatore scrive i termini; la controparte conferma col pulsante
+4. `/avvia` → la controparte scrive un messaggio per collegarsi (o entra dopo: bind al join). Soft signup solo per chi apre il deal (`/crea`); controparte: Accetto / `/wallet` / release senza `/start`
+5. *ToS*: termini in DM seller; il buyer conferma con *Accetto*
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
 8. Rilevamento automatico (o `/depositato`)
@@ -112,8 +112,8 @@ Admin: `/iscritti`, `/codice`, `/codici`, `/fee`.
 2. Invia **~0.05 SOL** alla **pubkey master** (solo per fee tx)
 3. Deploy / restart del worker (**Manual Deploy**)
 4. Su Telegram: `/crea` → buyer → SOL → `0.01`
-5. Crea gruppo privato → aggiungi bot admin → `/avvia` → invita controparte
-6. Controparte conferma → creatore scrive ToS → Accetta → `/wallet` seller poi buyer
+5. Crea gruppo privato → aggiungi bot admin → `/avvia` → invita controparte (scrive un messaggio per bind)
+6. Termini DM seller → *Accetto* → `/wallet` seller poi buyer
 7. Invia `0.01 SOL` all’indirizzo mostrato da `/indirizzo`
 8. Attendi “deposito rilevato” → entrambe `/payseller` (o pulsante *Paga seller*)
 

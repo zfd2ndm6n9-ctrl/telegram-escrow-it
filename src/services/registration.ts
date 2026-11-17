@@ -6,7 +6,9 @@ import { deleteMessageSafe } from "./prompt-cleanup.js";
 
 /**
  * Gate iscrizione soft (@ confermata). Se manca, invita a /start + @.
- * Non usare su my_chat_member / setup admin del bot.
+ * Solo opener: /crea, wizard termini opener, tooling invito.
+ * Non usare su azioni controparte in gruppo (/wallet, Accetto, /avvia, release)
+ * né su my_chat_member / promote admin del bot.
  */
 export async function requireRegistered(ctx: BotContext): Promise<boolean> {
   if (!ctx.from) return false;
