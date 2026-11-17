@@ -2,6 +2,7 @@ import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { it, statusLabel } from "../messages/it.js";
 import { mainMenuKeyboard } from "../keyboards/menus.js";
+import { dismissInviteStep } from "./start.js";
 
 export function registerDealViewHandlers(bot: Bot<BotContext>): void {
   const listDeals = async (ctx: BotContext) => {
@@ -10,6 +11,7 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
       return;
     }
     if (!ctx.from) return;
+    await dismissInviteStep(ctx);
     const deals = ctx.store.listForUser(ctx.from.id);
     if (deals.length === 0) {
       await ctx.reply(it.noDeals, { reply_markup: mainMenuKeyboard() });

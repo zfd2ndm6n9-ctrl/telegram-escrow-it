@@ -77,8 +77,7 @@ Per iscriverti invia la tua *@* Telegram (es. \`@nome\`).`,
 Escrow crypto tra due parti già d'accordo.
 
 /crea — nuovo deal
-/miei — i tuoi deal
-/invito CODICE — codice collaboratore (opz.)`,
+/miei — i tuoi deal`,
 
   /** Stesso profilo / @ già nota (anche dopo delete bot). */
   welcomeBack: (username?: string) =>
@@ -92,34 +91,31 @@ Escrow crypto tra due parti già d'accordo.
 /crea — nuovo deal
 /miei — i tuoi deal`,
 
-  askInviteOptional:
-    "Hai un *codice invito*? Invia il codice oppure /skip.",
+  askInviteOptional: "Codice invito? Invia o /skip.",
 
   inviteRedeemOk: (code: string) =>
-    `✅ Codice *${escMd(code)}* applicato. I deal che crei lo useranno.`,
+    `✅ Codice *${escMd(code)}* applicato.`,
 
   inviteRedeemAlready: (code: string) =>
-    `Codice *${escMd(code)}* già attivo sul tuo profilo.`,
+    `Codice *${escMd(code)}* già attivo.`,
 
-  inviteRedeemOther:
-    "Hai già un codice invito. Non si può cambiarlo.",
+  inviteRedeemOther: "Hai già un codice invito.",
 
-  inviteNotFound: "Codice invito non valido o scaduto.",
+  inviteNotFound: "Codice non valido.",
 
-  inviteUsage: "Uso: `/invito CODICE` (es. `/invito ESC-A1B2C3`).",
+  inviteUsage: "Uso: `/invito CODICE`.",
 
-  inviteSkipped: "Ok, nessun codice. Puoi usare /invito più tardi.",
+  inviteSkipped: "Ok, nessun codice.",
 
   handleMismatch: (expected?: string) =>
     expected
-      ? `Usa la tua @ Telegram: *@${escMd(expected)}* (come nel profilo).`
-      : "L'@ non corrisponde al tuo profilo Telegram.",
+      ? `Usa *@${escMd(expected)}* (come nel profilo).`
+      : "L'@ non corrisponde al profilo.",
 
   handleNeedTelegramUsername:
-    "Imposta un *username* nelle impostazioni Telegram, poi reinviami la tua @.",
+    "Imposta un username Telegram, poi reinviami la @.",
 
-  handleInvalid:
-    "Non è un'@. Invia solo il tuo username (es. `@nome`).",
+  handleInvalid: "@ non valida. Es. `@nome`.",
 
   /** Gate: utente non registrato prova deal (/crea, /avvia, termini, wallet). */
   needRegistration:
