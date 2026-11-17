@@ -38,7 +38,6 @@ import {
   clearRoleError,
   deleteMessageSafe,
   pinAcceptedTos,
-  replaceActionReply,
   replaceRoleError,
   sendTrackedPrompt,
   untrackPrompt,
