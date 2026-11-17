@@ -3,6 +3,7 @@ import { createBot } from "./bot.js";
 import { startHealthServer } from "./health.js";
 import {
   getMasterKeypair,
+  getPlatformFeeWalletPubkey,
   isSolanaConfigured,
   startDepositWatcher,
 } from "./services/solana/index.js";
@@ -30,6 +31,11 @@ async function main(): Promise<void> {
       console.log(
         `Escrow SOL mainnet attivo. Master pubkey: ${master.publicKey.toBase58()}`,
       );
+      const feeWallet = await getPlatformFeeWalletPubkey();
+      console.log(
+        `Fee piattaforma (5% release): ${feeWallet ?? master.publicKey.toBase58()}` +
+          (config.feeWalletPubkey ? " (FEE_WALLET_PUBKEY)" : " (= master)"),
+      );
       console.log(
         "⚠️ Hot wallet: tieni solo importi di test piccoli. Secret solo su Render env.",
       );
@@ -40,13 +46,16 @@ async function main(): Promise<void> {
     );
   }
 
-  const { bot, store, members } = createBot(config.botToken);
+  const { bot, store, members, invites } = createBot(config.botToken);
   console.log(
     `Persistenza deal: DATA_DIR=${store.dataDir} → ${store.path} (${store.size} deal). ` +
       "Su Render serve Persistent Disk: senza volume i deal spariscono al redeploy.",
   );
   console.log(
     `Persistenza iscritti: ${members.path} (${members.registeredCount} iscritti).`,
+  );
+  console.log(
+    `Persistenza inviti: ${invites.path} (${invites.size} codici).`,
   );
   if (config.updatesChannelId != null) {
     console.log(

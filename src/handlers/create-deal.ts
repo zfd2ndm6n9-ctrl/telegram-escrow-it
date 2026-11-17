@@ -246,6 +246,10 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
   const creatorDisplayName = [ctx.from.first_name, ctx.from.last_name]
     .filter(Boolean)
     .join(" ");
+
+  // Attribuzione invito: codice del creator → snapshot sul deal
+  const inviteAttribution = resolveCreatorInvite(ctx);
+
   const deal = ctx.store.create({
     creatorId: ctx.from.id,
     creatorUsername: ctx.from.username,
@@ -254,6 +258,7 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
     amount: "",
     asset,
     escrowAddress: placeholder,
+    ...inviteAttribution,
   });
 
   const escrowAddress = await getDealEscrowAddress(deal.id);
@@ -381,4 +386,25 @@ async function assetComingSoon(ctx: BotContext, asset: Asset): Promise<void> {
     parse_mode: "Markdown",
     reply_markup: assetKeyboard(),
   });
+}
+
+/** Snapshot invito del creator sul deal (fee 2.5% collaboratore alla release). */
+function resolveCreatorInvite(ctx: BotContext): {
+  inviteCode?: string;
+  collaboratorUserId?: number;
+  collaboratorWallet?: string;
+} {
+  if (!ctx.from) return {};
+  const member = ctx.members.get(ctx.from.id);
+  const code = member?.inviteCode;
+  if (!code) return {};
+  const invite = ctx.invites.get(code);
+  if (!invite || !invite.active || !invite.collaboratorWallet) {
+    return { inviteCode: code };
+  }
+  return {
+    inviteCode: invite.code,
+    collaboratorUserId: invite.collaboratorUserId,
+    collaboratorWallet: invite.collaboratorWallet,
+  };
 }

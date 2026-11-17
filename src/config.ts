@@ -18,8 +18,15 @@ export const config = {
   /**
    * Secret Solana MAINNET (base58 o JSON array). Solo env / Render — mai in repo.
    * Opzionale a boot: senza chiave i deal on-chain non partono.
+   * È anche la hot wallet fee-payer (fee di rete) e destinazione fee 5% di default.
    */
   solanaPrivateKey: process.env.SOLANA_PRIVATE_KEY?.trim() || undefined,
+  /**
+   * Destinazione fee piattaforma (5% o 2.5% con invito).
+   * Se assente → stessa pubkey della master (`SOLANA_PRIVATE_KEY`).
+   * Solo pubkey base58 — niente secret.
+   */
+  feeWalletPubkey: process.env.FEE_WALLET_PUBKEY?.trim() || undefined,
   /**
    * RPC Solana. Default: pubblico mainnet-beta (rate-limitati).
    * Consigliato in prod: Helius / QuickNode / Alchemy.

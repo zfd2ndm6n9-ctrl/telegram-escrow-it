@@ -6,7 +6,20 @@ export {
   isSolanaConfigured,
 } from "./client.js";
 export { solToLamports, lamportsToSolString, isValidSolAddress } from "./amounts.js";
-export { payoutDealSol, getEscrowBalanceLamports } from "./transfer.js";
+export {
+  payoutDealSol,
+  getEscrowBalanceLamports,
+  getPlatformFeeWalletPubkey,
+  type PayoutKind,
+  type PayoutOptions,
+  type TransferResult,
+} from "./transfer.js";
+export {
+  computeReleaseFeeSplit,
+  PLATFORM_FEE_BPS,
+  COLLAB_FEE_BPS,
+  feeBpsLabel,
+} from "./fees.js";
 export {
   startDepositWatcher,
   checkDealDeposit,

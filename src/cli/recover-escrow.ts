@@ -284,8 +284,24 @@ async function main(): Promise<void> {
   }
 
   const dest = resolveDestination(args.to, profile);
-  console.log(`\nEseguo payout → ${dest.label} ${dest.address} …`);
-  const result = await payoutDealSol(args.dealId, dest.address);
+  const kind = dest.label === "buyer" ? "refund" : "release";
+  const storeForInvite = new DealStore(config.dataDir);
+  const existingDeal = storeForInvite.get(args.dealId);
+  console.log(`\nEseguo payout (${kind}) → ${dest.label} ${dest.address} …`);
+  if (kind === "release") {
+    console.log(
+      existingDeal?.collaboratorWallet
+        ? `  Fee: 2.5% master + 2.5% collab ${existingDeal.collaboratorWallet}`
+        : "  Fee: 5% piattaforma (seller 95%)",
+    );
+  } else {
+    console.log("  Fee servizio: nessuna (refund)");
+  }
+  const result = await payoutDealSol(args.dealId, dest.address, {
+    kind,
+    collaboratorWallet:
+      kind === "release" ? existingDeal?.collaboratorWallet : undefined,
+  });
   if (!result.ok) {
     console.error(`Payout fallito: ${result.error}`);
     process.exit(1);
@@ -294,15 +310,36 @@ async function main(): Promise<void> {
   console.log(`\n✅ Payout OK`);
   console.log(`  SOL: ${result.sol}`);
   console.log(`  Tx:  ${result.signature}`);
+  if (result.platformFeeLamports != null) {
+    console.log(`  Fee piattaforma: ${lamportsToSolString(result.platformFeeLamports)} SOL`);
+  }
+  if (result.collaboratorFeeLamports != null && result.collaboratorFeeLamports > 0n) {
+    console.log(
+      `  Fee collaboratore: ${lamportsToSolString(result.collaboratorFeeLamports)} SOL`,
+    );
+  }
   console.log(`  Solscan: https://solscan.io/tx/${result.signature}`);
 
   if (args.seedStore && profile) {
-    const store = new DealStore(config.dataDir);
+    const store = storeForInvite;
     const existing = store.get(args.dealId);
     if (existing) {
       store.update(args.dealId, {
         status: dest.label === "buyer" ? "refunded" : "released",
         payoutTxSig: result.signature,
+        payoutCompleted: true,
+        sellerPayoutLamports:
+          result.sellerLamports != null
+            ? String(result.sellerLamports)
+            : String(result.lamports),
+        platformFeeLamports:
+          result.platformFeeLamports != null
+            ? String(result.platformFeeLamports)
+            : undefined,
+        collaboratorFeeLamports:
+          result.collaboratorFeeLamports != null
+            ? String(result.collaboratorFeeLamports)
+            : undefined,
       });
       console.log("Store: deal aggiornato a released/refunded.");
     }

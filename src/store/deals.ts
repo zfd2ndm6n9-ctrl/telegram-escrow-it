@@ -97,6 +97,9 @@ export class DealStore {
       refundVotes: [],
       amountVotes: [],
       botPromptIds: [],
+      inviteCode: input.inviteCode,
+      collaboratorUserId: input.collaboratorUserId,
+      collaboratorWallet: input.collaboratorWallet,
       createdAt: ts,
       updatedAt: ts,
     };

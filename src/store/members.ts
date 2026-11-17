@@ -17,6 +17,9 @@ export type Member = {
   lastSeen: string;
   /** Quando l'utente ha confermato la @ (iscrizione completa). */
   registeredAt?: string;
+  /** Codice invito riscattato (una volta). Attribuisce i deal creati. */
+  inviteCode?: string;
+  inviteRedeemedAt?: string;
 };
 
 type MemberStoreSnapshot = {
@@ -287,5 +290,34 @@ export class MemberStore {
       .filter((m) => this.isFullyRegistered(m))
       .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
       .slice(0, Math.max(0, limit));
+  }
+
+  /**
+   * Salva il codice invito sul membro (una sola volta).
+   * Restituisce false se già aveva un codice diverso.
+   */
+  setInviteCode(
+    userId: number,
+    code: string,
+  ): { ok: true; member: Member; already: boolean } | { ok: false } {
+    const existing = this.members.get(userId);
+    if (!existing) return { ok: false };
+    const clean = code.trim().toUpperCase();
+    if (existing.inviteCode) {
+      return {
+        ok: true,
+        member: existing,
+        already: existing.inviteCode === clean,
+      };
+    }
+    const next: Member = {
+      ...existing,
+      inviteCode: clean,
+      inviteRedeemedAt: nowIso(),
+      lastSeen: nowIso(),
+    };
+    this.members.set(userId, next);
+    this.persist();
+    return { ok: true, member: next, already: false };
   }
 }
