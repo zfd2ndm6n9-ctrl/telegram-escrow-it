@@ -122,8 +122,9 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
   });
 
   bot.callbackQuery("tos", async (ctx) => {
-    await ctx.answerCallbackQuery({ text: "ToS in arrivo" });
-    await ctx.reply(it.tosComingSoon, { parse_mode: "Markdown" });
+    await ctx.answerCallbackQuery({ text: "Termini Escrowita" });
+    // Fallback se TOS_URL assente (tastiera callback). Con URL → bottone url diretto.
+    await ctx.reply(it.tosSummary, { parse_mode: "Markdown" });
   });
 
   bot.on("message:text", async (ctx, next) => {
