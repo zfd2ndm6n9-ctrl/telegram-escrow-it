@@ -244,10 +244,15 @@ export function trackSeenGroupUser(
 }
 
 /**
- * Assegna automaticamente la controparte (ruolo opposto al DM).
- * `runnerId` = chi ha lanciato /avvia (o chi è appena entrato): se non è il creator
- * e lo slot è libero, viene bound subito senza aspettare un messaggio.
- * Fallisce se 0 o >1 altri umani riconoscibili, o se il gruppo ha troppi membri.
+ * Assegna la controparte (ruolo opposto al DM).
+ *
+ * Bind solo se:
+ * - `runnerId` è la controparte (ha scritto un messaggio / /avvia), oppure
+ * - `runnerId` è chi è appena entrato nel gruppo (join → auto-riconoscimento).
+ *
+ * Se la controparte è già nel gruppo ma non ha ancora scritto, non bind
+ * da sola discovery admin/API: restituisce `need_message`.
+ * Fallisce anche se 0 o >1 altri umani, o se il gruppo ha troppi membri.
  */
 export async function autoBindCounterpart(
   api: Api,
@@ -273,7 +278,7 @@ export async function autoBindCounterpart(
     current = trackSeenGroupUser(store, current, opts.runnerId);
   }
 
-  // Chi lancia /avvia (o join) ed è la controparte: bind immediato.
+  // Controparte attiva (messaggio / /avvia / join): bind immediato.
   if (
     opts?.runnerId != null &&
     opts.runnerId !== openerId &&
@@ -333,6 +338,12 @@ export async function autoBindCounterpart(
   }
 
   const other = others[0]!;
+  // Già in gruppo ma non ha scritto: non bind da discovery — chiedi un messaggio.
+  if (opts?.runnerId == null || other.id !== opts.runnerId) {
+    return { ok: false, reason: "need_message", deal: current };
+  }
+
+  // Fallback: runner === other (path runner sopra non ha chiuso lo slot).
   const patch = assignJoiningParty(
     current,
     other.id,
@@ -340,7 +351,6 @@ export async function autoBindCounterpart(
     other.displayName,
   );
   if (!patch || (patch.buyerId !== other.id && patch.sellerId !== other.id)) {
-    // Slot già pieno da un altro id — non dovrebbe succedere se !bothPartiesPresent
     return { ok: false, reason: "too_many", deal: current };
   }
 

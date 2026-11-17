@@ -117,7 +117,7 @@ Escrow crypto tra due parti già d'accordo.
 
   handleInvalid: "@ non valida. Es. `@nome`.",
 
-  /** Gate: utente non registrato prova deal (/crea, /avvia, termini, wallet). */
+  /** Gate soft signup: solo opener (/crea, wizard termini opener, /invito). */
   needRegistration:
     "Per usare l'escrow apri una chat *privata* con il bot, invia `/start` e la tua *@*.",
 
@@ -258,7 +258,7 @@ Usa il percorso manuale: crea un gruppo privato → aggiungi il bot → /avvia.`
     if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
       return `${header}
 
-Scrivi un messaggio all'altro utente per collegarlo al deal.`;
+Controparte: scrivi un messaggio — nel gruppo o fuori — per collegarti al deal.`;
     }
 
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
@@ -296,13 +296,13 @@ Scrivi un messaggio all'altro utente per collegarlo al deal.`;
   autoBindTooMany:
     "Troppi membri. Solo *buyer*, *seller* e il bot. Rimuovi gli altri, poi /avvia.",
 
-  /** Controparte assente o non ancora visibile: chiedi un messaggio. */
+  /** Controparte assente: invita a scrivere (o entrare poi). */
   autoBindNone:
-    "Scrivi un messaggio all'altro utente per collegarlo al deal.",
+    "Controparte: scrivi un messaggio — nel gruppo o fuori — per collegarti al deal.",
 
-  /** Controparte in gruppo ma non ancora visibile alle API bot. */
+  /** Controparte già in gruppo: deve scrivere per bind (niente discovery silenziosa). */
   autoBindNeedMessage:
-    "Scrivi un messaggio all'altro utente per collegarlo al deal.",
+    "Controparte: scrivi un messaggio nel gruppo per collegarti al deal.",
 
   tosAccepted: (deal: Deal) =>
     deal.amount

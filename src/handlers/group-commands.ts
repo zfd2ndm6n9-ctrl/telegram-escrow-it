@@ -30,7 +30,6 @@ import {
   lamportsToSolString,
   payoutDealSol,
 } from "../services/solana/index.js";
-import { requireRegistered } from "../services/registration.js";
 import type { Deal } from "../types.js";
 
 function requireGroupDeal(ctx: BotContext): Deal | null {
@@ -237,7 +236,8 @@ async function applyWallet(
   address: string,
 ): Promise<void> {
   if (!ctx.from) return;
-  if (!(await requireRegistered(ctx))) return;
+  // Controparte invitata: /wallet senza soft signup (/start + @).
+  // Solo l'opener deve essere iscritto (gate su /crea e wizard termini opener).
 
   const isBuyer = deal.buyerId === ctx.from.id;
   const isSeller = deal.sellerId === ctx.from.id;

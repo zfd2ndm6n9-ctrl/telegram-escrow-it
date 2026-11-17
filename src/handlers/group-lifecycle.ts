@@ -33,7 +33,6 @@ import {
   sendTrackedPrompt,
   untrackPrompt,
 } from "../services/prompt-cleanup.js";
-import { requireRegistered } from "../services/registration.js";
 import { kickUnauthorizedBot } from "./group-hygiene.js";
 
 function displayNameOf(user: {
@@ -205,8 +204,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
     if (!ctx.from) return;
-    // Iscrizione obbligatoria per /avvia; my_chat_member / promote restano aperti.
-    if (!(await requireRegistered(ctx))) return;
+    // /avvia: niente gate soft signup. L'opener è già iscritto via /crea;
+    // la controparte può /avvia / scrivere senza /start + @.
 
     const existing = ctx.store.findByGroupChatId(ctx.chat.id);
     // Già collegato oltre bind/auto-bind: niente seconda card completa.
@@ -274,9 +273,9 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
 
     if (autoBind) {
-      // none/need_message: la living card chiede già di scrivere all'altro (edit).
-      // too_many: errore esplicito, hint tracciato e cancellabile.
-      if (autoBind === "too_many") {
+      // Card vivente già chiede di scrivere; per need_message/too_many
+      // aggiungi hint tracciato (cancellato quando la controparte risponde).
+      if (autoBind === "too_many" || autoBind === "need_message") {
         await sendTrackedPrompt(
           ctx.api,
           ctx.store,
@@ -602,7 +601,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         },
       );
       if (bind.ok) {
-        // Risposta alla ask «scrivi un messaggio»: cancella hint, aggiorna card.
+        // Risposta alla ask «scrivi un messaggio»: cancella hint + risposta, aggiorna card.
+        await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
         const { deal: advanced } = await startDealInGroup(
           ctx.api,
           ctx.store,

@@ -161,16 +161,20 @@ async function handlePrivateTermsReply(
     ctx.session.termsQa = { dealId, step };
   }
 
-  // Wizard termini: serve iscrizione (anche se session già aperta).
-  if (!(await requireRegistered(ctx))) {
-    ctx.session.termsQa = undefined;
-    return true;
-  }
-
   const deal = ctx.store.get(dealId);
   if (!deal || deal.sellerId !== ctx.from.id) {
     ctx.session.termsQa = undefined;
     return false;
+  }
+
+  // Gate soft signup solo se il seller è l'opener del deal.
+  // Controparte seller (buyer ha aperto): termini OK senza /start + @.
+  if (
+    deal.creatorId === ctx.from.id &&
+    !(await requireRegistered(ctx))
+  ) {
+    ctx.session.termsQa = undefined;
+    return true;
   }
   if (termsReadyForConfirm(deal) || deal.status === "cancelled") {
     ctx.session.termsQa = undefined;
