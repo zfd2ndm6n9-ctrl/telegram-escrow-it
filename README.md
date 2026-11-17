@@ -45,7 +45,7 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `SOLANA_WATCH_INTERVAL_MS` | no | Poll depositi (default `20000`) |
 | `ADMIN_TELEGRAM_ID` | sì in prod | User id admin (dispute + `/log` + force + `/iscritti` + `/codice`) |
 | `ADMIN_TELEGRAM_IDS` | no | Lista admin (csv). Unita a `ADMIN_TELEGRAM_ID` |
-| `TOS_URL` | no | Link Termini |
+| `TOS_URL` | no | Link Termini. Default (se env assente): [`docs/TOS.md`](./docs/TOS.md) su GitHub. `TOS_URL=` vuoto → riepilogo in-bot. Francesco può hostare il md altrove e puntare qui |
 | `DATA_DIR` | sì in prod | Store deal + iscritti + inviti + log dispute (`deals.json`, `members.json`, `invites.json`, `deal-logs.json`). Render: `/var/data` |
 | `UPDATES_CHANNEL_ID` | no | Canale pubblico «N iscritti» (id `-100…` o `@nome`). Bot admin del canale |
 | `UPDATES_CHANNEL_MESSAGE_ID` | no | Message id vivente da editare; se assente → aggiorna *description* del canale |
@@ -55,7 +55,7 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `TELEGRAM_BOT_CREATES_GROUPS` | no | `1` per tentare create automatica gruppo (default off) |
 | `TELEGRAM_API_ID` / `HASH` / `HELPER_SESSION` | no | Solo con gate sopra; altrimenti soft-fallback manuale |
 
-Documentazione: [`docs/solana-escrow.md`](./docs/solana-escrow.md) · [`docs/bot-created-groups.md`](./docs/bot-created-groups.md).
+Documentazione: [`docs/TOS.md`](./docs/TOS.md) (Termini) · [`docs/solana-escrow.md`](./docs/solana-escrow.md) · [`docs/bot-created-groups.md`](./docs/bot-created-groups.md).
 
 ## Avvio (polling)
 

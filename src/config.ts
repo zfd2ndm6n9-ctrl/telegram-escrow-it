@@ -39,8 +39,13 @@ export const config = {
   adminTelegramIds,
   /** Primo admin (compat notify + messaggi che citano un solo id). */
   adminTelegramId: adminTelegramIds[0],
-  /** URL ToS pubblici; se assente il pulsante risponde “in arrivo” */
-  tosUrl: process.env.TOS_URL?.trim() || undefined,
+  /**
+   * URL Termini di servizio (bottone «Leggi i Termini»).
+   * Default: docs/TOS.md su GitHub (markdown renderizzato).
+   * Override con TOS_URL (es. mirror proprio / raw / pagina statica).
+   * Stringa vuota `TOS_URL=` → niente URL: il bot mostra il riepilogo in chat (`it.tosSummary`).
+   */
+  tosUrl: resolveTosUrl(),
   /**
    * Secret Solana MAINNET (base58 o JSON array). Solo env / Render — mai in repo.
    * Opzionale a boot: senza chiave i deal on-chain non partono.
@@ -119,6 +124,23 @@ export const config = {
     process.env.VOUCH_INVITE_LINK?.trim() ||
     "https://t.me/+tww-HqO8htBiMzdk",
 };
+
+/** Default pubblico: blob GitHub di docs/TOS.md (niente sito da inventare). */
+const DEFAULT_TOS_URL =
+  "https://github.com/zfd2ndm6n9-ctrl/telegram-escrow-it/blob/main/docs/TOS.md";
+
+/**
+ * `TOS_URL` non impostato → default GitHub.
+ * `TOS_URL=` (vuoto esplicito) → undefined (riepilogo in-bot).
+ * `TOS_URL=https://…` → quel link.
+ */
+function resolveTosUrl(): string | undefined {
+  if (!Object.prototype.hasOwnProperty.call(process.env, "TOS_URL")) {
+    return DEFAULT_TOS_URL;
+  }
+  const v = process.env.TOS_URL?.trim();
+  return v || undefined;
+}
 
 function parseChannelId(
   raw: string | undefined,

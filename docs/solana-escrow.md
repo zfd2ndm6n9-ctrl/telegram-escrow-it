@@ -56,7 +56,7 @@ Sul **Web Service** (o Background Worker) che esegue il bot — Environment:
 | `SOLANA_WATCH_INTERVAL_MS` | no | Default `20000` |
 | `ADMIN_TELEGRAM_ID` | sì per dispute / `/log` / codici | Tuo user id Telegram |
 | `ADMIN_TELEGRAM_IDS` | no | Lista admin csv (oltre al singolo) |
-| `TOS_URL` | no | Link ToS |
+| `TOS_URL` | no | Link ToS. Default GitHub `docs/TOS.md`; vuoto = riepilogo in-bot |
 | `DATA_DIR` | sì in prod | Persistenza deal + iscritti + inviti + log (`deals.json`, `members.json`, `invites.json`, `deal-logs.json`). Su Render: `/var/data` |
 | `VOUCH_CHANNEL_ID` | sì in prod | Canale vouch + gate `/crea` (id `-100…`). Bot **admin** Post + `getChatMember`. Fail post → log `[vouch] FAIL …` |
 | `VOUCH_INVITE_LINK` | no | Invite a `/start`. Default `https://t.me/+tww-HqO8htBiMzdk` (override Render) |
