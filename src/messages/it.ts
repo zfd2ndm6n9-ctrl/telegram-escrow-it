@@ -256,21 +256,13 @@ Verifica sempre l'indirizzo escrow nei messaggi del bot.`,
 Usa il percorso manuale: crea un gruppo privato → aggiungi il bot → /avvia.`,
 
   /**
-   * Riepilogo Termini piattaforma (callback «Leggi i Termini» se manca TOS_URL).
-   * Allineato a docs/TOS.md — tenere corto per Telegram.
+   * Fallback corto se Mini App non disponibile (manca PUBLIC_BASE_URL).
+   * Niente dump dei termini in chat.
    */
-  tosSummary: `📄 *Termini Escrowita* (riepilogo)
-
-• Escrow crypto via bot: fondi SOL su indirizzo dedicato al deal fino a release/refund (o disputa admin). Non siamo una banca.
-• Soft-launch: *solo SOL* mainnet · importi in € · *18+*
-• Fee release: *5%* (con invito: *2,5%* piattaforma + *2,5%* collaboratore). Refund: nessuna fee servizio.
-• Buyer e seller restano responsabili di controparte, prodotto e wallet. Niente garanzia su qualità/consegna.
-• Dispute: decide l’admin in buona fede (non è un tribunale).
-• Crypto irreversibile e rischiosa — inizia con importi piccoli. Nessun consiglio finanziario.
-• Log deal per supporto/admin (retention limitata). Recensioni sul canale vouch del bot.
-
-Testo completo: \`docs/TOS.md\` nel repo (o link *Leggi i Termini* se \`TOS_URL\` è impostato).
-I termini *del deal* (prodotto/prezzo/condizioni) li proposate voi.`,
+  tosFallback: (tosUrl?: string) =>
+    tosUrl
+      ? `📄 Termini Escrowita: apri la Mini App oppure ${tosUrl}`
+      : "📄 Termini Escrowita: Mini App non ancora disponibile. Riprova tra poco.",
 
   /** Bot non admin: una sola riga. */
   needBotAdmin: "Per iniziare il deal il bot deve essere amministratore.",

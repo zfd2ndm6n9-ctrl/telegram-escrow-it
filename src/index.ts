@@ -13,6 +13,7 @@ import {
   stopMtprotoHelper,
 } from "./services/mtproto-helper.js";
 import { startUsernameRefresh } from "./services/username-refresh.js";
+import { ensureVouchTosPin } from "./services/vouch-tos-pin.js";
 
 async function main(): Promise<void> {
   // Render Web Service: aprire PORT subito, prima di Telegram / assertConfig
@@ -97,6 +98,32 @@ async function main(): Promise<void> {
   }
   const me = await bot.api.getMe();
   config.botUsername = me.username;
+
+  if (config.tosWebAppUrl) {
+    console.log(`ToS Mini App: ${config.tosWebAppUrl} (web_app «Leggi i Termini»)`);
+  } else {
+    console.warn(
+      "PUBLIC_BASE_URL / RENDER_EXTERNAL_URL / TOS_URL assenti: " +
+        "«Leggi i Termini» userà il fallback corto in chat (niente Mini App).",
+    );
+  }
+
+  // One-shot soft: teaser ToS pinnato sul canale vouch (no force → riusa se già tracciato).
+  void ensureVouchTosPin(bot.api)
+    .then((r) => {
+      if (r.ok) {
+        console.log(
+          `[vouch-tos] pin ok msg=${r.messageId} reused=${r.reused} via=${r.via}`,
+        );
+      } else if (r.reason !== "no_channel") {
+        console.warn(
+          `[vouch-tos] pin skip: ${r.reason}${r.detail ? ` (${r.detail})` : ""} — admin: /pin_tos`,
+        );
+      }
+    })
+    .catch((err) => {
+      console.warn("[vouch-tos] pin boot error:", err);
+    });
 
   if (config.telegramBotCreatesGroups) {
     if (isMtprotoHelperConfigured()) {

@@ -123,8 +123,11 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
 
   bot.callbackQuery("tos", async (ctx) => {
     await ctx.answerCallbackQuery({ text: "Termini Escrowita" });
-    // Fallback se TOS_URL assente (tastiera callback). Con URL → bottone url diretto.
-    await ctx.reply(it.tosSummary, { parse_mode: "Markdown" });
+    // Fallback se manca PUBLIC_BASE_URL (niente Mini App): una riga, non dump.
+    await ctx.reply(it.tosFallback(config.tosWebAppUrl), {
+      parse_mode: "Markdown",
+      link_preview_options: { is_disabled: true },
+    });
   });
 
   bot.on("message:text", async (ctx, next) => {
@@ -384,7 +387,7 @@ async function finishDealReady(
             parse_mode: "Markdown",
             reply_markup: groupInviteKeyboard(
               created.inviteLink,
-              config.tosUrl,
+              config.tosWebAppUrl,
             ),
           },
         );
@@ -397,7 +400,7 @@ async function finishDealReady(
           parse_mode: "Markdown",
           reply_markup: groupInviteKeyboard(
             created.inviteLink,
-            config.tosUrl,
+            config.tosWebAppUrl,
           ),
         },
       );
@@ -409,7 +412,7 @@ async function finishDealReady(
       parse_mode: "Markdown",
       reply_markup: afterAmountKeyboard(
         startGroupUrlForDeal(deal.id, ctx),
-        config.tosUrl,
+        config.tosWebAppUrl,
       ),
     });
     await ctx.reply(it.groupCreateFailed(deal, created.error), {
@@ -424,7 +427,7 @@ async function finishDealReady(
     parse_mode: "Markdown",
     reply_markup: afterAmountKeyboard(
       startGroupUrlForDeal(deal.id, ctx),
-      config.tosUrl,
+      config.tosWebAppUrl,
     ),
   });
 }

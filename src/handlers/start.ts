@@ -12,6 +12,8 @@ import {
   vouchInviteLink,
   vouchJoinKeyboard,
 } from "../services/vouch-membership.js";
+import { ensureVouchTosPin } from "../services/vouch-tos-pin.js";
+import { config } from "../config.js";
 
 /** Pulsanti menu / wizard: non sono un codice invito. */
 const MENU_TEXTS = new Set([
@@ -377,6 +379,48 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     for (let i = 0; i < body.length; i += 3500) {
       await ctx.reply(body.slice(i, i + 3500));
     }
+  });
+
+  /**
+   * Admin: pubblica/fissa teaser ToS Mini App sul canale vouch.
+   * Soft-fail se mancano VOUCH_CHANNEL_ID, PUBLIC_BASE_URL o permessi post/pin.
+   */
+  bot.command(["pin_tos", "pintos"], async (ctx) => {
+    if (!ctx.from || !isAdminUser(ctx.from.id)) {
+      await ctx.reply(it.adminOnly);
+      return;
+    }
+    if (ctx.chat?.type !== "private") {
+      await ctx.reply("Usa `/pin_tos` in privato col bot.", {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+    const result = await ensureVouchTosPin(ctx.api, { force: true });
+    if (result.ok) {
+      await ctx.reply(
+        `✅ ToS sul canale vouch: messaggio \`${result.messageId}\`` +
+          (result.reused ? " (riuso)" : " (nuovo)") +
+          ` · ${result.via}` +
+          (config.tosWebAppUrl ? `\n${config.tosWebAppUrl}` : ""),
+        { parse_mode: "Markdown", link_preview_options: { is_disabled: true } },
+      );
+      return;
+    }
+    const hints: Record<string, string> = {
+      no_channel: "Imposta `VOUCH_CHANNEL_ID` (bot admin del canale).",
+      no_tos_url:
+        "Imposta `PUBLIC_BASE_URL` (URL HTTPS del Web Service) o `TOS_URL`.",
+      post_failed:
+        "Post fallito: il bot serve permesso di pubblicare nel canale.",
+      pin_failed:
+        "Messaggio pubblicato ma pin fallito: serve permesso «Fissa messaggi».",
+    };
+    await ctx.reply(
+      `⚠️ \`/pin_tos\`: ${hints[result.reason] ?? result.reason}` +
+        (result.detail ? `\n\`${result.detail}\`` : ""),
+      { parse_mode: "Markdown" },
+    );
   });
 
   /** Admin: conteggio iscritti (+ ultimi recenti). */

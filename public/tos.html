@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Termini di servizio Escrowita</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: var(--tg-theme-bg-color, #f4f6f8);
+        --fg: var(--tg-theme-text-color, #1a1d21);
+        --muted: var(--tg-theme-hint-color, #6b7280);
+        --card: var(--tg-theme-secondary-bg-color, #ffffff);
+        --accent: var(--tg-theme-button-color, #1f6feb);
+        --line: color-mix(in srgb, var(--fg) 12%, transparent);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        line-height: 1.45;
+      }
+
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 1.25rem 1.1rem 2.5rem;
+      }
+
+      h1 {
+        margin: 0 0 0.35rem;
+        font-size: 1.45rem;
+        letter-spacing: 0.04em;
+        font-weight: 750;
+      }
+
+      .lead {
+        margin: 0 0 1.25rem;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      li {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 0.9rem 1rem;
+      }
+
+      .num {
+        display: inline-block;
+        min-width: 1.4rem;
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      h2 {
+        display: inline;
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+      }
+
+      p {
+        margin: 0.45rem 0 0;
+        font-size: 0.95rem;
+      }
+
+      footer {
+        margin-top: 1.5rem;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>ESCROWITA TOS</h1>
+      <p class="lead">Termini di servizio · soft-launch</p>
+      <ol>
+        <li>
+          <span class="num">1.</span>
+          <h2>Ruolo del bot</h2>
+          <p>
+            Strumento tecnico di deposito a garanzia. Non siamo parte della
+            compravendita, non vendiamo merce, non siamo un negozio.
+          </p>
+        </li>
+        <li>
+          <span class="num">2.</span>
+          <h2>Nessuna garanzia sul prodotto</h2>
+          <p>
+            Qualità, autenticità e conformità del bene sono responsabilità di
+            acquirente e venditore. Escrowita è la garanzia del deal (fondi fino
+            a rilascio/rimborso), non del prodotto.
+          </p>
+        </li>
+        <li>
+          <span class="num">3.</span>
+          <h2>Rischio criptovalute</h2>
+          <p>
+            Volatilità, errori di indirizzo o di invio: le operazioni sulla
+            blockchain sono irreversibili.
+          </p>
+        </li>
+        <li>
+          <span class="num">4.</span>
+          <h2>Commissioni</h2>
+          <p>
+            Non sono rimborsabili se il deal si chiude in positivo (rilascio al
+            venditore). In caso di rimborso all’acquirente, la commissione di
+            servizio non si applica.
+          </p>
+        </li>
+        <li>
+          <span class="num">5.</span>
+          <h2>Accettazione dei termini del deal</h2>
+          <p>
+            Con «Accetta» le parti fissano il loro accordo (prodotto, prezzo,
+            condizioni). Il bot esegue solo rilascio o rimborso secondo il
+            flusso previsto.
+          </p>
+        </li>
+        <li>
+          <span class="num">6.</span>
+          <h2>Contestazioni</h2>
+          <p>
+            Decide l’amministratore dopo aver analizzato i messaggi salvati. Se
+            c’è una spedizione, venditore e acquirente devono filmare e
+            conservare un video del pacco (prima di spedire / prima di aprire al
+            ricevimento).
+          </p>
+        </li>
+        <li>
+          <span class="num">7.</span>
+          <h2>Crash o gruppo sabotato</h2>
+          <p>
+            In caso di crash del servizio o di proprietario del gruppo che
+            agisce in mala fede, i fondi vengono rimborsati. Conservate sempre
+            l’identificativo del deal.
+          </p>
+        </li>
+        <li>
+          <span class="num">8.</span>
+          <h2>Account Telegram</h2>
+          <p>
+            Gli obblighi restano legati all’account (identificativo Telegram),
+            anche se si cambia il nome utente.
+          </p>
+        </li>
+      </ol>
+      <footer>Escrowita · Italia · 18+</footer>
+    </main>
+    <script>
+      (function () {
+        try {
+          if (window.Telegram && Telegram.WebApp) {
+            Telegram.WebApp.ready();
+            Telegram.WebApp.expand();
+          }
+        } catch (_) {}
+      })();
+    </script>
+  </body>
+</html>
