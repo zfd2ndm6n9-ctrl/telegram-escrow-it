@@ -141,6 +141,16 @@ export function amountConfirmed(deal: Deal): boolean {
   return Boolean(deal.amount && deal.amountConfirmedAt);
 }
 
+/**
+ * Target SOL lockato per deposito (stringa decimale).
+ * Dopo Accetto/`amountConfirmedAt` non si ricalcola da FX live.
+ * `null` se non ancora fissato.
+ */
+export function lockedSolAmount(deal: Deal): string | null {
+  if (!amountConfirmed(deal)) return null;
+  return parseAmount(deal.amount) ? deal.amount : null;
+}
+
 /** Escape minimo per testo utente in Markdown legacy Telegram. */
 export function escMd(text: string): string {
   return text.replace(/([_*`\[])/g, "\\$1");

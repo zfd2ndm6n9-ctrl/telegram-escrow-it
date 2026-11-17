@@ -1,9 +1,20 @@
 import type { Api } from "grammy";
 import type { DealStore } from "../../store/deals.js";
+import type { Deal } from "../../types.js";
+import { amountConfirmed, lockedSolAmount } from "../deal-logic.js";
 import { postShipAsk } from "../group-setup.js";
 import { solToLamports, lamportsToSolString } from "./amounts.js";
 import { getEscrowBalanceLamports } from "./transfer.js";
 import { isSolanaConfigured } from "./client.js";
+
+/** Target deposito: solo importo lockato (mai FX live). */
+function expectedDepositSol(deal: Deal): string | null {
+  const locked = lockedSolAmount(deal);
+  if (locked) return locked;
+  // Mid-flight legacy: amount senza confirmedAt — usa amount se parseabile.
+  if (deal.amount && solToLamports(deal.amount) != null) return deal.amount;
+  return null;
+}
 
 const DEFAULT_INTERVAL_MS = 20_000;
 
@@ -39,7 +50,14 @@ export function startDepositWatcher(
           continue;
         }
 
-        const expected = solToLamports(deal.amount);
+        const targetSol = expectedDepositSol(deal);
+        if (!targetSol) {
+          console.warn(
+            `Watcher #${deal.id}: nessun target SOL lockato (amount/amountConfirmedAt assenti)`,
+          );
+          continue;
+        }
+        const expected = solToLamports(targetSol);
         if (expected == null) continue;
 
         let balance: bigint;
@@ -53,6 +71,7 @@ export function startDepositWatcher(
           continue;
         }
 
+        // ≥ target lockato → funded. Non ricalcolare da FX live.
         if (balance < expected) continue;
 
         // Race: /depositato o altro tick può aver già avanzato lo status
@@ -116,7 +135,16 @@ export async function checkDealDeposit(
     return { ok: false, error: "Nessun indirizzo escrow" };
   }
 
-  const expected = solToLamports(deal.amount);
+  const targetSol = expectedDepositSol(deal);
+  if (!targetSol) {
+    return {
+      ok: false,
+      error: amountConfirmed(deal)
+        ? "Importo SOL lockato non valido"
+        : "Importo SOL non ancora lockato (Accetto)",
+    };
+  }
+  const expected = solToLamports(targetSol);
   if (expected == null) {
     return { ok: false, error: "Importo deal non valido" };
   }
@@ -124,6 +152,7 @@ export async function checkDealDeposit(
   try {
     const balance = await getEscrowBalanceLamports(deal.escrowAddress);
     const balanceSol = lamportsToSolString(balance);
+    // Confronto solo vs target lockato — mai conversione €→SOL live.
     if (balance >= expected && deal.status === "awaiting_deposit") {
       store.update(deal.id, {
         status: "funded",
@@ -134,14 +163,14 @@ export async function checkDealDeposit(
         ok: true,
         funded: true,
         balanceSol,
-        expectedSol: deal.amount,
+        expectedSol: targetSol,
       };
     }
     return {
       ok: true,
       funded: deal.status === "funded" || balance >= expected,
       balanceSol,
-      expectedSol: deal.amount,
+      expectedSol: targetSol,
     };
   } catch (err) {
     return {

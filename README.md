@@ -48,7 +48,7 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `DATA_DIR` | sì in prod | Store deal + iscritti + inviti (`deals.json`, `members.json`, `invites.json`). Render: `/var/data` |
 | `UPDATES_CHANNEL_ID` | no | Canale pubblico «N iscritti» (id `-100…` o `@nome`). Bot admin del canale |
 | `UPDATES_CHANNEL_MESSAGE_ID` | no | Message id vivente da editare; se assente → aggiorna *description* del canale |
-| `VOUCH_CHANNEL_ID` | no (sì in prod) | Canale vouch post-release (id `-100…` preferito). Bot **admin**. Invite: `https://t.me/+tww-HqO8htBiMzdk`. Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
+| `VOUCH_CHANNEL_ID` | no (sì in prod) | Canale vouch post-release (id `-100…` preferito). Bot **admin** + permesso **«Gestire i messaggi»** (Post) only. Invite: `https://t.me/+tww-HqO8htBiMzdk` (non cambiare). Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
 | `PORT` | no | Se impostato: `GET /healthz` (Render/Fly) |
 | `TELEGRAM_BOT_CREATES_GROUPS` | no | `1` per tentare create automatica gruppo (default off) |
 | `TELEGRAM_API_ID` / `HASH` / `HELPER_SESSION` | no | Solo con gate sopra; altrimenti soft-fallback manuale |

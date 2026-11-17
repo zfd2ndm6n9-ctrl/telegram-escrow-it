@@ -225,6 +225,44 @@ export async function replaceStatusMessage(
   );
 }
 
+/** Cancella l'ultimo errore di ruolo tracciato sul deal (se presente). */
+export async function clearRoleError(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  const chatId = deal.groupChatId;
+  if (chatId != null && deal.lastRoleErrorMessageId != null) {
+    await deleteMessageSafe(api, chatId, deal.lastRoleErrorMessageId);
+  }
+  if (deal.lastRoleErrorMessageId == null) return deal;
+  return (
+    store.update(deal.id, { lastRoleErrorMessageId: undefined }) ?? deal
+  );
+}
+
+/**
+ * Invia un errore di ruolo e traccia l'id (sostituisce il precedente).
+ * Es. «Solo @seller può segnare la spedizione».
+ */
+export async function replaceRoleError(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+  text: string,
+  extra?: PromptExtra,
+): Promise<Deal> {
+  const chatId = deal.groupChatId;
+  let current = await clearRoleError(api, store, deal);
+  if (chatId == null) return current;
+
+  const msg = await api.sendMessage(chatId, text, extra);
+  return (
+    store.update(current.id, { lastRoleErrorMessageId: msg.message_id }) ??
+    current
+  );
+}
+
 /**
  * Pin silenzioso del messaggio ToS accettati. Se fallisce (permessi),
  * il messaggio resta comunque visibile in chat.

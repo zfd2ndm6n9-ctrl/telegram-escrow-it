@@ -64,13 +64,15 @@ export interface Deal {
   tosAcceptedAt?: string;
   /**
    * Importo escrow on-chain (stringa decimale nell'asset del deal).
-   * Fissato dopo Accetto convertendo `priceEur` → SOL (niente seconda domanda prezzo).
+   * **SOL target lockato** dopo Accetto (conversione €→SOL una sola volta).
+   * Watcher e Verifica deposito confrontano sempre questo valore — mai ricalcolo FX live.
    */
   amount: string;
   /** @deprecated Legacy dual-confirm importo; non usato nel flusso termini unificato */
   amountVotes?: number[];
   /**
    * Quando l'importo crypto è fissato (conversione €→SOL all'Accetto, o legacy).
+   * Se presente con `amount`, il target SOL è immutabile (no underpay per oscillazioni FX).
    */
   amountConfirmedAt?: string;
   /**
@@ -148,6 +150,11 @@ export interface Deal {
    * Sostituita al click successivo così non si accumulano risposte.
    */
   lastActionReplyId?: number;
+  /**
+   * Ultimo errore di ruolo in gruppo («Solo @seller…», wallet turno sbagliato, …).
+   * Cancellato quando la parte giusta agisce o il flusso avanza.
+   */
+  lastRoleErrorMessageId?: number;
   /**
    * DM seller: messaggio-riepilogo vivente (elenco Prodotto/Prezzo/Condizioni).
    * Edit in place; non cancellare durante il wizard.

@@ -19,7 +19,12 @@ import {
   tosAccepted,
 } from "./deal-logic.js";
 import { startSellerTermsWizard } from "./dm-terms.js";
-import { sendTrackedPrompt, upsertSetupMessage } from "./prompt-cleanup.js";
+import {
+  clearEphemeralReplies,
+  clearRoleError,
+  sendTrackedPrompt,
+  upsertSetupMessage,
+} from "./prompt-cleanup.js";
 
 /** Keyboard della card setup (Accetto solo a proposta completa). */
 export function setupCardKeyboard(deal: Deal): InlineKeyboard {
@@ -528,16 +533,22 @@ export async function postDealActivated(
   });
 }
 
-/** Dopo deposito confermato: cancella prompt deposito e chiede al seller di spedire. */
+/**
+ * Dopo deposito confermato: chiude UI deposito (prompt + effimeri + errori ruolo)
+ * e chiede al seller di spedire. Usato da watcher e Verifica deposito.
+ */
 export async function postShipAsk(
   api: Api,
   store: DealStore,
   deal: Deal,
 ): Promise<Deal> {
-  if (deal.sellerShippedAt) {
-    return postBuyerAfterShip(api, store, deal);
+  let current = await clearEphemeralReplies(api, store, deal);
+  current = await clearRoleError(api, store, current);
+  if (current.sellerShippedAt) {
+    return postBuyerAfterShip(api, store, current);
   }
-  return sendTrackedPrompt(api, store, deal, it.shipAsk(deal), {
+  // sendTrackedPrompt cancella i prompt stage (card Verifica deposito / Indirizzo).
+  return sendTrackedPrompt(api, store, current, it.shipAsk(current), {
     parse_mode: "Markdown",
     reply_markup: shipAskKeyboard(),
   });
@@ -549,9 +560,10 @@ export async function postBuyerAfterShip(
   store: DealStore,
   deal: Deal,
 ): Promise<Deal> {
-  return sendTrackedPrompt(api, store, deal, it.buyerAfterShip(deal), {
+  let current = await clearRoleError(api, store, deal);
+  return sendTrackedPrompt(api, store, current, it.buyerAfterShip(current), {
     parse_mode: "Markdown",
-    reply_markup: buyerAfterShipKeyboard(deal),
+    reply_markup: buyerAfterShipKeyboard(current),
   });
 }
 

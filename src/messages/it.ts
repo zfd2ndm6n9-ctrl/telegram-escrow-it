@@ -467,7 +467,7 @@ Scegli:`;
   ) =>
     funded
       ? `✅ #${deal.id} fondato: *${balanceSol} SOL*.`
-      : `⏳ #${deal.id}: *${balanceSol}* / *${deal.amount} SOL*\n\`${deal.escrowAddress}\``,
+      : `⏳ #${deal.id}: *${balanceSol}* / *${deal.amount} SOL* (target lockato)\n\`${deal.escrowAddress}\``,
 
   markFundedAdmin: (deal: Deal) =>
     `💰 Admin: #${deal.id} forzato a *funded*.`,
@@ -636,6 +636,10 @@ Scegli:`;
   },
   tosAlreadyAccepted: "Termini già accettati.",
   amountAlreadyConfirmed: "Importo già confermato.",
+
+  /** Target SOL già lockato all'Accetto: no nuova FX / importo manuale. */
+  amountLocked: (deal: Deal) =>
+    `Importo escrow già fissato: *${deal.amount} ${deal.asset}* (#${deal.id}).`,
   amountOnlyParties: "Solo buyer e seller.",
 
   kickedExtra: (userId: number) =>

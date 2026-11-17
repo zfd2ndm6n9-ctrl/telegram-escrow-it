@@ -77,8 +77,9 @@ export const config = {
   ),
   /**
    * Canale vouch / recensioni post-release.
-   * Invite tipica: https://t.me/+tww-HqO8htBiMzdk
-   * Preferire id numerico (-100…). Bot deve essere *admin* del canale.
+   * Invite tipica: https://t.me/+tww-HqO8htBiMzdk (non cambiare).
+   * Preferire id numerico (-100…). Bot admin con permesso «Gestire i messaggi»
+   * (Post messages / can_post_messages) — sufficiente; non servono altri flag.
    * Come ottenere l'id: aggiungi il bot admin → inoltra un msg del canale
    * a @userinfobot / @getidsbot, oppure leggi il chat id nei log Telegram.
    */
