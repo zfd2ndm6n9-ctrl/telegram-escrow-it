@@ -48,7 +48,8 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `DATA_DIR` | sì in prod | Store deal + iscritti + inviti (`deals.json`, `members.json`, `invites.json`). Render: `/var/data` |
 | `UPDATES_CHANNEL_ID` | no | Canale pubblico «N iscritti» (id `-100…` o `@nome`). Bot admin del canale |
 | `UPDATES_CHANNEL_MESSAGE_ID` | no | Message id vivente da editare; se assente → aggiorna *description* del canale |
-| `VOUCH_CHANNEL_ID` | no (sì in prod) | Canale vouch post-release (id `-100…` preferito). Bot **admin** + permesso **«Gestire i messaggi»** (Post) only. Invite: `https://t.me/+tww-HqO8htBiMzdk` (non cambiare). Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
+| `VOUCH_CHANNEL_ID` | no (sì in prod) | Canale vouch + **gate /crea** (id `-100…` preferito). Bot **admin** + Post + `getChatMember`. Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
+| `VOUCH_INVITE_LINK` | no | Invite mostrato a `/start`. Default `https://t.me/+tww-HqO8htBiMzdk` (override su Render se ruoti il link) |
 | `PORT` | no | Se impostato: `GET /healthz` (Render/Fly) |
 | `TELEGRAM_BOT_CREATES_GROUPS` | no | `1` per tentare create automatica gruppo (default off) |
 | `TELEGRAM_API_ID` / `HASH` / `HELPER_SESSION` | no | Solo con gate sopra; altrimenti soft-fallback manuale |
@@ -78,13 +79,13 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 
 ### In privato
 
-1. `/start` → invia la tua `@` (iscrizione soft) → `/crea`
+1. `/start` → iscrizione (anche senza `@`: «utente» + soft remind) → entra nel **canale reviews** (hard gate) → `/crea`
 2. Ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) — **niente wallet in DM**
 3. Chi apre (`/crea`) risponde alle **3 domande** termini in DM (Prodotto → Prezzo € → Condizioni), poi istruzioni gruppo → bot admin → `/avvia`
 
 ### Nel gruppo
 
-4. `/avvia` → una sola frase «Controparte: scrivi un messaggio o entra nel gruppo.» Soft signup solo per chi apre il deal (`/crea`); controparte: Accetta / `/wallet` / release senza `/start`
+4. `/avvia` → chiede *Buyer* o *Seller* (ruolo mancante) di entrare/scrivere. Soft `@` + canale vouch solo per chi apre (`/crea`); controparte: Accetta / `/wallet` / release senza `/start`
 5. *ToS*: card con *Accetta* o *Proponi i ToS* (la controparte). Proponi → stesse 3 domande *nel gruppo* (igiene Q+A); si scambiano finché uno Accetta (lock €→SOL)
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL

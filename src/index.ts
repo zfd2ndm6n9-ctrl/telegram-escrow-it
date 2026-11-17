@@ -12,6 +12,7 @@ import {
   isMtprotoHelperConfigured,
   stopMtprotoHelper,
 } from "./services/mtproto-helper.js";
+import { startUsernameRefresh } from "./services/username-refresh.js";
 
 async function main(): Promise<void> {
   // Render Web Service: aprire PORT subito, prima di Telegram / assertConfig
@@ -72,12 +73,14 @@ async function main(): Promise<void> {
   if (config.vouchChannelId != null) {
     console.log(
       `Vouch channel: VOUCH_CHANNEL_ID=${config.vouchChannelId} ` +
-        "(bot admin + permesso «Gestire i messaggi» / Post)",
+        `invite=${config.vouchInviteLink} ` +
+        "(bot admin + Post; gate /crea via getChatMember)",
     );
   } else {
     console.error(
-      "[vouch] VOUCH_CHANNEL_ID non impostato: review post-pay restano solo nel gruppo. " +
-        "Imposta env + bot admin canale con «Gestire i messaggi». Invite https://t.me/+tww-HqO8htBiMzdk",
+      "[vouch] VOUCH_CHANNEL_ID non impostato: review post-pay restano solo nel gruppo; " +
+        "gate membership disattivato (dev). Imposta env + bot admin canale. " +
+        `Invite ${config.vouchInviteLink}`,
     );
   }
   const me = await bot.api.getMe();
@@ -112,6 +115,8 @@ async function main(): Promise<void> {
       : 20_000,
   );
 
+  const usernameRefresh = startUsernameRefresh(bot.api, store, members, 60_000);
+
   const allowed_updates = [
     "message",
     "callback_query",
@@ -123,6 +128,7 @@ async function main(): Promise<void> {
 
   const stop = async () => {
     watcher.stop();
+    usernameRefresh.stop();
     await stopMtprotoHelper();
     await bot.stop();
   };

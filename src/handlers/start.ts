@@ -3,9 +3,15 @@ import type { BotContext } from "../context.js";
 import { isAdminUser } from "../services/deal-logic.js";
 import { it } from "../messages/it.js";
 import { mainMenuKeyboard } from "../keyboards/menus.js";
+import { publishIscrittiCount } from "../services/public-count.js";
 import { registerHandleFromMessage } from "../services/registration.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
 import { isValidSolAddress, lamportsToSolString } from "../services/solana/index.js";
+import {
+  checkVouchMembership,
+  vouchInviteLink,
+  vouchJoinKeyboard,
+} from "../services/vouch-membership.js";
 
 /** Pulsanti menu / wizard: non sono un codice invito. */
 const MENU_TEXTS = new Set([
@@ -58,26 +64,6 @@ export async function dismissInviteStep(ctx: BotContext): Promise<void> {
   if (!ctx.session.awaitingInviteCode) return;
   await clearInvitePrompt(ctx);
   ctx.session.awaitingInviteCode = undefined;
-}
-
-async function askForHandle(ctx: BotContext): Promise<void> {
-  ctx.session.awaitingHandle = true;
-  ctx.session.creating = undefined;
-  ctx.session.termsQa = undefined;
-  if (ctx.chat) {
-    if (ctx.session.signupPromptMessageId != null) {
-      await deleteMessageSafe(
-        ctx.api,
-        ctx.chat.id,
-        ctx.session.signupPromptMessageId,
-      );
-    }
-    await clearSignupEphemerals(ctx);
-  }
-  const msg = await ctx.reply(it.welcomeAskHandle, {
-    parse_mode: "Markdown",
-  });
-  ctx.session.signupPromptMessageId = msg.message_id;
 }
 
 async function askInviteOptional(ctx: BotContext): Promise<void> {
@@ -176,6 +162,85 @@ async function redeemInvite(
   return true;
 }
 
+/**
+ * /start: iscrizione (con o senza @) + check canale vouch + welcome.
+ * Hard gate vouch: senza membership niente menu /crea.
+ */
+async function completeStart(ctx: BotContext): Promise<void> {
+  if (!ctx.from) return;
+
+  const wasRegistered = ctx.members.isRegistered(ctx.from.id);
+  const result = ctx.members.registerFromStart(
+    ctx.from.id,
+    ctx.from.username,
+  );
+
+  if (result.previousUserId != null) {
+    const remapped = ctx.store.remapUserId(
+      result.previousUserId,
+      ctx.from.id,
+    );
+    console.log(
+      `Riconnessione userId ${result.previousUserId} → ${ctx.from.id}, deal=${remapped}`,
+    );
+  }
+
+  ctx.session.awaitingHandle = undefined;
+  ctx.session.signupPromptMessageId = undefined;
+  await clearSignupEphemerals(ctx);
+
+  if (result.isNew && !wasRegistered) {
+    await publishIscrittiCount(ctx.api, ctx.members.registeredCount);
+  }
+
+  const vouch = await checkVouchMembership(ctx.api, ctx.from.id);
+  const welcome = result.reconnected || wasRegistered
+    ? it.welcomeBack(result.member.username)
+    : it.registeredOk(result.member.username);
+
+  if (vouch.ok && vouch.member) {
+    await ctx.reply(welcome, {
+      parse_mode: "Markdown",
+      reply_markup: mainMenuKeyboard(),
+    });
+    // Link canale solo come nota secondaria se già membro — skip nag
+    if (ctx.session.pendingInviteCode && !result.member.inviteCode) {
+      await redeemInvite(ctx, ctx.session.pendingInviteCode);
+    } else if (
+      !result.reconnected &&
+      result.isNew &&
+      !result.member.inviteCode &&
+      !ctx.session.awaitingInviteCode
+    ) {
+      await askInviteOptional(ctx);
+    }
+    console.log(
+      `/start ok chat=${ctx.chat?.id} from=${ctx.from.id} vouch=in iscritti=${ctx.members.registeredCount}`,
+    );
+    return;
+  }
+
+  // Fuori dal canale (o check fallito): prompt join, niente menu /crea
+  const joinMsg = await ctx.reply(it.needVouchJoin(vouchInviteLink()), {
+    parse_mode: "Markdown",
+    reply_markup: vouchJoinKeyboard(),
+    link_preview_options: { is_disabled: true },
+  });
+  trackSignupEphemeral(ctx, joinMsg.message_id);
+
+  // Soft remind @ sotto (secondario)
+  if (!result.member.username) {
+    const soft = await ctx.reply(it.needUsernameSoft, {
+      parse_mode: "Markdown",
+    });
+    trackSignupEphemeral(ctx, soft.message_id);
+  }
+
+  console.log(
+    `/start ok chat=${ctx.chat?.id} from=${ctx.from.id} vouch=out iscritti=${ctx.members.registeredCount}`,
+  );
+}
+
 export function registerStartHandlers(bot: Bot<BotContext>): void {
   bot.command("start", async (ctx) => {
     // /start in gruppo arriva spesso da startgroup=payload
@@ -191,32 +256,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     }
 
     try {
-      if (ctx.members.isRegistered(ctx.from.id)) {
-        const member = ctx.members.touch(ctx.from.id, ctx.from.username);
-        ctx.session.awaitingHandle = undefined;
-        ctx.session.signupPromptMessageId = undefined;
-        ctx.session.signupEphemeralIds = undefined;
-
-        if (ctx.session.pendingInviteCode && !member.inviteCode) {
-          await redeemInvite(ctx, ctx.session.pendingInviteCode);
-        }
-
-        await ctx.reply(it.welcomeBack(member.username), {
-          parse_mode: "Markdown",
-          reply_markup: mainMenuKeyboard(),
-        });
-        console.log(
-          `/start ok chat=${ctx.chat?.id} from=${ctx.from.id} reconnected iscritti=${ctx.members.registeredCount}`,
-        );
-        return;
-      }
-
-      // Soft signup: solo @, niente auto-iscrizione al /start
-      ctx.members.touch(ctx.from.id);
-      await askForHandle(ctx);
-      console.log(
-        `/start ask-handle chat=${ctx.chat?.id} from=${ctx.from.id}`,
-      );
+      await completeStart(ctx);
     } catch (err) {
       console.error(
         `/start fail chat=${ctx.chat?.id} from=${ctx.from.id}:`,
@@ -224,6 +264,48 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       );
       throw err;
     }
+  });
+
+  /** Dopo join canale vouch: ricontrolla membership. */
+  bot.callbackQuery("vouch_joined", async (ctx) => {
+    if (!ctx.from || ctx.chat?.type !== "private") {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery({ text: "Verifico…" });
+
+    const vouch = await checkVouchMembership(ctx.api, ctx.from.id);
+    if (vouch.ok && vouch.member) {
+      await clearSignupEphemerals(ctx);
+      try {
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+      } catch {
+        // ok
+      }
+      const member = ctx.members.touch(ctx.from.id, ctx.from.username);
+      await ctx.reply(
+        `${it.vouchJoinedOk}\n\n${it.welcomeBack(member.username)}`,
+        {
+          parse_mode: "Markdown",
+          reply_markup: mainMenuKeyboard(),
+        },
+      );
+      if (
+        ctx.session.pendingInviteCode &&
+        !member.inviteCode &&
+        ctx.members.isRegistered(ctx.from.id)
+      ) {
+        await redeemInvite(ctx, ctx.session.pendingInviteCode);
+      }
+      return;
+    }
+
+    const msg = await ctx.reply(it.vouchStillOut(vouchInviteLink()), {
+      parse_mode: "Markdown",
+      reply_markup: vouchJoinKeyboard(),
+      link_preview_options: { is_disabled: true },
+    });
+    trackSignupEphemeral(ctx, msg.message_id);
   });
 
   bot.command("invito", async (ctx) => {
@@ -403,7 +485,10 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     await ctx.reply(body, { parse_mode: "Markdown" });
   });
 
-  /** Soft signup: risposta con @ dopo /start (o se ancora non iscritto). */
+  /**
+   * Invito opzionale + path legacy «invia @» (solo se awaitingHandle).
+   * Iscrizione normale è su /start senza forzare @.
+   */
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "private" || !ctx.from) {
       await next();
@@ -442,19 +527,12 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    const awaiting =
-      ctx.session.awaitingHandle || !ctx.members.isRegistered(ctx.from.id);
-    if (!awaiting) {
+    // Legacy / opzionale: utente senza @ che la reinvia dopo averla impostata
+    if (!ctx.session.awaitingHandle) {
       await next();
       return;
     }
-
-    // Non rubare wizard crea/termini già attivi se iscritto; se non iscritto
-    // la @ ha priorità (gate).
-    if (
-      ctx.members.isRegistered(ctx.from.id) &&
-      (ctx.session.creating || ctx.session.termsQa)
-    ) {
+    if (ctx.session.creating || ctx.session.termsQa) {
       await next();
       return;
     }
@@ -481,37 +559,19 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
         }
         return;
       }
-      // invalid: se non stiamo aspettando handle esplicitamente, passa oltre
-      if (ctx.session.awaitingHandle) {
-        const msg = await ctx.reply(it.handleInvalid, {
-          parse_mode: "Markdown",
-        });
-        trackSignupEphemeral(ctx, msg.message_id);
-        if (ctx.message?.message_id != null) {
-          trackSignupEphemeral(ctx, ctx.message.message_id);
-        }
-        return;
+      const msg = await ctx.reply(it.handleInvalid, {
+        parse_mode: "Markdown",
+      });
+      trackSignupEphemeral(ctx, msg.message_id);
+      if (ctx.message?.message_id != null) {
+        trackSignupEphemeral(ctx, ctx.message.message_id);
       }
-      await next();
       return;
     }
 
-    const copy = result.reconnected
-      ? it.welcomeBack(result.username)
-      : it.registeredOk(result.username);
-    await ctx.reply(copy, {
+    await ctx.reply(it.welcomeBack(result.username), {
       parse_mode: "Markdown",
       reply_markup: mainMenuKeyboard(),
     });
-
-    // Applica pending invite da /start, altrimenti chiedi codice opzionale una volta
-    if (ctx.session.pendingInviteCode) {
-      await redeemInvite(ctx, ctx.session.pendingInviteCode);
-    } else if (!result.reconnected) {
-      const m = ctx.members.get(ctx.from.id);
-      if (!m?.inviteCode && !ctx.session.awaitingInviteCode) {
-        await askInviteOptional(ctx);
-      }
-    }
   });
 }
