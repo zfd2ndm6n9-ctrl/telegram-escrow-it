@@ -189,7 +189,12 @@ export async function acceptReviewAnswer(
   return { ok: true, deal: current, readyForPayout: true };
 }
 
-/** Best-effort: post review sul canale vouch. */
+/**
+ * Best-effort: post review sul canale vouch.
+ * Fallimenti non silenziosi: log ERROR con dettaglio Telegram
+ * (tipico: bot non admin / manca permesso «Gestire i messaggi» / Post messages).
+ * Invite canale invariata: https://t.me/+tww-HqO8htBiMzdk
+ */
 export async function postReviewToVouch(
   api: Api,
   deal: Deal,
@@ -198,17 +203,37 @@ export async function postReviewToVouch(
 ): Promise<void> {
   const channelId = config.vouchChannelId;
   if (channelId == null) {
-    console.warn(
-      `VOUCH_CHANNEL_ID non impostato: skip post review #${deal.id} (${who})`,
+    console.error(
+      `[vouch] VOUCH_CHANNEL_ID non impostato — skip post review deal=#${deal.id} who=${who}. ` +
+        "Imposta env su Render e Manual Deploy. Bot admin canale con permesso «Gestire i messaggi» (Post).",
     );
     return;
   }
   try {
     await api.sendMessage(channelId, it.vouchReviewLine(deal, who, text));
+    console.log(
+      `[vouch] ok deal=#${deal.id} who=${who} channel=${channelId}`,
+    );
   } catch (err) {
-    console.warn(
-      `postReviewToVouch channel=${channelId} deal=#${deal.id} who=${who}:`,
-      err instanceof Error ? err.message : err,
+    const detail =
+      err && typeof err === "object"
+        ? {
+            message: err instanceof Error ? err.message : String(err),
+            error_code:
+              "error_code" in err
+                ? (err as { error_code?: unknown }).error_code
+                : undefined,
+            description:
+              "description" in err
+                ? (err as { description?: unknown }).description
+                : undefined,
+          }
+        : { message: String(err) };
+    console.error(
+      `[vouch] FAIL post review deal=#${deal.id} who=${who} channel=${channelId}. ` +
+        "Verifica: bot admin del canale + permesso «Gestire i messaggi» (can_post_messages). " +
+        "Invite invariata https://t.me/+tww-HqO8htBiMzdk",
+      detail,
     );
   }
 }

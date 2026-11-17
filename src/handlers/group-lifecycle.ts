@@ -439,10 +439,15 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     const tosMsgId =
       ctx.callbackQuery.message?.message_id ?? deal.setupMessageId;
     const now = new Date().toISOString();
-    const cryptoReady = Boolean(deal.amount && parseAmount(deal.amount));
 
-    let solAmount = cryptoReady ? deal.amount : "";
-    if (!cryptoReady) {
+    // SOL target: lock una sola volta. Se già confermato, non ricalcolare FX.
+    let solAmount = "";
+    if (amountConfirmed(deal) && parseAmount(deal.amount)) {
+      solAmount = deal.amount;
+    } else if (deal.amount && parseAmount(deal.amount)) {
+      // Amount già presente (legacy / retry): locka senza nuova FX.
+      solAmount = deal.amount;
+    } else {
       if (!deal.priceEur) {
         await ctx.answerCallbackQuery({ text: "Manca Prezzo €" });
         await ctx.reply(it.missingCommercialPrice, { parse_mode: "Markdown" });
@@ -460,7 +465,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     let updated = ctx.store.update(deal.id, {
       tosAcceptedAt: now,
       amount: solAmount,
-      amountConfirmedAt: now,
+      amountConfirmedAt: deal.amountConfirmedAt ?? now,
       status: "awaiting_seller_wallet" as const,
       ...(tosMsgId != null
         ? {
@@ -629,11 +634,13 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         await next();
         return;
       }
-      // Se abbiamo priceEur e ToS accettati, ripara convertendo invece di chiedere SOL
+      // Se abbiamo priceEur e ToS accettati, ripara convertendo invece di chiedere SOL.
+      // Mai sovrascrivere un target già lockato (amountConfirmed).
       if (
         current.status === "awaiting_amount" &&
         tosAccepted(current) &&
         current.priceEur &&
+        !amountConfirmed(current) &&
         !current.amount
       ) {
         const converted = await convertPriceEurToSol(current.priceEur);
@@ -650,6 +657,13 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         await refreshGroupTitle(ctx.api, updated);
         updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
         await postAskSellerWallet(ctx.api, ctx.store, updated);
+        return;
+      }
+
+      // Target già lockato: non accettare nuovo importo manuale / FX.
+      if (amountConfirmed(current)) {
+        await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+        await ctx.reply(it.amountLocked(current), { parse_mode: "Markdown" });
         return;
       }
 

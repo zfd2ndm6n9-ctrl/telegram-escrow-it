@@ -226,11 +226,14 @@ export async function applySellerTermsAnswer(
     patch = { tosConditions: conditions };
   }
 
+  // Pre-Accetto: azzera lock crypto così Accetto rifà €→SOL sul prezzo finale.
+  // Post-Accetto non si arriva qui (wizard gated da tosAccepted).
   let current =
     store.update(deal.id, {
       ...patch,
       tosAcceptedAt: undefined,
       amountConfirmedAt: undefined,
+      amount: "",
       amountVotes: [],
     }) ?? deal;
 

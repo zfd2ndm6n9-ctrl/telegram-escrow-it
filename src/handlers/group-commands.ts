@@ -23,8 +23,10 @@ import {
 import {
   clearBotPrompts,
   clearEphemeralReplies,
+  clearRoleError,
   deleteMessageSafe,
   replaceActionReply,
+  replaceRoleError,
   replaceStatusMessage,
   sendTrackedPrompt,
 } from "../services/prompt-cleanup.js";
@@ -321,40 +323,65 @@ async function applyWallet(
     return;
   }
 
+  const chatId = deal.groupChatId ?? ctx.chat?.id;
+  const userMessageId = ctx.message?.message_id;
+
+  /** Igiene Q/A: cancella msg utente + conferma bot; wallet resta solo nello store. */
+  const confirmThenWipe = async (
+    current: Deal,
+    role: "seller" | "buyer",
+  ): Promise<Deal> => {
+    let next = await clearRoleError(ctx.api, ctx.store, current);
+    if (chatId != null && userMessageId != null) {
+      await deleteMessageSafe(ctx.api, chatId, userMessageId);
+    }
+    const confirm = await ctx.reply(it.walletSaved(next, role, address), {
+      parse_mode: "Markdown",
+    });
+    if (chatId != null) {
+      await deleteMessageSafe(ctx.api, chatId, confirm.message_id);
+    }
+    return next;
+  };
+
   // Dopo ToS: ordine fisso seller → buyer
   if (deal.status === "awaiting_seller_wallet") {
     if (!isSeller) {
-      await ctx.reply(it.walletWrongTurn(deal, "seller"), {
-        parse_mode: "Markdown",
-      });
+      await replaceRoleError(
+        ctx.api,
+        ctx.store,
+        deal,
+        it.walletWrongTurn(deal, "seller"),
+        { parse_mode: "Markdown" },
+      );
       return;
     }
     const updated = ctx.store.update(deal.id, {
       sellerWallet: address,
       status: "awaiting_buyer_wallet",
     })!;
-    await ctx.reply(it.walletSaved(updated, "seller", address), {
-      parse_mode: "Markdown",
-    });
-    await postAskBuyerWallet(ctx.api, ctx.store, updated);
+    const cleaned = await confirmThenWipe(updated, "seller");
+    await postAskBuyerWallet(ctx.api, ctx.store, cleaned);
     return;
   }
 
   if (deal.status === "awaiting_buyer_wallet") {
     if (!isBuyer) {
-      await ctx.reply(it.walletWrongTurn(deal, "buyer"), {
-        parse_mode: "Markdown",
-      });
+      await replaceRoleError(
+        ctx.api,
+        ctx.store,
+        deal,
+        it.walletWrongTurn(deal, "buyer"),
+        { parse_mode: "Markdown" },
+      );
       return;
     }
     const updated = ctx.store.update(deal.id, {
       buyerWallet: address,
       status: "awaiting_deposit",
     })!;
-    await ctx.reply(it.walletSaved(updated, "buyer", address), {
-      parse_mode: "Markdown",
-    });
-    await postDealActivated(ctx.api, ctx.store, updated);
+    const cleaned = await confirmThenWipe(updated, "buyer");
+    await postDealActivated(ctx.api, ctx.store, cleaned);
     return;
   }
 
@@ -368,9 +395,13 @@ async function applyWallet(
     deal.status === "released" ||
     deal.status === "refunded"
   ) {
-    await ctx.reply(it.walletLockedAfterDeposit(deal), {
-      parse_mode: "Markdown",
-    });
+    await replaceRoleError(
+      ctx.api,
+      ctx.store,
+      deal,
+      it.walletLockedAfterDeposit(deal),
+      { parse_mode: "Markdown" },
+    );
     return;
   }
 
@@ -427,9 +458,8 @@ async function verifyDeposit(
     deal.status === "awaiting_deposit" &&
     /\bforce\b/i.test(raw)
   ) {
-    let updated = ctx.store.setStatus(deal.id, "funded")!;
-    updated = await clearBotPrompts(ctx.api, ctx.store, updated);
-    await clearEphemeralReplies(ctx.api, ctx.store, updated);
+    const updated = ctx.store.setStatus(deal.id, "funded")!;
+    // postShipAsk chiude card Verifica + effimeri e passa allo ship ask.
     await postShipAsk(ctx.api, ctx.store, updated);
     return;
   }
@@ -439,7 +469,6 @@ async function verifyDeposit(
     return;
   }
 
-  const wasAwaiting = deal.status === "awaiting_deposit";
   const result = await checkDealDeposit(ctx.store, deal.id);
   if (!result.ok) {
     await replyResult(
@@ -451,16 +480,26 @@ async function verifyDeposit(
   }
 
   let fresh = ctx.store.get(deal.id)!;
-  if (wasAwaiting && result.funded) {
-    // Cancella istruzioni deposito e passa allo ship ask.
+  if (result.funded) {
+    if (!fresh.sellerShippedAt) {
+      // Chiude card Verifica deposito → ship ask (PR #28 flow).
+      await postShipAsk(ctx.api, ctx.store, fresh);
+      return;
+    }
+    // Già oltre lo ship: non ripostare CTA; solo ack effimero.
     await clearEphemeralReplies(ctx.api, ctx.store, fresh);
-    await postShipAsk(ctx.api, ctx.store, fresh);
+    await replyResult(
+      fresh,
+      it.depositCheckResult(fresh, result.balanceSol, true),
+      false,
+    );
     return;
   }
+  // Underpay: testo effimero senza re-attaccare Verifica (resta sulla card stage).
   await replyResult(
     fresh,
     it.depositCheckResult(fresh, result.balanceSol, result.funded),
-    true,
+    false,
   );
 }
 
@@ -598,6 +637,7 @@ async function runPayout(
     }
 
     let updated = markPayoutCompleted(ctx, fresh.id, kind, result)!;
+    updated = await clearRoleError(ctx.api, ctx.store, updated);
     updated = await clearBotPrompts(ctx.api, ctx.store, updated);
     await clearEphemeralReplies(ctx.api, ctx.store, updated);
 
@@ -806,13 +846,18 @@ async function handleReviewText(
       return;
     }
     if (result.reason === "wrong_party" && who) {
-      await ctx.reply(it.reviewWrongParty(deal, who), {
-        parse_mode: "Markdown",
-      });
+      await replaceRoleError(
+        ctx.api,
+        ctx.store,
+        deal,
+        it.reviewWrongParty(deal, who),
+        { parse_mode: "Markdown" },
+      );
       return;
     }
     return;
   }
+  await clearRoleError(ctx.api, ctx.store, result.deal);
   if (result.readyForPayout) {
     await runPayout(ctx, result.deal, "release");
   }
@@ -828,7 +873,13 @@ async function handleSellerShipped(
     return;
   }
   if (deal.sellerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
-    await ctx.reply(it.shipOnlySeller(deal), { parse_mode: "Markdown" });
+    await replaceRoleError(
+      ctx.api,
+      ctx.store,
+      deal,
+      it.shipOnlySeller(deal),
+      { parse_mode: "Markdown" },
+    );
     return;
   }
   if (deal.status !== "funded" && deal.status !== "release_pending") {
@@ -846,11 +897,12 @@ async function handleSellerShipped(
     await deleteMessageSafe(ctx.api, chatId, opts.userMessageId);
   }
 
-  const updated =
+  let updated =
     ctx.store.update(deal.id, {
       sellerShippedAt: new Date().toISOString(),
     }) ?? deal;
 
+  updated = await clearRoleError(ctx.api, ctx.store, updated);
   await clearBotPrompts(ctx.api, ctx.store, updated);
   await clearEphemeralReplies(ctx.api, ctx.store, updated);
   await postBuyerAfterShip(ctx.api, ctx.store, updated);
@@ -864,13 +916,26 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
     return;
   }
   if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
-    await ctx.reply(it.buyerOnlyPay(deal), { parse_mode: "Markdown" });
+    await replaceRoleError(
+      ctx.api,
+      ctx.store,
+      deal,
+      it.buyerOnlyPay(deal),
+      { parse_mode: "Markdown" },
+    );
     return;
   }
   if (!deal.sellerShippedAt && deal.status === "funded") {
-    await ctx.reply(it.needShipFirst(deal), { parse_mode: "Markdown" });
+    await replaceRoleError(
+      ctx.api,
+      ctx.store,
+      deal,
+      it.needShipFirst(deal),
+      { parse_mode: "Markdown" },
+    );
     return;
   }
+  await clearRoleError(ctx.api, ctx.store, deal);
   await handlePayOrRefund(ctx, "release");
 }
 
@@ -882,9 +947,16 @@ async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
     return;
   }
   if (deal.sellerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
-    await ctx.reply(it.sellerOnlyConfirm(deal), { parse_mode: "Markdown" });
+    await replaceRoleError(
+      ctx.api,
+      ctx.store,
+      deal,
+      it.sellerOnlyConfirm(deal),
+      { parse_mode: "Markdown" },
+    );
     return;
   }
+  await clearRoleError(ctx.api, ctx.store, deal);
   await handlePayOrRefund(ctx, "release");
 }
 
@@ -895,7 +967,13 @@ async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {
     return;
   }
   if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
-    await ctx.reply(it.buyerOnlyPay(deal), { parse_mode: "Markdown" });
+    await replaceRoleError(
+      ctx.api,
+      ctx.store,
+      deal,
+      it.buyerOnlyPay(deal),
+      { parse_mode: "Markdown" },
+    );
     return;
   }
   // Avvisa seller; CTA buyer restano (replace sullo stesso slot).

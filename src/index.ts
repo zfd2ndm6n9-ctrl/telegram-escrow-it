@@ -70,10 +70,14 @@ async function main(): Promise<void> {
     );
   }
   if (config.vouchChannelId != null) {
-    console.log(`Vouch channel: VOUCH_CHANNEL_ID=${config.vouchChannelId}`);
-  } else {
     console.log(
-      "VOUCH_CHANNEL_ID non impostato: review post-pay restano solo nel gruppo (no forward canale).",
+      `Vouch channel: VOUCH_CHANNEL_ID=${config.vouchChannelId} ` +
+        "(bot admin + permesso «Gestire i messaggi» / Post)",
+    );
+  } else {
+    console.error(
+      "[vouch] VOUCH_CHANNEL_ID non impostato: review post-pay restano solo nel gruppo. " +
+        "Imposta env + bot admin canale con «Gestire i messaggi». Invite https://t.me/+tww-HqO8htBiMzdk",
     );
   }
   const me = await bot.api.getMe();

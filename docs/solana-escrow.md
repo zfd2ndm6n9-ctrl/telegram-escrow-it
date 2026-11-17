@@ -23,12 +23,18 @@
 1. `SOLANA_PRIVATE_KEY` = master hot wallet (base58 o JSON array)
 2. Per deal `id`: `HMAC-SHA256(masterSecret, "telegram-escrow-it:deal:"+id)` → 32 byte seed → keypair
 3. Buyer invia SOL a quell’indirizzo
-4. Watcher (~20s) o `/depositato` (verifica saldo) → `funded` se saldo ≥ importo
+4. Watcher (~20s) o `/depositato` / «Verifica deposito» → `funded` se saldo ≥ **importo SOL lockato** (mai FX live)
 5. Dual-confirm paga-seller (UX buyer-first; alias silenti `/pay_seller` / `/payseller`) / `/refund_buyer` (o admin in disputa)
-6. Dopo 2/2 **release** (non refund): review breve seller → buyer → post su `VOUCH_CHANNEL_ID` → poi payout. Admin in disputa salta le review
+6. Dopo 2/2 **release** (non refund): review breve seller → buyer → post su `VOUCH_CHANNEL_ID` → poi payout. Admin in disputa / refund saltano le review
 7. **Release:** una tx atomica — **95%** → seller, **5%** fee piattaforma. Se il deal ha invito collaboratore: **2.5%** → master/`FEE_WALLET_PUBKEY`, **2.5%** → wallet collaboratore. **Refund:** 100% → buyer (nessuna fee servizio, nessuna review)
 8. **Fee di rete** pagate dalla **master** (`feePayer`): ricarica la master con poco SOL (es. 0.05)
 9. Payout: `getLatestBlockhash("confirmed")` + stesso `preflightCommitment`, con retry su #7050008 (Blockhash not found). Contabilità idempotente (`payoutCompleted` + `payoutTxSig`)
+
+### Lock importo SOL (anti underpay FX)
+
+- Prezzo commerciale = **€** (`priceEur`). All’**Accetto** si converte €→SOL **una volta** e si persiste in `amount` + `amountConfirmedAt`.
+- Watcher e Verifica depositano confrontano **solo** quel target lockato. Se il buyer ha già inviato ≥ target, → `funded` anche se il tasso live richiederebbe più SOL.
+- Non si ricalcola da CoinGecko/Coinbase dopo il lock (evita underpay per oscillazioni).
 
 ## Avviso rischio
 
@@ -51,7 +57,7 @@ Sul **Web Service** (o Background Worker) che esegue il bot — Environment:
 | `ADMIN_TELEGRAM_ID` | sì per dispute / codici | Tuo user id Telegram |
 | `TOS_URL` | no | Link ToS |
 | `DATA_DIR` | sì in prod | Persistenza deal + iscritti + inviti (`deals.json`, `members.json`, `invites.json`). Su Render: `/var/data` |
-| `VOUCH_CHANNEL_ID` | sì in prod | Canale vouch (id `-100…`). Bot **admin**. Invite `https://t.me/+tww-HqO8htBiMzdk`. Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
+| `VOUCH_CHANNEL_ID` | sì in prod | Canale vouch (id `-100…`). Bot **admin** con permesso **«Gestire i messaggi»** (Post) only. Invite `https://t.me/+tww-HqO8htBiMzdk` (non cambiare). Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot`. Fail post → log `[vouch] FAIL …` |
 | `PORT` | auto su Web | Per `/healthz` |
 
 ### Generare la chiave (una tantum)
