@@ -186,8 +186,9 @@ export interface Deal {
    */
   groupTermsPromptMessageId?: number;
   /**
-   * Deadline ISO: dopo le istruzioni «aggiungi il bot al gruppo» in DM.
-   * Se `groupChatId` resta assente oltre la deadline → status `cancelled`.
+   * Deadline ISO: da create deal (e refresh sulle istruzioni DM).
+   * Scade se ancora `awaiting_group` senza bind, o `awaiting_bot_admin`
+   * senza /avvia completato → status `cancelled`.
    */
   awaitingGroupExpiresAt?: string;
   /**

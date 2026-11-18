@@ -10,6 +10,11 @@ export function mainMenuKeyboard(): Keyboard {
     .persistent();
 }
 
+/** Invito opzionale post-/start: niente `/skip` tappable nel testo. */
+export function inviteSkipKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("Nessun codice", "invite_skip");
+}
+
 export function cancelKeyboard(): Keyboard {
   return new Keyboard().text("❌ Annulla").resized().oneTime();
 }

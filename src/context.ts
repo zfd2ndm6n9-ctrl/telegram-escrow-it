@@ -34,7 +34,7 @@ export interface SessionData {
   signupEphemeralIds?: number[];
   /** Dopo iscrizione: in attesa di codice invito opzionale. */
   awaitingInviteCode?: boolean;
-  /** Message id del prompt «Codice invito? … /skip». */
+  /** Message id del prompt «Codice invito?» (+ bottone Nessun codice). */
   invitePromptMessageId?: number;
   /**
    * Messaggi effimeri invito (errori + risposte utente).

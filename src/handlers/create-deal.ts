@@ -360,11 +360,13 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
     return;
   }
 
-  // Opener (buyer o seller) = proponente termini: 3 domande subito
+  // Opener (buyer o seller) = proponente termini: 3 domande subito.
+  // TTL da create (non solo da istruzioni gruppo) così wizard abbandonato scade.
   const updated =
     ctx.store.update(deal.id, {
       escrowAddress,
       tosProposedBy: ctx.from.id,
+      awaitingGroupExpiresAt: groupBindExpiresAtIso(),
     })!;
   ctx.session.creating = undefined;
 

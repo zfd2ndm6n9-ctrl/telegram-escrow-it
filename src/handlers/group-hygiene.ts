@@ -5,6 +5,7 @@ import {
   detectIdentityChange,
   isParty,
 } from "../services/deal-logic.js";
+import { healMigratedGroupDeal } from "../services/group-chat-remap.js";
 import {
   kickUnauthorized,
   refreshGroupSetupCard,
@@ -47,7 +48,23 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
       await next();
       return;
     }
-    const deal = ctx.store.findByGroupChatId(ctx.chat.id);
+    // Skip service migrate messages — handled in group-lifecycle.
+    if (
+      ctx.message &&
+      ("migrate_to_chat_id" in ctx.message ||
+        "migrate_from_chat_id" in ctx.message)
+    ) {
+      await next();
+      return;
+    }
+    const deal =
+      ctx.store.findByGroupChatId(ctx.chat.id) ??
+      (await healMigratedGroupDeal(
+        ctx.api,
+        ctx.store,
+        ctx.chat.id,
+        ctx.from?.id,
+      ));
     if (!deal || !ctx.message) {
       await next();
       return;
@@ -72,7 +89,16 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
       await next();
       return;
     }
-    const deal = ctx.store.findByGroupChatId(ctx.chat.id);
+    const deal =
+      ctx.store.findByGroupChatId(ctx.chat.id) ??
+      (ctx.from
+        ? await healMigratedGroupDeal(
+            ctx.api,
+            ctx.store,
+            ctx.chat.id,
+            ctx.from.id,
+          )
+        : undefined);
     if (!deal || !ctx.from || ctx.from.is_bot) {
       await next();
       return;

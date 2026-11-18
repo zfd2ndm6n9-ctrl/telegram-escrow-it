@@ -128,7 +128,8 @@ ${inviteLink}
 
 Entra, poi *Ho entrato* o \`/start\`.`,
 
-  askInviteOptional: "Codice invito? Invia o /skip.",
+  askInviteOptional:
+    "Codice invito? Invia il codice oppure tocca *Nessun codice*.",
 
   inviteRedeemOk: (code: string) =>
     `✅ Codice *${escMd(code)}* applicato.`,
@@ -142,7 +143,12 @@ Entra, poi *Ho entrato* o \`/start\`.`,
 
   inviteUsage: "Uso: `/invito CODICE`.",
 
+  /** Solo dopo tap «Nessun codice» / `/skip` esplicito mentre in attesa invito. */
   inviteSkipped: "Ok, nessun codice.",
+
+  /** Gruppo leftover dopo wipe admin. */
+  groupWipedNotice:
+    "⚠️ Store deal azzerato dall'admin. Questo gruppo non è più collegato.\nIn privato: /crea → nuovo gruppo → /avvia.",
 
   handleMismatch: (expected?: string) =>
     expected
@@ -241,7 +247,7 @@ Poi invita l'altra parte.`;
 
   /** Timer 10 min scaduto: bot non aggiunto / deal non collegato. */
   groupBindExpired: (deal: Deal) =>
-    `⏱ Deal *#${deal.id}* annullato: il bot non è stato aggiunto al gruppo entro *10 minuti*.\nUsa /crea per ricominciare.`,
+    `⏱ Deal *#${deal.id}* annullato: setup gruppo non completato entro *10 minuti*.\nUsa /crea per ricominciare.`,
 
   groupReady: (deal: Deal, inviteLink: string, creatorInvited: boolean) =>
     `✅ Gruppo escrow pronto per deal *#${deal.id}*.
