@@ -390,11 +390,22 @@ ${missingRole}: entra o scrivi un messaggio nel gruppo.`;
 
   /**
    * Role-aware: opener seller → chiedi Buyer; opener buyer → chiedi Seller.
-   * Non duplicare in chat: la card vivente basta.
    */
   counterpartAsk: (deal: Pick<Deal, "creatorRole">) => {
     const missingRole = deal.creatorRole === "seller" ? "Buyer" : "Seller";
     return `${missingRole}: entra o scrivi un messaggio nel gruppo.`;
+  },
+
+  /**
+   * /avvia ripetuto (o primo avvio) mentre manca la controparte:
+   * sempre una risposta visibile — mai silenzio.
+   */
+  avviaAwaitingCounterpart: (deal: Pick<Deal, "id" | "creatorRole">) => {
+    const missingRole = deal.creatorRole === "seller" ? "Buyer" : "Seller";
+    return (
+      `Deal *#${deal.id}* già avviato — in attesa della controparte.\n` +
+      `${missingRole}: entra o scrivi un messaggio nel gruppo.`
+    );
   },
 
   /** @deprecated Preferire counterpartAsk(deal). */

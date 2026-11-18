@@ -731,6 +731,19 @@ export type StartDealResult = {
 };
 
 /**
+ * Testo italiano da mostrare dopo /avvia se l'auto-bind non chiude i ruoli.
+ * `too_many` → troppi membri; altrimenti status «aspetta controparte».
+ * Pure: usata da handler + smoke check (mai leave /avvia senza reply).
+ */
+export function avviaAutoBindReply(
+  reason: AutoBindFailure,
+  deal: Pick<Deal, "id" | "creatorRole">,
+): string {
+  if (reason === "too_many") return it.autoBindTooMany;
+  return it.avviaAwaitingCounterpart(deal);
+}
+
+/**
  * Dopo ruoli bound: se termini pronti → Accetta/Proponi;
  * altrimenti riprende wizard DM sul proponente (opener di default).
  */
@@ -809,13 +822,23 @@ export async function startDealInGroup(
     return { deal: bound, started: false, perms };
   }
 
+  // Dopo setChatTitle/Photo Telegram può migrare group→supergroup:
+  // usa sempre l'id live (bound), non l'id dello update originale.
+  const liveChatId = bound.groupChatId ?? chatId;
+
   let current = trackSeenGroupUser(store, bound, bound.creatorId);
   if (opts?.runnerId != null) {
     current = trackSeenGroupUser(store, current, opts.runnerId);
   }
 
   if (!bothPartiesPresent(current)) {
-    const bind = await autoBindCounterpart(api, store, current, chatId, opts);
+    const bind = await autoBindCounterpart(
+      api,
+      store,
+      current,
+      liveChatId,
+      opts,
+    );
     if (!bind.ok) {
       const waiting =
         store.setStatus(bind.deal.id, "awaiting_counterpart") ?? bind.deal;
