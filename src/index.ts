@@ -109,12 +109,17 @@ async function main(): Promise<void> {
     );
   }
 
-  // One-shot soft: teaser ToS pinnato sul canale vouch (no force → riusa se già tracciato).
+  // Soft boot: solo re-pin se esiste vouch-tos-pin.json in DATA_DIR — mai nuovo post.
   void ensureVouchTosPin(bot.api)
     .then((r) => {
       if (r.ok) {
         console.log(
           `[vouch-tos] pin ok msg=${r.messageId} reused=${r.reused} via=${r.via}`,
+        );
+      } else if (r.reason === "no_state") {
+        console.warn(
+          `[vouch-tos] soft-boot: nessun pin tracciato — skip post. Admin: /pin_tos` +
+            (r.detail ? ` (${r.detail})` : ""),
         );
       } else if (r.reason !== "no_channel") {
         console.warn(

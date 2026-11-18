@@ -58,7 +58,7 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 
 Documentazione: [`docs/TOS.md`](./docs/TOS.md) (Termini; Mini App `/tos`) · [`docs/solana-escrow.md`](./docs/solana-escrow.md) · [`docs/bot-created-groups.md`](./docs/bot-created-groups.md).
 
-**ToS in Telegram:** «Leggi i Termini» apre una **Web App** (`web_app`) su `/tos`. Sul canale vouch: teaser corto pinnato (boot soft + admin `/pin_tos`). Dopo Manual Deploy imposta `PUBLIC_BASE_URL` se non c’è già `RENDER_EXTERNAL_URL`.
+**ToS in Telegram:** «Leggi i Termini» apre una **Web App** (`web_app`) su `/tos`. Sul canale vouch: teaser corto pinnato — al boot solo re-pin se esiste `DATA_DIR/vouch-tos-pin.json` (mai un nuovo post); creare/sostituire solo con admin `/pin_tos`. Dopo Manual Deploy imposta `PUBLIC_BASE_URL` se non c’è già `RENDER_EXTERNAL_URL`.
 
 ## Avvio (polling)
 
