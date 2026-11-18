@@ -43,8 +43,10 @@ export interface SessionData {
   inviteEphemeralIds?: number[];
   /** Codice invito da deep-link `/start invito_CODE` (applicato dopo @). */
   pendingInviteCode?: string;
-  /** Ultimo messaggio lista `/miei` (edit al posto di stack). */
+  /** Ultimo messaggio lista `/miei` (delete+repost, no stack). */
   mieiListMessageId?: number;
+  /** Echo utente `/miei` o «I miei deal» (cancellato al prossimo /miei). */
+  mieiUserCommandMessageId?: number;
   /**
    * Messaggi errore wizard termini DM (prezzo/corto) da cancellare
    * al prossimo step valido.

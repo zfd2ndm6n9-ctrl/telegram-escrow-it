@@ -105,14 +105,15 @@ function plainAlert(text: string): string {
 }
 
 /**
- * Ruolo sbagliato su bottone inline: alert (o toast) e stop.
- * Da testo/comando: messaggio ruolo in chat (replace).
+ * Ruolo sbagliato / fuori turno:
+ * - CLICK bottone: solo alert callback (niente delete, non avanza stato).
+ * - WRITE testo/comando: elimina messaggio utente (soft-fail) + reminder turno.
  */
 async function rejectWrongRole(
   ctx: BotContext,
   deal: Deal,
   text: string,
-  opts?: { alert?: boolean },
+  opts?: { alert?: boolean; deleteUserMessage?: boolean },
 ): Promise<void> {
   if (ctx.callbackQuery) {
     await ctx.answerCallbackQuery({
@@ -120,6 +121,12 @@ async function rejectWrongRole(
       show_alert: opts?.alert ?? true,
     });
     return;
+  }
+  const chatId = deal.groupChatId ?? ctx.chat?.id;
+  const msgId = ctx.message?.message_id;
+  if (opts?.deleteUserMessage !== false && chatId != null && msgId != null) {
+    ctx.dealLogs.markDeletedByBot(deal.id, msgId);
+    await deleteMessageSafe(ctx.api, chatId, msgId);
   }
   await replaceRoleError(ctx.api, ctx.store, deal, text, {
     parse_mode: "Markdown",
@@ -355,18 +362,31 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
+    // Wallet turn: qualunque testo da parte sbagliata / terzo → delete + remind.
     if (
-      deal.status !== "awaiting_seller_wallet" &&
-      deal.status !== "awaiting_buyer_wallet"
+      deal.status === "awaiting_seller_wallet" ||
+      deal.status === "awaiting_buyer_wallet"
     ) {
-      await next();
+      const expected: "seller" | "buyer" =
+        deal.status === "awaiting_seller_wallet" ? "seller" : "buyer";
+      const expectedId =
+        expected === "seller" ? deal.sellerId : deal.buyerId;
+      const isExpected =
+        expectedId != null &&
+        (ctx.from.id === expectedId || isAdminUser(ctx.from.id));
+      if (!isExpected) {
+        await rejectWrongRole(ctx, deal, it.walletWrongTurn(deal, expected));
+        return;
+      }
+      if (!isValidSolAddress(text)) {
+        await next();
+        return;
+      }
+      await applyWallet(ctx, deal, text);
       return;
     }
-    if (!isValidSolAddress(text)) {
-      await next();
-      return;
-    }
-    await applyWallet(ctx, deal, text);
+
+    await next();
   });
 }
 
@@ -376,8 +396,24 @@ async function setWallet(ctx: BotContext): Promise<void> {
     await ctx.reply(it.noDealInGroup);
     return;
   }
-  if (!isParty(deal, ctx.from.id)) {
-    await ctx.reply(it.notParty);
+
+  // Turno wallet: /wallet da parte sbagliata o terzo → delete + remind.
+  if (
+    deal.status === "awaiting_seller_wallet" ||
+    deal.status === "awaiting_buyer_wallet"
+  ) {
+    const expected: "seller" | "buyer" =
+      deal.status === "awaiting_seller_wallet" ? "seller" : "buyer";
+    const expectedId = expected === "seller" ? deal.sellerId : deal.buyerId;
+    const isExpected =
+      expectedId != null &&
+      (ctx.from.id === expectedId || isAdminUser(ctx.from.id));
+    if (!isExpected) {
+      await rejectWrongRole(ctx, deal, it.walletWrongTurn(deal, expected));
+      return;
+    }
+  } else if (!isParty(deal, ctx.from.id)) {
+    await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
 
@@ -409,7 +445,17 @@ async function applyWallet(
   const isBuyer = deal.buyerId === ctx.from.id;
   const isSeller = deal.sellerId === ctx.from.id;
   if (!isBuyer && !isSeller) {
-    await ctx.reply(it.notParty);
+    // Terzo: se siamo in turno wallet, reminder turno; altrimenti notParty.
+    if (
+      deal.status === "awaiting_seller_wallet" ||
+      deal.status === "awaiting_buyer_wallet"
+    ) {
+      const expected =
+        deal.status === "awaiting_seller_wallet" ? "seller" : "buyer";
+      await rejectWrongRole(ctx, deal, it.walletWrongTurn(deal, expected));
+      return;
+    }
+    await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
 
@@ -433,13 +479,7 @@ async function applyWallet(
   // Dopo ToS: ordine fisso seller → buyer
   if (deal.status === "awaiting_seller_wallet") {
     if (!isSeller) {
-      await replaceRoleError(
-        ctx.api,
-        ctx.store,
-        deal,
-        it.walletWrongTurn(deal, "seller"),
-        { parse_mode: "Markdown" },
-      );
+      await rejectWrongRole(ctx, deal, it.walletWrongTurn(deal, "seller"));
       return;
     }
     const updated = ctx.store.update(deal.id, {
@@ -454,13 +494,7 @@ async function applyWallet(
 
   if (deal.status === "awaiting_buyer_wallet") {
     if (!isBuyer) {
-      await replaceRoleError(
-        ctx.api,
-        ctx.store,
-        deal,
-        it.walletWrongTurn(deal, "buyer"),
-        { parse_mode: "Markdown" },
-      );
+      await rejectWrongRole(ctx, deal, it.walletWrongTurn(deal, "buyer"));
       return;
     }
     const updated = ctx.store.update(deal.id, {
@@ -483,6 +517,13 @@ async function applyWallet(
     deal.status === "released" ||
     deal.status === "refunded"
   ) {
+    // Delete tentativo /wallet fuori turno; reminder soft.
+    const chatIdLocked = deal.groupChatId ?? ctx.chat?.id;
+    const msgIdLocked = ctx.message?.message_id;
+    if (chatIdLocked != null && msgIdLocked != null) {
+      ctx.dealLogs.markDeletedByBot(deal.id, msgIdLocked);
+      await deleteMessageSafe(ctx.api, chatIdLocked, msgIdLocked);
+    }
     await replaceRoleError(
       ctx.api,
       ctx.store,
@@ -1064,13 +1105,7 @@ async function handleReviewText(
       return;
     }
     if (result.reason === "wrong_party" && who) {
-      await replaceRoleError(
-        ctx.api,
-        ctx.store,
-        deal,
-        it.reviewWrongParty(deal, who),
-        { parse_mode: "Markdown" },
-      );
+      await rejectWrongRole(ctx, deal, it.reviewWrongParty(deal, who));
       return;
     }
     return;

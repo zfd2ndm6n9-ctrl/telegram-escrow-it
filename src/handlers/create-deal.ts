@@ -35,6 +35,11 @@ import {
   isValidSolAddress,
 } from "../services/solana/index.js";
 import { requireRegistered } from "../services/registration.js";
+import {
+  clearCreatingEphemeral,
+  clearMieiUi,
+  trackCreatingEphemeral,
+} from "../services/dm-hygiene.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
 import { dismissInviteStep } from "./start.js";
 import type { Asset, Deal, PartyRole } from "../types.js";
@@ -46,22 +51,6 @@ function botCreatesGroupsEnabled(): boolean {
 function startGroupUrlForDeal(dealId: string, ctx: BotContext): string {
   const username = config.botUsername ?? ctx.botUsername ?? "ESCROWITAbot";
   return `https://t.me/${username}?startgroup=${startGroupPayload(dealId)}`;
-}
-
-/** Igiene: cancella messaggi effimeri del wizard /crea (ruolo, crypto, risposte). */
-async function clearCreatingEphemeral(ctx: BotContext): Promise<void> {
-  if (!ctx.chat || ctx.chat.type !== "private") return;
-  const ids = ctx.session.creatingEphemeralIds ?? [];
-  for (const id of ids) {
-    await deleteMessageSafe(ctx.api, ctx.chat.id, id);
-  }
-  ctx.session.creatingEphemeralIds = undefined;
-}
-
-function trackCreatingEphemeral(ctx: BotContext, messageId?: number): void {
-  if (messageId == null) return;
-  const prev = ctx.session.creatingEphemeralIds ?? [];
-  ctx.session.creatingEphemeralIds = [...prev, messageId];
 }
 
 /** Come nel gruppo: cancella domanda precedente + risposta utente, poi nuovo prompt. */
@@ -90,6 +79,8 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     }
     // Invito opzionale: non bloccare /crea; chiudi prompt senza stack
     await dismissInviteStep(ctx);
+    // Switching to crea: pulisci UI /miei pendente (simmetrico a /miei → crea)
+    await clearMieiUi(ctx);
     await clearCreatingEphemeral(ctx);
     if (ctx.message?.message_id != null) {
       await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);

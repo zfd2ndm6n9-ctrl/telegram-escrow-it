@@ -523,7 +523,7 @@ Poi: *Ho spedito*`;
 
   shipOnlySeller: (deal: Deal) => {
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
-    return `Solo ${seller} può segnare la spedizione.`;
+    return `Ora tocca a ${seller} segnare la spedizione.`;
   },
 
   alreadyShipped: (deal: Deal) =>
