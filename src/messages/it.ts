@@ -551,6 +551,21 @@ Scegli:`;
     return `Solo ${seller} può confermare il rilascio.`;
   },
 
+  /** Solo la parte ancora in attesa può premere Confermo (release/refund). */
+  onlyPendingConfirm: (deal: Deal, kind: "release" | "refund") => {
+    const votes = kind === "release" ? deal.releaseVotes : deal.refundVotes;
+    const who = mentionPendingVoter(deal, votes);
+    return kind === "release"
+      ? `Solo ${who} può confermare il rilascio.`
+      : `Solo ${who} può confermare il rimborso.`;
+  },
+
+  /** Release buyer-first: seller/comando prima del voto buyer. */
+  releaseNeedBuyerFirst: (deal: Deal) => {
+    const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    return `Prima ${buyer} deve avviare il pagamento (*Paga seller*).`;
+  },
+
   askSellerMoreInfo: (deal: Deal) => {
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
     return `${seller}: il buyer chiede altre info.`;
@@ -586,14 +601,19 @@ Scegli:`;
   markFundedAdmin: (deal: Deal) =>
     `💰 Admin: #${deal.id} forzato a *funded*.`,
 
+  /**
+   * Dual-confirm release 1/2: dopo voto buyer, tagga sempre il seller
+   * (allineato al bottone Confermo).
+   */
   releaseVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `${mentionPendingVoter(deal, deal.releaseVotes)}: conferma rilascio (1/2).`
+      ? `${mentionUser(deal.sellerUsername, deal.sellerId, "seller")}: conferma rilascio (1/2).`
       : `🔓 Rilascio in corso (#${deal.id})…`,
 
+  /** Dual-confirm refund 1/2: tagga chi deve ancora confermare. */
   refundVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `Conferma *1/2* — rimborso (#${deal.id}). Aspetta ${mentionPendingVoter(deal, deal.refundVotes)}.`
+      ? `${mentionPendingVoter(deal, deal.refundVotes)}: conferma rimborso (1/2).`
       : `↩️ Rimborso in corso (#${deal.id})…`,
 
   /** Post 2/2 pay-seller: rating breve del bot (seller poi buyer). */

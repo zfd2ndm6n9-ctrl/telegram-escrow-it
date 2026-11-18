@@ -123,6 +123,11 @@ export function sellerConfirmPayKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo", "seller_confirm_pay");
 }
 
+/** Dual-confirm refund: la parte in attesa preme Confermo. */
+export function refundConfirmKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("✅ Confermo", "confirm_refund");
+}
+
 /** Sotto il messaggio di rilascio: mostra solo la signature. */
 export function payoutHashKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("Hash", "show_hash");
