@@ -12,6 +12,7 @@ import {
   isMtprotoHelperConfigured,
   stopMtprotoHelper,
 } from "./services/mtproto-helper.js";
+import { startGroupBindExpiryWatcher } from "./services/group-bind-expiry.js";
 import { startUsernameRefresh } from "./services/username-refresh.js";
 import { ensureVouchTosPin } from "./services/vouch-tos-pin.js";
 
@@ -154,6 +155,7 @@ async function main(): Promise<void> {
       : 20_000,
   );
 
+  const groupBindExpiry = startGroupBindExpiryWatcher(store, bot.api, 30_000);
   const usernameRefresh = startUsernameRefresh(bot.api, store, members, 60_000);
 
   const allowed_updates = [
@@ -167,6 +169,7 @@ async function main(): Promise<void> {
 
   const stop = async () => {
     watcher.stop();
+    groupBindExpiry.stop();
     usernameRefresh.stop();
     await stopMtprotoHelper();
     await bot.stop();

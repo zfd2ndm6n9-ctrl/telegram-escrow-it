@@ -54,6 +54,35 @@ export function findOpenTermsDeal(
 /** @deprecated alias → findOpenTermsDeal */
 export const findOpenSellerTermsDeal = findOpenTermsDeal;
 
+/**
+ * Cancella riepilogo + prompt termini in DM (fine wizard → istruzioni gruppo, o annulla).
+ */
+export async function clearDmTermsUi(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+  proposerChatId: number,
+): Promise<Deal> {
+  if (deal.dmTermsPromptMessageId != null) {
+    await deleteMessageSafe(api, proposerChatId, deal.dmTermsPromptMessageId);
+  }
+  if (deal.dmTermsSummaryMessageId != null) {
+    await deleteMessageSafe(api, proposerChatId, deal.dmTermsSummaryMessageId);
+  }
+  if (
+    deal.dmTermsPromptMessageId == null &&
+    deal.dmTermsSummaryMessageId == null
+  ) {
+    return deal;
+  }
+  return (
+    store.update(deal.id, {
+      dmTermsPromptMessageId: undefined,
+      dmTermsSummaryMessageId: undefined,
+    }) ?? deal
+  );
+}
+
 /** Upsert del riepilogo vivente in DM del proponente. */
 export async function upsertDmTermsSummary(
   api: Api,

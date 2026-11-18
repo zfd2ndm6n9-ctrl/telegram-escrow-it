@@ -185,14 +185,21 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
 
     // Path felice: bot aggiunto a gruppo — collega deal di creator o party.
+    // Passa chat.id: non rubare un deal già bound a un altro gruppo (multi-deal).
     const pending =
-      ctx.store.findAwaitingGroupByCreator(update.from.id) ??
-      ctx.store.findAwaitingGroupByParty(update.from.id);
+      ctx.store.findAwaitingGroupByCreator(update.from.id, chat.id) ??
+      ctx.store.findAwaitingGroupByParty(update.from.id, chat.id);
     if (pending && pending.groupChatId == null) {
+      const instructionsId = pending.dmGroupInstructionsMessageId;
       ctx.store.update(pending.id, {
         groupChatId: chat.id,
         status: "awaiting_bot_admin",
+        awaitingGroupExpiresAt: undefined,
+        dmGroupInstructionsMessageId: undefined,
       });
+      if (instructionsId != null) {
+        await deleteMessageSafe(ctx.api, pending.creatorId, instructionsId);
+      }
       trackSeenGroupUser(
         ctx.store,
         ctx.store.get(pending.id) ?? pending,
@@ -236,9 +243,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     let deal = existing;
     if (!deal) {
+      // Esclude deal già bound ad altri gruppi (stesso amico / multi-deal OK).
       deal =
-        ctx.store.findAwaitingGroupByCreator(ctx.from.id) ??
-        ctx.store.findAwaitingGroupByParty(ctx.from.id);
+        ctx.store.findAwaitingGroupByCreator(ctx.from.id, ctx.chat.id) ??
+        ctx.store.findAwaitingGroupByParty(ctx.from.id, ctx.chat.id);
     }
 
     if (!deal) {
@@ -252,7 +260,9 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
 
     if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
-      await ctx.reply(it.alreadyBound);
+      await ctx.reply(it.alreadyBoundElsewhere(deal), {
+        parse_mode: "Markdown",
+      });
       return;
     }
 
@@ -611,7 +621,9 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         }
 
         if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
-          await ctx.reply(it.alreadyBound);
+          await ctx.reply(it.alreadyBoundElsewhere(deal), {
+            parse_mode: "Markdown",
+          });
           return;
         }
 
@@ -619,10 +631,16 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           canRunAvvia(deal, ctx.from.id) &&
           deal.groupChatId == null
         ) {
+          const instructionsId = deal.dmGroupInstructionsMessageId;
           ctx.store.update(deal.id, {
             groupChatId: ctx.chat.id,
             status: "awaiting_bot_admin",
+            awaitingGroupExpiresAt: undefined,
+            dmGroupInstructionsMessageId: undefined,
           });
+          if (instructionsId != null) {
+            await deleteMessageSafe(ctx.api, deal.creatorId, instructionsId);
+          }
         }
 
         trackSeenGroupUser(
