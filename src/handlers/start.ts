@@ -92,7 +92,10 @@ async function askInviteOptional(ctx: BotContext): Promise<void> {
   ctx.session.invitePromptMessageId = msg.message_id;
 }
 
-/** Skip invito solo se l'utente era in attesa (tap bottone o /skip). */
+/**
+ * Skip invito solo se l'utente era in attesa (tap bottone o /skip).
+ * Silenzioso: cancella il prompt, niente «Ok, nessun codice.»
+ */
 async function completeInviteSkip(
   ctx: BotContext,
   opts?: { userMessageId?: number },
@@ -104,7 +107,6 @@ async function completeInviteSkip(
     await deleteMessageSafe(ctx.api, ctx.chat.id, userMsgId);
   }
   ctx.session.awaitingInviteCode = undefined;
-  await ctx.reply(it.inviteSkipped, { reply_markup: mainMenuKeyboard() });
   return true;
 }
 

@@ -43,6 +43,13 @@ export interface SessionData {
   inviteEphemeralIds?: number[];
   /** Codice invito da deep-link `/start invito_CODE` (applicato dopo @). */
   pendingInviteCode?: string;
+  /** Ultimo messaggio lista `/miei` (edit al posto di stack). */
+  mieiListMessageId?: number;
+  /**
+   * Messaggi errore wizard termini DM (prezzo/corto) da cancellare
+   * al prossimo step valido.
+   */
+  termsErrorMessageIds?: number[];
 }
 
 export type BotContext = Context &

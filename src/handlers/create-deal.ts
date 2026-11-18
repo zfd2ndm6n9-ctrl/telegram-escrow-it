@@ -264,13 +264,29 @@ async function handlePrivateTermsReply(
   );
 
   if (!result.ok) {
+    // Igiene: cancella subito la risposta invalida (es. «ciao» al prezzo).
+    if (ctx.message?.message_id != null) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+    }
+    let errText: string | undefined;
     if (result.reason === "price") {
-      await ctx.reply(it.dmTermsInvalidPrice, { parse_mode: "Markdown" });
+      errText = it.dmTermsInvalidPrice;
     } else if (result.reason === "short" || result.reason === "empty") {
-      await ctx.reply(it.dmTermsTooShort, { parse_mode: "Markdown" });
+      errText = it.dmTermsTooShort;
+    }
+    if (errText) {
+      const err = await ctx.reply(errText, { parse_mode: "Markdown" });
+      const prev = ctx.session.termsErrorMessageIds ?? [];
+      ctx.session.termsErrorMessageIds = [...prev, err.message_id];
     }
     return true;
   }
+
+  // Step valido: togli errori prezzo/corto precedenti.
+  for (const id of ctx.session.termsErrorMessageIds ?? []) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, id);
+  }
+  ctx.session.termsErrorMessageIds = undefined;
 
   if (!result.done && result.nextStep) {
     ctx.session.termsQa = { dealId, step: result.nextStep };
