@@ -2,6 +2,7 @@ import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { it, statusLabel } from "../messages/it.js";
 import { mainMenuKeyboard } from "../keyboards/menus.js";
+import { cancelMidCreaBeforeGroupBind } from "../services/dm-hygiene.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
 import { dismissInviteStep } from "./start.js";
 
@@ -30,23 +31,32 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
     if (!ctx.from) return;
     await dismissInviteStep(ctx);
 
+    // Mid /crea prima di «aggiungi bot»: cancella sequenza e mostra /miei.
+    await cancelMidCreaBeforeGroupBind(ctx);
+
+    // No stack: elimina echo /miei precedente + risposta bot precedente.
+    const prevUserId = ctx.session.mieiUserCommandMessageId;
+    const prevBotId = ctx.session.mieiListMessageId;
+    const thisUserId = ctx.message?.message_id;
+    ctx.session.mieiUserCommandMessageId = undefined;
+    ctx.session.mieiListMessageId = undefined;
+
+    if (prevUserId != null && prevUserId !== thisUserId) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, prevUserId);
+    }
+    if (prevBotId != null) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, prevBotId);
+    }
+    // Echo corrente (/miei o tastiera): cancella se possibile (come /crea).
+    if (thisUserId != null) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, thisUserId);
+      // Se delete fallisce, il prossimo /miei ritenta via session.
+      ctx.session.mieiUserCommandMessageId = thisUserId;
+    }
+
     // Solo conclusi (released / refunded): i deal aperti vivono nel gruppo.
     const deals = ctx.store.listConcludedForUser(ctx.from.id);
     const { text, parseMarkdown } = concludedListBody(deals);
-    const prevId = ctx.session.mieiListMessageId;
-
-    if (prevId != null) {
-      try {
-        await ctx.api.editMessageText(ctx.chat.id, prevId, text, {
-          parse_mode: parseMarkdown ? "Markdown" : undefined,
-        });
-        return;
-      } catch {
-        // Messaggio assente / non editabile → elimina e ripubblica.
-        await deleteMessageSafe(ctx.api, ctx.chat.id, prevId);
-        ctx.session.mieiListMessageId = undefined;
-      }
-    }
 
     const msg = await ctx.reply(text, {
       parse_mode: parseMarkdown ? "Markdown" : undefined,
