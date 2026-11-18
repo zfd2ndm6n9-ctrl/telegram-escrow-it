@@ -144,6 +144,7 @@ Entra, poi *Ho entrato* o \`/start\`.`,
   inviteUsage: "Uso: `/invito CODICE`.",
 
   /** Solo dopo tap «Nessun codice» / `/skip` esplicito mentre in attesa invito. */
+  /** @deprecated Skip invito è silenzioso (cancella prompt, niente ack). */
   inviteSkipped: "Ok, nessun codice.",
 
   /** Gruppo leftover dopo wipe admin. */

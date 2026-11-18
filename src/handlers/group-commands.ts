@@ -95,6 +95,46 @@ function depositUnlocked(deal: Deal): boolean {
   );
 }
 
+/** Testo alert callback (max 200, senza Markdown). */
+function plainAlert(text: string): string {
+  return text
+    .replace(/[*_`[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
+/**
+ * Ruolo sbagliato su bottone inline: alert (o toast) e stop.
+ * Da testo/comando: messaggio ruolo in chat (replace).
+ */
+async function rejectWrongRole(
+  ctx: BotContext,
+  deal: Deal,
+  text: string,
+  opts?: { alert?: boolean },
+): Promise<void> {
+  if (ctx.callbackQuery) {
+    await ctx.answerCallbackQuery({
+      text: plainAlert(text),
+      show_alert: opts?.alert ?? true,
+    });
+    return;
+  }
+  await replaceRoleError(ctx.api, ctx.store, deal, text, {
+    parse_mode: "Markdown",
+  });
+}
+
+async function answerCbOk(ctx: BotContext): Promise<void> {
+  if (!ctx.callbackQuery) return;
+  try {
+    await ctx.answerCallbackQuery();
+  } catch {
+    // già risposto
+  }
+}
+
 export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   bot.command("indirizzo", async (ctx) => {
     const deal = await requireGroupDeal(ctx);
@@ -171,13 +211,19 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
 
   bot.callbackQuery("addr", async (ctx) => {
     const deal = await requireGroupDeal(ctx);
-    if (!deal) {
+    if (!deal || !ctx.from) {
       await ctx.answerCallbackQuery({ text: "Nessun deal" });
+      return;
+    }
+    if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.notParty),
+        show_alert: true,
+      });
       return;
     }
     if (!depositUnlocked(deal)) {
       await ctx.answerCallbackQuery({ text: "Non ancora" });
-      await ctx.reply(it.notReadyForDeposit);
       return;
     }
     await ctx.answerCallbackQuery();
@@ -188,65 +234,87 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   });
 
   bot.callbackQuery("funded", async (ctx) => {
+    const deal = await requireGroupDeal(ctx);
+    if (!deal || !ctx.from) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+      return;
+    }
+    if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.notParty),
+        show_alert: true,
+      });
+      return;
+    }
     await ctx.answerCallbackQuery();
     await verifyDeposit(ctx, { ephemeral: true });
   });
 
   // Legacy callback id: redirect silenzioso (niente label UI).
   bot.callbackQuery("pay_seller", async (ctx) => {
-    await ctx.answerCallbackQuery();
     await handlePayOrRefund(ctx, "release");
   });
 
   bot.callbackQuery("refund_buyer", async (ctx) => {
-    await ctx.answerCallbackQuery();
     await handlePayOrRefund(ctx, "refund");
   });
 
   bot.callbackQuery("shipped", async (ctx) => {
-    await ctx.answerCallbackQuery();
     await handleSellerShipped(ctx);
   });
 
   bot.callbackQuery("buyer_pay", async (ctx) => {
-    await ctx.answerCallbackQuery();
     await handleBuyerPay(ctx);
   });
 
   bot.callbackQuery("buyer_info", async (ctx) => {
-    await ctx.answerCallbackQuery();
     await handleBuyerMoreInfo(ctx);
   });
 
   bot.callbackQuery("buyer_dispute", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await openDispute(ctx, { ephemeral: true });
+    await openDispute(ctx, { ephemeral: true, buyerOnly: true });
   });
 
   bot.callbackQuery("seller_confirm_pay", async (ctx) => {
-    await ctx.answerCallbackQuery();
     await handleSellerConfirmPay(ctx);
   });
 
   bot.callbackQuery("confirm_refund", async (ctx) => {
-    await ctx.answerCallbackQuery();
     await handleConfirmRefund(ctx);
   });
 
   bot.callbackQuery("show_hash", async (ctx) => {
+    const deal = await requireGroupDeal(ctx);
+    if (!deal || !ctx.from) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+      return;
+    }
+    if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.notParty),
+        show_alert: true,
+      });
+      return;
+    }
     await ctx.answerCallbackQuery();
     await handleShowHash(ctx);
   });
 
   bot.callbackQuery("dispute", async (ctx) => {
-    await ctx.answerCallbackQuery();
     await openDispute(ctx, { ephemeral: true });
   });
 
   bot.callbackQuery("stato", async (ctx) => {
     const deal = await requireGroupDeal(ctx);
-    if (!deal) {
+    if (!deal || !ctx.from) {
       await ctx.answerCallbackQuery({ text: "Nessun deal" });
+      return;
+    }
+    if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.notParty),
+        show_alert: true,
+      });
       return;
     }
     await ctx.answerCallbackQuery();
@@ -733,11 +801,16 @@ async function handlePayOrRefund(
 ): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
-    await ctx.reply(it.noDealInGroup);
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
     return;
   }
 
   if (deal.status === "disputed" && isAdminUser(ctx.from.id)) {
+    await answerCbOk(ctx);
     await runPayout(ctx, deal, kind);
     return;
   }
@@ -746,12 +819,16 @@ async function handlePayOrRefund(
   const voterId = opts?.asUserId ?? ctx.from.id;
 
   if (!isParty(deal, voterId) && !isParty(deal, ctx.from.id)) {
-    await ctx.reply(it.notParty);
+    await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
 
   if (!deal.buyerId || !deal.sellerId) {
-    await ctx.reply("Mancano ancora buyer o seller nel deal.");
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Mancano buyer o seller" });
+    } else {
+      await ctx.reply("Mancano ancora buyer o seller nel deal.");
+    }
     return;
   }
 
@@ -760,6 +837,7 @@ async function handlePayOrRefund(
     (kind === "release" && deal.status === "refund_pending") ||
     (kind === "refund" && deal.status === "release_pending")
   ) {
+    await answerCbOk(ctx);
     await replaceActionReply(
       ctx.api,
       ctx.store,
@@ -779,20 +857,35 @@ async function handlePayOrRefund(
       : ["funded", "refund_pending"];
 
   if (!allowed.includes(deal.status)) {
-    await ctx.reply(it.wrongStatus(deal.status));
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.wrongStatus(deal.status)),
+        show_alert: true,
+      });
+    } else {
+      await ctx.reply(it.wrongStatus(deal.status));
+    }
     return;
   }
 
   const dest = kind === "release" ? deal.sellerWallet : deal.buyerWallet;
   if (!dest) {
-    await ctx.reply(it.needWallet(kind === "release" ? "seller" : "buyer"), {
-      parse_mode: "Markdown",
-    });
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.needWallet(kind === "release" ? "seller" : "buyer")),
+        show_alert: true,
+      });
+    } else {
+      await ctx.reply(it.needWallet(kind === "release" ? "seller" : "buyer"), {
+        parse_mode: "Markdown",
+      });
+    }
     return;
   }
 
   const lockKey = `${deal.id}:${kind}:${voterId}`;
   if (voteInFlight.has(lockKey)) {
+    await answerCbOk(ctx);
     return;
   }
   voteInFlight.add(lockKey);
@@ -805,6 +898,7 @@ async function handlePayOrRefund(
       latest.status === "released" ||
       latest.status === "refunded"
     ) {
+      await answerCbOk(ctx);
       await ctx.reply(it.payoutAlreadyDone(latest), { parse_mode: "Markdown" });
       return;
     }
@@ -812,6 +906,7 @@ async function handlePayOrRefund(
       (kind === "release" && latest.status === "refund_pending") ||
       (kind === "refund" && latest.status === "release_pending")
     ) {
+      await answerCbOk(ctx);
       await replaceActionReply(
         ctx.api,
         ctx.store,
@@ -829,7 +924,14 @@ async function handlePayOrRefund(
         ? ["funded", "release_pending"]
         : ["funded", "refund_pending"];
     if (!allowedNow.includes(latest.status)) {
-      await ctx.reply(it.wrongStatus(latest.status));
+      if (ctx.callbackQuery) {
+        await ctx.answerCallbackQuery({
+          text: plainAlert(it.wrongStatus(latest.status)),
+          show_alert: true,
+        });
+      } else {
+        await ctx.reply(it.wrongStatus(latest.status));
+      }
       return;
     }
 
@@ -842,11 +944,13 @@ async function handlePayOrRefund(
       prevVotes.length >= 2 &&
       !latest.payoutCompleted
     ) {
+      await answerCbOk(ctx);
       await afterReleaseVotesReady(ctx, latest);
       return;
     }
 
     if (prevVotes.includes(voterId)) {
+      await answerCbOk(ctx);
       await replaceActionReply(
         ctx.api,
         ctx.store,
@@ -864,13 +968,7 @@ async function handlePayOrRefund(
       !prevVotes.includes(latest.buyerId) &&
       voterId !== latest.buyerId
     ) {
-      await replaceRoleError(
-        ctx.api,
-        ctx.store,
-        latest,
-        it.releaseNeedBuyerFirst(latest),
-        { parse_mode: "Markdown" },
-      );
+      await rejectWrongRole(ctx, latest, it.releaseNeedBuyerFirst(latest));
       return;
     }
 
@@ -878,16 +976,12 @@ async function handlePayOrRefund(
     if (prevVotes.length === 1) {
       const expectedId = pendingVoterId(latest, prevVotes);
       if (expectedId != null && voterId !== expectedId) {
-        await replaceRoleError(
-          ctx.api,
-          ctx.store,
-          latest,
-          it.onlyPendingConfirm(latest, kind),
-          { parse_mode: "Markdown" },
-        );
+        await rejectWrongRole(ctx, latest, it.onlyPendingConfirm(latest, kind));
         return;
       }
     }
+
+    await answerCbOk(ctx);
 
     const votes = addUniqueVote(prevVotes, voterId);
     const pendingStatus =
@@ -1000,23 +1094,29 @@ async function handleSellerShipped(
 ): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
-    await ctx.reply(it.noDealInGroup);
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
     return;
   }
   if (deal.sellerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
-    await replaceRoleError(
-      ctx.api,
-      ctx.store,
-      deal,
-      it.shipOnlySeller(deal),
-      { parse_mode: "Markdown" },
-    );
+    await rejectWrongRole(ctx, deal, it.shipOnlySeller(deal));
     return;
   }
   if (deal.status !== "funded" && deal.status !== "release_pending") {
-    await ctx.reply(it.wrongStatus(deal.status));
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.wrongStatus(deal.status)),
+        show_alert: true,
+      });
+    } else {
+      await ctx.reply(it.wrongStatus(deal.status));
+    }
     return;
   }
+  await answerCbOk(ctx);
   if (deal.sellerShippedAt) {
     // Idempotente: ripubblica CTA buyer se serve.
     await postBuyerAfterShip(ctx.api, ctx.store, deal);
@@ -1046,35 +1146,32 @@ async function handleSellerShipped(
 async function handleBuyerPay(ctx: BotContext): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
-    await ctx.reply(it.noDealInGroup);
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
     return;
   }
   if (deal.buyerId == null) {
-    await ctx.reply("Mancano ancora buyer o seller nel deal.");
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Mancano buyer o seller" });
+    } else {
+      await ctx.reply("Mancano ancora buyer o seller nel deal.");
+    }
     return;
   }
   if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
-    await replaceRoleError(
-      ctx.api,
-      ctx.store,
-      deal,
-      it.buyerOnlyPay(deal),
-      { parse_mode: "Markdown" },
-    );
+    await rejectWrongRole(ctx, deal, it.buyerOnlyPay(deal));
     return;
   }
   if (!deal.sellerShippedAt && deal.status === "funded") {
-    await replaceRoleError(
-      ctx.api,
-      ctx.store,
-      deal,
-      it.needShipFirst(deal),
-      { parse_mode: "Markdown" },
-    );
+    await rejectWrongRole(ctx, deal, it.needShipFirst(deal));
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
   // Admin proxy: attribuisci il voto al buyer, non all'admin id.
+  // handlePayOrRefund risponde al callback.
   await handlePayOrRefund(ctx, "release", { asUserId: deal.buyerId });
 }
 
@@ -1082,31 +1179,27 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
 async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
-    await ctx.reply(it.noDealInGroup);
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
     return;
   }
   if (deal.sellerId == null || deal.buyerId == null) {
-    await ctx.reply("Mancano ancora buyer o seller nel deal.");
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Mancano buyer o seller" });
+    } else {
+      await ctx.reply("Mancano ancora buyer o seller nel deal.");
+    }
     return;
   }
   if (!buyerHasReleaseVote(deal)) {
-    await replaceRoleError(
-      ctx.api,
-      ctx.store,
-      deal,
-      it.releaseNeedBuyerFirst(deal),
-      { parse_mode: "Markdown" },
-    );
+    await rejectWrongRole(ctx, deal, it.releaseNeedBuyerFirst(deal));
     return;
   }
   if (deal.sellerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
-    await replaceRoleError(
-      ctx.api,
-      ctx.store,
-      deal,
-      it.onlyPendingConfirm(deal, "release"),
-      { parse_mode: "Markdown" },
-    );
+    await rejectWrongRole(ctx, deal, it.onlyPendingConfirm(deal, "release"));
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
@@ -1118,11 +1211,16 @@ async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
 async function handleConfirmRefund(ctx: BotContext): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
-    await ctx.reply(it.noDealInGroup);
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
     return;
   }
   const expectedId = pendingVoterId(deal, deal.refundVotes);
   if (expectedId == null) {
+    await answerCbOk(ctx);
     if (deal.refundVotes.includes(ctx.from.id) || isAdminUser(ctx.from.id)) {
       await replaceActionReply(
         ctx.api,
@@ -1135,13 +1233,7 @@ async function handleConfirmRefund(ctx: BotContext): Promise<void> {
     return;
   }
   if (ctx.from.id !== expectedId && !isAdminUser(ctx.from.id)) {
-    await replaceRoleError(
-      ctx.api,
-      ctx.store,
-      deal,
-      it.onlyPendingConfirm(deal, "refund"),
-      { parse_mode: "Markdown" },
-    );
+    await rejectWrongRole(ctx, deal, it.onlyPendingConfirm(deal, "refund"));
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
@@ -1151,19 +1243,18 @@ async function handleConfirmRefund(ctx: BotContext): Promise<void> {
 async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
-    await ctx.reply(it.noDealInGroup);
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
     return;
   }
   if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
-    await replaceRoleError(
-      ctx.api,
-      ctx.store,
-      deal,
-      it.buyerOnlyPay(deal),
-      { parse_mode: "Markdown" },
-    );
+    await rejectWrongRole(ctx, deal, it.buyerOnlyPay(deal));
     return;
   }
+  await answerCbOk(ctx);
   // Avvisa seller; CTA buyer restano (replace sullo stesso slot).
   await replaceActionReply(
     ctx.api,
@@ -1226,22 +1317,37 @@ async function replyBlockchain(ctx: BotContext): Promise<void> {
 
 export async function openDispute(
   ctx: BotContext,
-  opts?: { ephemeral?: boolean },
+  opts?: { ephemeral?: boolean; buyerOnly?: boolean },
 ): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
-    await ctx.reply(it.noDealInGroup);
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
     return;
   }
-  if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
-    await ctx.reply(it.notParty);
+  if (opts?.buyerOnly) {
+    if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
+      await rejectWrongRole(ctx, deal, it.buyerOnlyPay(deal));
+      return;
+    }
+  } else if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
+    await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
 
   if (deal.groupChatId == null) {
-    await ctx.reply(it.noDealInGroup);
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
     return;
   }
+
+  await answerCbOk(ctx);
 
   let adminLink = deal.adminInviteLink;
   if (!adminLink) {

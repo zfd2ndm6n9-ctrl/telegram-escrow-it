@@ -84,6 +84,57 @@ function canRunAvvia(
   return missingBuyer || missingSeller;
 }
 
+type AvviaRunner = {
+  runnerId: number;
+  runnerUsername?: string;
+  runnerDisplayName?: string;
+};
+
+/**
+ * Dopo promozione admin (o bot già admin al join): riprendi startDealInGroup
+ * senza chiedere un secondo /avvia. Cancella hint permessi.
+ */
+async function resumeAvviaAfterAdmin(
+  ctx: BotContext,
+  deal: Parameters<typeof startDealInGroup>[2],
+  chatId: number,
+  runner: AvviaRunner,
+): Promise<void> {
+  const { deal: started, perms, autoBind } = await startDealInGroup(
+    ctx.api,
+    ctx.store,
+    deal,
+    chatId,
+    runner,
+  );
+
+  if (!perms.ok) {
+    await sendTrackedPrompt(
+      ctx.api,
+      ctx.store,
+      started,
+      adminPermsMessage(perms),
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
+  if (autoBind) {
+    if (autoBind === "too_many") {
+      await sendTrackedPrompt(
+        ctx.api,
+        ctx.store,
+        started,
+        autoBindReply(autoBind, started),
+        { parse_mode: "Markdown" },
+      );
+    }
+    return;
+  }
+
+  await clearBotPrompts(ctx.api, ctx.store, started);
+}
+
 async function onHumanJoined(
   ctx: BotContext,
   chatId: number,
@@ -182,6 +233,12 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       status === "member" || status === "administrator" || status === "restricted";
     if (!joined) return;
 
+    const runner = {
+      runnerId: update.from.id,
+      runnerUsername: update.from.username,
+      runnerDisplayName: displayNameOf(update.from),
+    };
+
     const already = ctx.store.findByGroupChatId(chat.id);
     if (already) {
       if (status === "administrator") {
@@ -199,10 +256,16 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
             );
           }
         } else {
-          // Domanda admin «risposta»: cancella hint, card/deal restano.
+          // Permessi ok: togli hint «need admin» e riprendi /avvia se in attesa.
           let current = ctx.store.get(already.id) ?? already;
           current = await clearBotPrompts(ctx.api, ctx.store, current);
-          void current;
+          if (
+            current.status === "awaiting_bot_admin" ||
+            current.status === "awaiting_group" ||
+            current.status === "awaiting_counterpart"
+          ) {
+            await resumeAvviaAfterAdmin(ctx, current, chat.id, runner);
+          }
         }
       }
       console.log(`Bot in chat ${chat.id} (deal #${already.id} già collegato)`);
@@ -232,6 +295,28 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         ctx.store.get(pending.id) ?? pending,
         update.from.id,
       );
+    }
+
+    const bound = ctx.store.findByGroupChatId(chat.id);
+    // Già admin con permessi: riprendi subito (niente doppio /avvia).
+    if (bound && status === "administrator") {
+      await hardenGroupPermissions(ctx.api, chat.id);
+      const perms = await checkRequiredBotAdminPerms(ctx.api, chat.id);
+      if (perms.ok) {
+        const current = ctx.store.get(bound.id) ?? bound;
+        await resumeAvviaAfterAdmin(ctx, current, chat.id, runner);
+        console.log(`Bot admin in chat ${chat.id}; /avvia ripreso auto`);
+        return;
+      }
+      await sendTrackedPrompt(
+        ctx.api,
+        ctx.store,
+        bound,
+        adminPermsMessage(perms),
+        { parse_mode: "Markdown" },
+      );
+      console.log(`Bot in chat ${chat.id}; permessi admin incompleti`);
+      return;
     }
 
     await ctx.api.sendMessage(chat.id, it.botAddedHint, {
@@ -474,14 +559,18 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
     if (!isParty(deal, ctx.from.id)) {
-      await ctx.answerCallbackQuery({ text: "Non sei parte" });
-      await ctx.reply(it.notParty);
+      await ctx.answerCallbackQuery({
+        text: "Solo buyer/seller del deal.",
+        show_alert: true,
+      });
       return;
     }
     // Chi ha proposto non può accettare la propria card
     if (isTermsProposer(deal, ctx.from.id)) {
-      await ctx.answerCallbackQuery({ text: "Sei il proponente" });
-      await ctx.reply(it.tosProposerCannotAccept, { parse_mode: "Markdown" });
+      await ctx.answerCallbackQuery({
+        text: "Sei il proponente: aspetta la controparte.",
+        show_alert: true,
+      });
       return;
     }
 
@@ -565,13 +654,17 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
     if (!isParty(deal, ctx.from.id)) {
-      await ctx.answerCallbackQuery({ text: "Non sei parte" });
-      await ctx.reply(it.notParty);
+      await ctx.answerCallbackQuery({
+        text: "Solo buyer/seller del deal.",
+        show_alert: true,
+      });
       return;
     }
     if (isTermsProposer(deal, ctx.from.id) && termsReadyForConfirm(deal)) {
-      await ctx.answerCallbackQuery({ text: "Sei il proponente" });
-      await ctx.reply(it.tosProposerCannotAccept, { parse_mode: "Markdown" });
+      await ctx.answerCallbackQuery({
+        text: "Sei il proponente: aspetta la controparte.",
+        show_alert: true,
+      });
       return;
     }
 
@@ -616,8 +709,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
     if (!isParty(deal, ctx.from.id)) {
-      await ctx.answerCallbackQuery({ text: "Non sei parte" });
-      await ctx.reply(it.amountOnlyParties);
+      await ctx.answerCallbackQuery({
+        text: "Solo buyer/seller del deal.",
+        show_alert: true,
+      });
       return;
     }
 

@@ -49,5 +49,5 @@ export function vouchJoinKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .url("Entra nel canale", vouchInviteLink())
     .row()
-    .text("Ho entrato", "vouch_joined");
+    .text("Sono entrato", "vouch_joined");
 }
