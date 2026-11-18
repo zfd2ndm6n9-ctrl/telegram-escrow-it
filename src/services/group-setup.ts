@@ -23,6 +23,10 @@ import {
 } from "./deal-logic.js";
 import { startTermsWizard } from "./dm-terms.js";
 import {
+  remapDealGroupChatId,
+  resolveLiveChatId,
+} from "./group-chat-remap.js";
+import {
   clearEphemeralReplies,
   clearRoleError,
   deleteMessageSafe,
@@ -455,6 +459,9 @@ export async function autoBindCounterpart(
 /**
  * Collega il gruppo al deal solo se i permessi admin obbligatori sono ok.
  * Altrimenti lascia awaiting_bot_admin e non avvia escrow.
+ *
+ * Dopo title/photo Telegram può migrare group→supergroup (nuovo chat id):
+ * risolviamo l'id live prima di persistere `groupChatId`.
  */
 export async function bindGroupToDeal(
   api: Api,
@@ -465,9 +472,10 @@ export async function bindGroupToDeal(
   const perms = await checkRequiredBotAdminPerms(api, chatId);
 
   if (!perms.ok) {
+    const liveId = await resolveLiveChatId(api, chatId);
     let updated =
       store.update(deal.id, {
-        groupChatId: chatId,
+        groupChatId: liveId,
         status: "awaiting_bot_admin",
         awaitingGroupExpiresAt: undefined,
       }) ?? deal;
@@ -482,25 +490,48 @@ export async function bindGroupToDeal(
   }
 
   // Foto branding una sola volta (non a ogni rename / /avvia).
+  // setChatPhoto su basic group spesso triggera migrazione → nuovo id.
   let groupPhotoSetAt = deal.groupPhotoSetAt;
   if (!groupPhotoSetAt) {
-    const ok = await ensureEscrowitaGroupPhoto(api, chatId);
-    if (ok) {
-      groupPhotoSetAt = new Date().toISOString();
+    const chat = await api.getChat(chatId).catch(() => null);
+    if (chat?.type === "supergroup") {
+      const ok = await ensureEscrowitaGroupPhoto(api, chatId);
+      if (ok) {
+        groupPhotoSetAt = new Date().toISOString();
+      }
+    } else {
+      // Basic group: prova comunque (migrazione gestita sotto + handler migrate_*).
+      const ok = await ensureEscrowitaGroupPhoto(api, chatId);
+      if (ok) {
+        groupPhotoSetAt = new Date().toISOString();
+      }
     }
+  }
+
+  const liveId = await resolveLiveChatId(api, chatId);
+  if (liveId !== chatId) {
+    console.log(
+      `bindGroupToDeal #${deal.id}: chat migrated ${chatId} → ${liveId}`,
+    );
   }
 
   const nextStatus = resolveBoundStatus(deal);
 
   let updated =
     store.update(deal.id, {
-      groupChatId: chatId,
+      groupChatId: liveId,
       status: nextStatus,
       awaitingGroupExpiresAt: undefined,
       ...(groupPhotoSetAt && groupPhotoSetAt !== deal.groupPhotoSetAt
         ? { groupPhotoSetAt }
         : {}),
     }) ?? deal;
+
+  // Se un altro record aveva ancora il vecchio id (race migrate handler), allinea.
+  if (liveId !== chatId) {
+    remapDealGroupChatId(store, chatId, liveId);
+    updated = store.get(deal.id) ?? updated;
+  }
 
   updated = await clearAwaitingGroupDmHints(api, store, updated);
 

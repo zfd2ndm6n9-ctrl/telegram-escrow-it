@@ -37,6 +37,7 @@ import {
   expectedReviewer,
   reviewsPending,
 } from "../services/reviews.js";
+import { healMigratedGroupDeal } from "../services/group-chat-remap.js";
 import {
   checkDealDeposit,
   classifyPayoutError,
@@ -60,11 +61,23 @@ function isShipConfirmText(raw: string): boolean {
   );
 }
 
-function requireGroupDeal(ctx: BotContext): Deal | null {
+/**
+ * Deal legato a questo gruppo. Se miss (migrazione group→supergroup), tenta heal.
+ */
+async function requireGroupDeal(ctx: BotContext): Promise<Deal | null> {
   if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
     return null;
   }
-  return ctx.store.findByGroupChatId(ctx.chat.id) ?? null;
+  const direct = ctx.store.findByGroupChatId(ctx.chat.id);
+  if (direct) return direct;
+  return (
+    (await healMigratedGroupDeal(
+      ctx.api,
+      ctx.store,
+      ctx.chat.id,
+      ctx.from?.id,
+    )) ?? null
+  );
 }
 
 function depositUnlocked(deal: Deal): boolean {
@@ -81,7 +94,7 @@ function depositUnlocked(deal: Deal): boolean {
 
 export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   bot.command("indirizzo", async (ctx) => {
-    const deal = requireGroupDeal(ctx);
+    const deal = await requireGroupDeal(ctx);
     if (!deal) {
       if (ctx.chat?.type === "private") {
         await ctx.reply(it.onlyGroup, { parse_mode: "Markdown" });
@@ -108,7 +121,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   });
 
   bot.command("stato", async (ctx) => {
-    const deal = requireGroupDeal(ctx);
+    const deal = await requireGroupDeal(ctx);
     if (!deal) {
       await ctx.reply(it.noDealInGroup);
       return;
@@ -154,7 +167,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   });
 
   bot.callbackQuery("addr", async (ctx) => {
-    const deal = requireGroupDeal(ctx);
+    const deal = await requireGroupDeal(ctx);
     if (!deal) {
       await ctx.answerCallbackQuery({ text: "Nessun deal" });
       return;
@@ -223,7 +236,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   });
 
   bot.callbackQuery("stato", async (ctx) => {
-    const deal = requireGroupDeal(ctx);
+    const deal = await requireGroupDeal(ctx);
     if (!deal) {
       await ctx.answerCallbackQuery({ text: "Nessun deal" });
       return;
@@ -246,7 +259,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       await next();
       return;
     }
-    const deal = requireGroupDeal(ctx);
+    const deal = await requireGroupDeal(ctx);
     if (!deal || !ctx.from) {
       await next();
       return;
@@ -282,7 +295,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
 }
 
 async function setWallet(ctx: BotContext): Promise<void> {
-  const deal = requireGroupDeal(ctx);
+  const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
     await ctx.reply(it.noDealInGroup);
     return;
@@ -416,7 +429,7 @@ async function verifyDeposit(
   ctx: BotContext,
   opts?: { ephemeral?: boolean },
 ): Promise<void> {
-  const deal = requireGroupDeal(ctx);
+  const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
     await ctx.reply(it.noDealInGroup);
     return;
@@ -707,7 +720,7 @@ async function handlePayOrRefund(
   ctx: BotContext,
   kind: "release" | "refund",
 ): Promise<void> {
-  const deal = requireGroupDeal(ctx);
+  const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
     await ctx.reply(it.noDealInGroup);
     return;
@@ -913,7 +926,7 @@ async function handleSellerShipped(
   ctx: BotContext,
   opts?: { userMessageId?: number },
 ): Promise<void> {
-  const deal = requireGroupDeal(ctx);
+  const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
     await ctx.reply(it.noDealInGroup);
     return;
@@ -959,7 +972,7 @@ async function handleSellerShipped(
 
 /** Buyer avvia rilascio (voto 1); dual-confirm → seller conferma. */
 async function handleBuyerPay(ctx: BotContext): Promise<void> {
-  const deal = requireGroupDeal(ctx);
+  const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
     await ctx.reply(it.noDealInGroup);
     return;
@@ -990,7 +1003,7 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
 
 /** Seller conferma il secondo voto di rilascio. */
 async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
-  const deal = requireGroupDeal(ctx);
+  const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
     await ctx.reply(it.noDealInGroup);
     return;
@@ -1010,7 +1023,7 @@ async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
 }
 
 async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {
-  const deal = requireGroupDeal(ctx);
+  const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
     await ctx.reply(it.noDealInGroup);
     return;
@@ -1036,7 +1049,7 @@ async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {
 }
 
 async function handleShowHash(ctx: BotContext): Promise<void> {
-  const deal = requireGroupDeal(ctx);
+  const deal = await requireGroupDeal(ctx);
   if (!deal) {
     await ctx.reply(it.noDealInGroup);
     return;
@@ -1059,7 +1072,7 @@ async function replySupport(ctx: BotContext): Promise<void> {
     await ctx.reply(it.supportDm, { parse_mode: "Markdown" });
     return;
   }
-  const deal = requireGroupDeal(ctx);
+  const deal = await requireGroupDeal(ctx);
   if (!deal) {
     await ctx.reply(it.noDealInGroup);
     return;
@@ -1068,7 +1081,7 @@ async function replySupport(ctx: BotContext): Promise<void> {
 }
 
 async function replyBlockchain(ctx: BotContext): Promise<void> {
-  const deal = requireGroupDeal(ctx);
+  const deal = await requireGroupDeal(ctx);
   if (!deal) {
     if (ctx.chat?.type === "private") {
       await ctx.reply(it.onlyGroup, { parse_mode: "Markdown" });
@@ -1089,7 +1102,7 @@ export async function openDispute(
   ctx: BotContext,
   opts?: { ephemeral?: boolean },
 ): Promise<void> {
-  const deal = requireGroupDeal(ctx);
+  const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
     await ctx.reply(it.noDealInGroup);
     return;

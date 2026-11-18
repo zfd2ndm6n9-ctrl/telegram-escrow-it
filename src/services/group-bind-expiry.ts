@@ -12,7 +12,9 @@ export function groupBindExpiresAtIso(fromMs = Date.now()): string {
 }
 
 /**
- * Annulla deal `awaiting_group` senza `groupChatId` oltre `awaitingGroupExpiresAt`.
+ * Annulla deal early senza progresso oltre `awaitingGroupExpiresAt`:
+ * - `awaiting_group` senza `groupChatId` (TTL da create / istruzioni DM)
+ * - `awaiting_bot_admin` con gruppo bound ma mai /avvia completato
  * Notifica il creator in DM e cancella le istruzioni gruppo se tracciate.
  */
 export function startGroupBindExpiryWatcher(
@@ -23,42 +25,68 @@ export function startGroupBindExpiryWatcher(
   let stopped = false;
   let running = false;
 
+  const expireDeal = async (
+    deal: ReturnType<DealStore["listByStatus"]>[number],
+    reason: string,
+  ) => {
+    const instructionsId = deal.dmGroupInstructionsMessageId;
+    store.update(deal.id, {
+      status: "cancelled",
+      awaitingGroupExpiresAt: undefined,
+      dmGroupInstructionsMessageId: undefined,
+    });
+
+    if (instructionsId != null) {
+      await deleteMessageSafe(api, deal.creatorId, instructionsId);
+    }
+
+    try {
+      await api.sendMessage(deal.creatorId, it.groupBindExpired(deal), {
+        parse_mode: "Markdown",
+        reply_markup: mainMenuKeyboard(),
+      });
+    } catch (err) {
+      console.warn(
+        `group-bind-expiry notify #${deal.id} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+    console.log(`Deal #${deal.id} auto-cancelled: ${reason}`);
+  };
+
   const tick = async () => {
     if (stopped || running) return;
     running = true;
     try {
       const now = Date.now();
-      for (const deal of store.listByStatus("awaiting_group")) {
-        if (deal.groupChatId != null) continue;
+      const candidates = [
+        ...store.listByStatus("awaiting_group"),
+        ...store.listByStatus("awaiting_bot_admin"),
+      ];
+      for (const deal of candidates) {
         if (!deal.awaitingGroupExpiresAt) continue;
         const expires = Date.parse(deal.awaitingGroupExpiresAt);
         if (!Number.isFinite(expires) || expires > now) continue;
 
-        const instructionsId = deal.dmGroupInstructionsMessageId;
-        store.update(deal.id, {
-          status: "cancelled",
-          awaitingGroupExpiresAt: undefined,
-          dmGroupInstructionsMessageId: undefined,
-        });
-
-        if (instructionsId != null) {
-          await deleteMessageSafe(api, deal.creatorId, instructionsId);
+        if (deal.status === "awaiting_group" && deal.groupChatId != null) {
+          // Bound mid-flight via my_chat_member senza clear TTL: tratta come bot_admin.
         }
-
-        try {
-          await api.sendMessage(deal.creatorId, it.groupBindExpired(deal), {
-            parse_mode: "Markdown",
-            reply_markup: mainMenuKeyboard(),
-          });
-        } catch (err) {
-          console.warn(
-            `group-bind-expiry notify #${deal.id} failed:`,
-            err instanceof Error ? err.message : err,
+        if (deal.status === "awaiting_group" && deal.groupChatId == null) {
+          await expireDeal(
+            deal,
+            "gruppo non collegato entro 10 min",
+          );
+          continue;
+        }
+        if (
+          deal.status === "awaiting_bot_admin" ||
+          (deal.status === "awaiting_group" && deal.groupChatId != null)
+        ) {
+          await expireDeal(
+            deal,
+            "bot in gruppo ma /avvia non completato entro 10 min",
           );
         }
-        console.log(
-          `Deal #${deal.id} auto-cancelled: gruppo non collegato entro 10 min`,
-        );
       }
     } finally {
       running = false;

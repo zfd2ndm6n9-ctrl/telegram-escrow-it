@@ -21,6 +21,11 @@ import {
 } from "../services/dm-terms.js";
 import { convertPriceEurToSol } from "../services/fx/sol-eur.js";
 import { hardenGroupPermissions } from "../services/group-creator.js";
+import { groupBindExpiresAtIso } from "../services/group-bind-expiry.js";
+import {
+  healMigratedGroupDeal,
+  remapDealGroupChatId,
+} from "../services/group-chat-remap.js";
 import {
   autoBindCounterpart,
   checkRequiredBotAdminPerms,
@@ -86,7 +91,9 @@ async function onHumanJoined(
   username: string | undefined,
   displayName?: string,
 ): Promise<void> {
-  const deal = ctx.store.findByGroupChatId(chatId);
+  const deal =
+    ctx.store.findByGroupChatId(chatId) ??
+    (await healMigratedGroupDeal(ctx.api, ctx.store, chatId, userId));
   if (!deal) return;
 
   let current = trackSeenGroupUser(ctx.store, deal, userId);
@@ -147,6 +154,24 @@ async function onHumanJoined(
 }
 
 export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
+  /**
+   * Basic group → supergroup: Telegram cambia chat id.
+   * Senza remap, findByGroupChatId fallisce (card ancora visibile, /wallet no deal).
+   */
+  bot.on("message:migrate_to_chat_id", async (ctx) => {
+    const oldId = ctx.chat?.id;
+    const newId = ctx.message.migrate_to_chat_id;
+    if (oldId == null || newId == null) return;
+    remapDealGroupChatId(ctx.store, oldId, newId);
+  });
+
+  bot.on("message:migrate_from_chat_id", async (ctx) => {
+    const newId = ctx.chat?.id;
+    const oldId = ctx.message.migrate_from_chat_id;
+    if (oldId == null || newId == null) return;
+    remapDealGroupChatId(ctx.store, oldId, newId);
+  });
+
   bot.on("my_chat_member", async (ctx) => {
     const chat = ctx.chat;
     if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return;
@@ -191,10 +216,12 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       ctx.store.findAwaitingGroupByParty(update.from.id, chat.id);
     if (pending && pending.groupChatId == null) {
       const instructionsId = pending.dmGroupInstructionsMessageId;
+      // Non azzerare TTL: se non arriva /avvia entro 10 min → auto-cancel.
       ctx.store.update(pending.id, {
         groupChatId: chat.id,
         status: "awaiting_bot_admin",
-        awaitingGroupExpiresAt: undefined,
+        awaitingGroupExpiresAt:
+          pending.awaitingGroupExpiresAt ?? groupBindExpiresAtIso(),
         dmGroupInstructionsMessageId: undefined,
       });
       if (instructionsId != null) {
@@ -226,7 +253,14 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     // /avvia: niente gate soft signup. L'opener è già iscritto via /crea;
     // la controparte può /avvia / scrivere senza /start + @.
 
-    const existing = ctx.store.findByGroupChatId(ctx.chat.id);
+    const existing =
+      ctx.store.findByGroupChatId(ctx.chat.id) ??
+      (await healMigratedGroupDeal(
+        ctx.api,
+        ctx.store,
+        ctx.chat.id,
+        ctx.from.id,
+      ));
     // Già collegato oltre bind/auto-bind: niente seconda card completa.
     // awaiting_counterpart: permetti retry dopo invite.
     if (
@@ -635,7 +669,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           ctx.store.update(deal.id, {
             groupChatId: ctx.chat.id,
             status: "awaiting_bot_admin",
-            awaitingGroupExpiresAt: undefined,
+            awaitingGroupExpiresAt:
+              deal.awaitingGroupExpiresAt ?? groupBindExpiresAtIso(),
             dmGroupInstructionsMessageId: undefined,
           });
           if (instructionsId != null) {
@@ -658,7 +693,16 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    const deal = ctx.store.findByGroupChatId(ctx.chat.id);
+    const deal =
+      ctx.store.findByGroupChatId(ctx.chat.id) ??
+      (ctx.from
+        ? await healMigratedGroupDeal(
+            ctx.api,
+            ctx.store,
+            ctx.chat.id,
+            ctx.from.id,
+          )
+        : undefined);
     if (!deal || !ctx.from) {
       await next();
       return;

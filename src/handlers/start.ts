@@ -2,7 +2,10 @@ import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { isAdminUser } from "../services/deal-logic.js";
 import { it } from "../messages/it.js";
-import { mainMenuKeyboard } from "../keyboards/menus.js";
+import {
+  inviteSkipKeyboard,
+  mainMenuKeyboard,
+} from "../keyboards/menus.js";
 import { publishIscrittiCount } from "../services/public-count.js";
 import { registerHandleFromMessage } from "../services/registration.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
@@ -81,8 +84,28 @@ async function askInviteOptional(ctx: BotContext): Promise<void> {
       ctx.session.invitePromptMessageId,
     );
   }
-  const msg = await ctx.reply(it.askInviteOptional);
+  // Inline «Nessun codice» — niente `/skip` bare nel testo (tap accidentale → Bug B).
+  const msg = await ctx.reply(it.askInviteOptional, {
+    parse_mode: "Markdown",
+    reply_markup: inviteSkipKeyboard(),
+  });
   ctx.session.invitePromptMessageId = msg.message_id;
+}
+
+/** Skip invito solo se l'utente era in attesa (tap bottone o /skip). */
+async function completeInviteSkip(
+  ctx: BotContext,
+  opts?: { userMessageId?: number },
+): Promise<boolean> {
+  if (!ctx.session.awaitingInviteCode) return false;
+  const userMsgId = opts?.userMessageId;
+  await clearInvitePrompt(ctx);
+  if (userMsgId != null && ctx.chat) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, userMsgId);
+  }
+  ctx.session.awaitingInviteCode = undefined;
+  await ctx.reply(it.inviteSkipped, { reply_markup: mainMenuKeyboard() });
+  return true;
 }
 
 /** Payload `/start invito_CODE` o `invito CODE`. */
@@ -190,6 +213,12 @@ async function completeStart(ctx: BotContext): Promise<void> {
       `Riconnessione userId ${result.previousUserId} → ${ctx.from.id}, deal=${remapped}`,
     );
   }
+
+  // /start fresco: chiudi stato invito precedente senza «Ok, nessun codice.»
+  // (Bug B: stale awaitingInviteCode + tap /skip o re-/start).
+  await clearInvitePrompt(ctx);
+  ctx.session.awaitingInviteCode = undefined;
+  // pendingInviteCode resta se impostato dal payload /start invito_CODE
 
   ctx.session.awaitingHandle = undefined;
   ctx.session.signupPromptMessageId = undefined;
@@ -332,15 +361,28 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
 
   bot.command("skip", async (ctx) => {
     if (ctx.chat?.type !== "private" || !ctx.from) return;
-    if (!ctx.session.awaitingInviteCode) return;
+    // Solo se abbiamo chiesto l'invito: plain /skip dopo /start non parla.
+    await completeInviteSkip(ctx, {
+      userMessageId: ctx.message?.message_id,
+    });
+  });
 
-    const userMsgId = ctx.message?.message_id;
-    await clearInvitePrompt(ctx);
-    if (userMsgId != null && ctx.chat) {
-      await deleteMessageSafe(ctx.api, ctx.chat.id, userMsgId);
+  bot.callbackQuery("invite_skip", async (ctx) => {
+    if (ctx.chat?.type !== "private" || !ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
     }
-    ctx.session.awaitingInviteCode = undefined;
-    await ctx.reply(it.inviteSkipped, { reply_markup: mainMenuKeyboard() });
+    if (!ctx.session.awaitingInviteCode) {
+      await ctx.answerCallbackQuery({ text: "Nessun invito in attesa" });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    try {
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+    } catch {
+      // ok
+    }
+    await completeInviteSkip(ctx);
   });
 
   /**
@@ -658,15 +700,41 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
+    // Prima di clearAll: avvisa + leave gruppi leftover (evita card orfane → Bug A).
+    const groupIds = [
+      ...new Set(
+        all
+          .map((d) => d.groupChatId)
+          .filter((id): id is number => id != null),
+      ),
+    ];
+    let leftGroups = 0;
+    for (const chatId of groupIds) {
+      try {
+        await ctx.api.sendMessage(chatId, it.groupWipedNotice, {
+          parse_mode: "Markdown",
+        });
+      } catch {
+        // ok se già fuori / chat morta
+      }
+      try {
+        await ctx.api.leaveChat(chatId);
+        leftGroups += 1;
+      } catch {
+        // ok
+      }
+    }
+
     const dealsRemoved = ctx.store.clearAll();
     const logsRemoved = ctx.dealLogs.clearAll();
     console.warn(
-      `[admin_wipe_deals] by ${ctx.from.id}: removed ${dealsRemoved} deals, ${logsRemoved} log buckets` +
+      `[admin_wipe_deals] by ${ctx.from.id}: removed ${dealsRemoved} deals, ${logsRemoved} log buckets, left ${leftGroups}/${groupIds.length} groups` +
         (force ? " (FORCE)" : ""),
     );
-    await ctx.reply(it.adminWipeDone(dealsRemoved, logsRemoved), {
-      parse_mode: "Markdown",
-    });
+    await ctx.reply(
+      `${it.adminWipeDone(dealsRemoved, logsRemoved)}\nGruppi lasciati: *${leftGroups}/${groupIds.length}*.`,
+      { parse_mode: "Markdown" },
+    );
   });
 
   /**
