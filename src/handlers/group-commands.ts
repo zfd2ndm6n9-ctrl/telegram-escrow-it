@@ -263,7 +263,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   });
 
   bot.callbackQuery("refund_buyer", async (ctx) => {
-    await handlePayOrRefund(ctx, "refund");
+    await handleStartRefund(ctx);
   });
 
   bot.callbackQuery("shipped", async (ctx) => {
@@ -1240,6 +1240,34 @@ async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
   await clearRoleError(ctx.api, ctx.store, deal);
   // Admin proxy: attribuisci il voto al seller.
   await handlePayOrRefund(ctx, "release", { asUserId: deal.sellerId });
+}
+
+/**
+ * Avvio rimborso mutuale (voto 1/2). Buyer o seller; admin in disputa forza payout.
+ * Callback UI «Rimborsa buyer»; comandi `/refund_buyer` restano silenti.
+ */
+async function handleStartRefund(ctx: BotContext): Promise<void> {
+  const deal = await requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
+    return;
+  }
+  // In disputa: admin forza on-chain subito (come /refund_buyer).
+  if (deal.status === "disputed" && isAdminUser(ctx.from.id)) {
+    await handlePayOrRefund(ctx, "refund");
+    return;
+  }
+  // Solo buyer/seller avviano i voti; terzi → alert, nessuno stato.
+  if (!isParty(deal, ctx.from.id)) {
+    await rejectWrongRole(ctx, deal, it.notParty);
+    return;
+  }
+  await clearRoleError(ctx.api, ctx.store, deal);
+  await handlePayOrRefund(ctx, "refund", { asUserId: ctx.from.id });
 }
 
 /** Parte in attesa conferma il secondo voto di rimborso. */

@@ -614,7 +614,7 @@ Scegli:`;
   /** Dual-confirm refund 1/2: tagga chi deve ancora confermare. */
   refundVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `${mentionPendingVoter(deal, deal.refundVotes)}: conferma rimborso (1/2).`
+      ? `${mentionPendingVoter(deal, deal.refundVotes)}: conferma *Rimborsa buyer* (1/2).`
       : `↩️ Rimborso in corso (#${deal.id})…`,
 
   /** Post 2/2 pay-seller: rating breve del bot (seller poi buyer). */

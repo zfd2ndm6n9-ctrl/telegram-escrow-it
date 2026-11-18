@@ -24,7 +24,7 @@
 2. Per deal `id`: `HMAC-SHA256(masterSecret, "telegram-escrow-it:deal:"+id)` → 32 byte seed → keypair
 3. Buyer invia SOL a quell’indirizzo
 4. Watcher (~20s) o `/depositato` / «Verifica deposito» → `funded` se saldo ≥ **importo SOL lockato** (mai FX live)
-5. Dual-confirm paga-seller (UX buyer-first; alias silenti `/pay_seller` / `/payseller`) / `/refund_buyer` (o admin in disputa)
+5. Dual-confirm paga-seller (UX buyer-first; alias silenti `/pay_seller` / `/payseller`) / **Rimborsa buyer** in UI (dual-confirm; alias `/refund_buyer`; o admin in disputa)
 6. Dopo 2/2 **release** (non refund): review breve seller → buyer → post su `VOUCH_CHANNEL_ID` → poi payout. Admin in disputa / refund saltano le review
 7. **Release:** una tx atomica — **95%** → seller, **5%** fee piattaforma. Se il deal ha invito collaboratore: **2.5%** → master/`FEE_WALLET_PUBKEY`, **2.5%** → wallet collaboratore. **Refund:** 100% → buyer (nessuna fee servizio, nessuna review)
 8. **Fee di rete** pagate dalla **master** (`feePayer`): ricarica la master con poco SOL (es. 0.05)
