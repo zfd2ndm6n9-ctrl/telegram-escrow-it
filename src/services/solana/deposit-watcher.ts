@@ -24,7 +24,7 @@ export type DepositWatcherHandle = {
 
 /**
  * Poll periodico dei deal in `awaiting_deposit`: se il saldo ≥ importo → `funded`.
- * Poi: cancella prompt deposito e chiede al seller di spedire.
+ * Poi: cancella prompt deposito e chiede al seller di consegnare.
  */
 export function startDepositWatcher(
   store: DealStore,

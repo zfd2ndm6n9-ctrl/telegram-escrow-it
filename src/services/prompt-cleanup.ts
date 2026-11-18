@@ -243,7 +243,7 @@ export async function clearRoleError(
 
 /**
  * Invia un errore di ruolo e traccia l'id (sostituisce il precedente).
- * Es. «Solo @seller può segnare la spedizione».
+ * Es. «Solo @seller può segnare la consegna».
  */
 export async function replaceRoleError(
   api: Api,

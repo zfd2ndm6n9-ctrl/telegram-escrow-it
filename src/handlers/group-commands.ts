@@ -53,10 +53,18 @@ import {
 } from "../services/solana/index.js";
 import type { Deal } from "../types.js";
 
-/** Conferma testuale corta «ho spedito» / «spedito». */
+/**
+ * Conferma testuale corta consegna digitale.
+ * Alias legacy «ho spedito»/«spedito» restano accettati (deal mid-flight).
+ */
 function isShipConfirmText(raw: string): boolean {
   const t = raw.trim().toLowerCase().replace(/[!!.]+$/g, "");
   return (
+    t === "consegnato" ||
+    t === "ho consegnato" ||
+    t === "✅ consegnato" ||
+    t === "materiale consegnato" ||
+    t === "servizio inviato" ||
     t === "ho spedito" ||
     t === "spedito" ||
     t === "spedita" ||
@@ -331,7 +339,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     });
   });
 
-  // Review post-pay, «ho spedito», oppure wallet in chiaro.
+  // Review post-pay, «consegnato», oppure wallet in chiaro.
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -1169,7 +1177,7 @@ async function handleSellerShipped(
       sellerShippedAt: new Date().toISOString(),
     }) ?? deal;
 
-  ctx.dealLogs.appendEvent(updated.id, "Seller: ho spedito");
+  ctx.dealLogs.appendEvent(updated.id, "Seller: consegnato");
 
   updated = await clearRoleError(ctx.api, ctx.store, updated);
   await clearBotPrompts(ctx.api, ctx.store, updated);
