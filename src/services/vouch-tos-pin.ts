@@ -18,6 +18,7 @@ type PinState = {
 };
 
 function pinStatePath(): string {
+  // DATA_DIR (es. /var/data su Render Persistent Disk)
   return join(config.dataDir, "vouch-tos-pin.json");
 }
 
@@ -60,13 +61,19 @@ export type VouchTosPinResult =
   | { ok: true; messageId: number; reused: boolean; via: "web_app" | "url" }
   | {
       ok: false;
-      reason: "no_channel" | "no_tos_url" | "post_failed" | "pin_failed";
+      reason:
+        | "no_channel"
+        | "no_tos_url"
+        | "no_state"
+        | "post_failed"
+        | "pin_failed";
       detail?: string;
     };
 
 /**
- * Pubblica (o riusa) il messaggio fisso ToS sul canale vouch e lo pinna.
- * Soft-fail su permessi post/pin. `force` ripubblica anche se già tracciato.
+ * Soft boot (force=false): se c’è stato in DATA_DIR, solo re-pin del messageId
+ * già tracciato — mai `sendMessage`. Senza stato → `no_state` (admin: `/pin_tos`).
+ * Force (`/pin_tos`): edit se possibile, altrimenti post + pin + salva stato.
  */
 export async function ensureVouchTosPin(
   api: Api,
@@ -86,27 +93,38 @@ export async function ensureVouchTosPin(
   const sameChannel =
     prev != null && prev.channelId === channelKey(channelId);
 
-  if (sameChannel && !force) {
+  // Soft launch / restart: mai postare un nuovo teaser.
+  if (!force) {
+    if (!sameChannel || !prev) {
+      const detail = prev
+        ? `stato canale=${prev.channelId} ≠ VOUCH_CHANNEL_ID=${channelKey(channelId)}`
+        : `manca ${pinStatePath()}`;
+      console.warn(
+        `[vouch-tos] soft-boot skip (no post): ${detail} — admin: /pin_tos`,
+      );
+      return { ok: false, reason: "no_state", detail };
+    }
+
     try {
-      await api.pinChatMessage(channelId, prev!.messageId, {
+      await api.pinChatMessage(channelId, prev.messageId, {
         disable_notification: true,
       });
     } catch (err) {
-      // Già pinnato o permessi pin assenti: ok se il messaggio esiste
+      // Già pinnato, messaggio cancellato, o permessi pin assenti: non ripostare
       console.warn(
-        `[vouch-tos] pin esistente msg=${prev!.messageId}: ${errDetail(err)}`,
+        `[vouch-tos] re-pin esistente msg=${prev.messageId}: ${errDetail(err)}`,
       );
     }
     return {
       ok: true,
-      messageId: prev!.messageId,
+      messageId: prev.messageId,
       reused: true,
       via: "web_app",
     };
   }
 
   // /pin_tos (force): prova a aggiornare il messaggio già tracciato.
-  if (sameChannel && force && prev) {
+  if (sameChannel && prev) {
     for (const via of ["web_app", "url"] as const) {
       try {
         await api.editMessageText(channelId, prev.messageId, VOUCH_TOS_TEASER, {

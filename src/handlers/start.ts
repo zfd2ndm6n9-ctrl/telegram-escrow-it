@@ -386,8 +386,9 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
   });
 
   /**
-   * Admin: pubblica/fissa teaser ToS Mini App sul canale vouch.
+   * Admin: unico modo per creare/sostituire il teaser ToS sul canale vouch.
    * Soft-fail se mancano VOUCH_CHANNEL_ID, PUBLIC_BASE_URL o permessi post/pin.
+   * Il boot soft non posta: solo `/pin_tos` (force) crea o aggiorna.
    */
   bot.command(["pin_tos", "pintos"], async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
@@ -415,6 +416,8 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       no_channel: "Imposta `VOUCH_CHANNEL_ID` (bot admin del canale).",
       no_tos_url:
         "Imposta `PUBLIC_BASE_URL` (URL HTTPS del Web Service) o `TOS_URL`.",
+      no_state:
+        "Nessun pin tracciato in DATA_DIR (non dovrebbe succedere con force).",
       post_failed:
         "Post fallito: il bot serve permesso di pubblicare nel canale.",
       pin_failed:
