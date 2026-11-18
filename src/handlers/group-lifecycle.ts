@@ -28,6 +28,7 @@ import {
 } from "../services/group-chat-remap.js";
 import {
   autoBindCounterpart,
+  avviaAutoBindReply,
   checkRequiredBotAdminPerms,
   kickUnauthorized,
   postAskSellerWallet,
@@ -35,6 +36,7 @@ import {
   refreshGroupTitle,
   startDealInGroup,
   trackSeenGroupUser,
+  type AutoBindFailure,
   type BotAdminCheck,
 } from "../services/group-setup.js";
 import {
@@ -62,12 +64,10 @@ function adminPermsMessage(perms: Extract<BotAdminCheck, { ok: false }>): string
 }
 
 function autoBindReply(
-  reason: "too_many" | "none" | "need_message",
-  deal: Parameters<typeof it.counterpartAsk>[0],
+  reason: AutoBindFailure,
+  deal: { id: string; creatorRole: "buyer" | "seller" },
 ): string {
-  if (reason === "too_many") return it.autoBindTooMany;
-  // none / need_message: role-aware (la card vivente di solito basta).
-  return it.counterpartAsk(deal);
+  return avviaAutoBindReply(reason, deal);
 }
 
 /** Buyer/seller/creator del deal (o slot ancora aperto per la controparte). */
@@ -120,15 +120,14 @@ async function resumeAvviaAfterAdmin(
   }
 
   if (autoBind) {
-    if (autoBind === "too_many") {
-      await sendTrackedPrompt(
-        ctx.api,
-        ctx.store,
-        started,
-        autoBindReply(autoBind, started),
-        { parse_mode: "Markdown" },
-      );
-    }
+    // Sempre un messaggio visibile (anche none / need_message): niente silenzio.
+    await sendTrackedPrompt(
+      ctx.api,
+      ctx.store,
+      started,
+      autoBindReply(autoBind, started),
+      { parse_mode: "Markdown" },
+    );
     return;
   }
 
@@ -338,85 +337,85 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     // /avvia: niente gate soft signup. L'opener è già iscritto via /crea;
     // la controparte può /avvia / scrivere senza /start + @.
 
-    const existing =
-      ctx.store.findByGroupChatId(ctx.chat.id) ??
-      (await healMigratedGroupDeal(
+    try {
+      const existing =
+        ctx.store.findByGroupChatId(ctx.chat.id) ??
+        (await healMigratedGroupDeal(
+          ctx.api,
+          ctx.store,
+          ctx.chat.id,
+          ctx.from.id,
+        ));
+      // Già collegato oltre bind/auto-bind: niente seconda card completa.
+      // awaiting_counterpart: permetti retry dopo invite.
+      if (
+        existing &&
+        existing.status !== "awaiting_bot_admin" &&
+        existing.status !== "awaiting_group" &&
+        existing.status !== "awaiting_counterpart"
+      ) {
+        await ctx.reply(it.alreadyLinkedShort(existing), {
+          parse_mode: "Markdown",
+        });
+        return;
+      }
+
+      let deal = existing;
+      if (!deal) {
+        // Esclude deal già bound ad altri gruppi (stesso amico / multi-deal OK).
+        deal =
+          ctx.store.findAwaitingGroupByCreator(ctx.from.id, ctx.chat.id) ??
+          ctx.store.findAwaitingGroupByParty(ctx.from.id, ctx.chat.id);
+      }
+
+      if (!deal) {
+        await ctx.reply(it.noDealInGroup);
+        return;
+      }
+
+      if (!canRunAvvia(deal, ctx.from.id)) {
+        await ctx.reply(it.notDealParty, { parse_mode: "Markdown" });
+        return;
+      }
+
+      if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
+        await ctx.reply(it.alreadyBoundElsewhere(deal), {
+          parse_mode: "Markdown",
+        });
+        return;
+      }
+
+      await hardenGroupPermissions(ctx.api, ctx.chat.id);
+
+      const runner = {
+        runnerId: ctx.from.id,
+        runnerUsername: ctx.from.username,
+        runnerDisplayName: displayNameOf(ctx.from),
+      };
+
+      const { deal: started, perms, autoBind } = await startDealInGroup(
         ctx.api,
         ctx.store,
+        deal,
         ctx.chat.id,
-        ctx.from.id,
-      ));
-    // Già collegato oltre bind/auto-bind: niente seconda card completa.
-    // awaiting_counterpart: permetti retry dopo invite.
-    if (
-      existing &&
-      existing.status !== "awaiting_bot_admin" &&
-      existing.status !== "awaiting_group" &&
-      existing.status !== "awaiting_counterpart"
-    ) {
-      await ctx.reply(it.alreadyLinkedShort(existing), {
-        parse_mode: "Markdown",
-      });
-      return;
-    }
-
-    let deal = existing;
-    if (!deal) {
-      // Esclude deal già bound ad altri gruppi (stesso amico / multi-deal OK).
-      deal =
-        ctx.store.findAwaitingGroupByCreator(ctx.from.id, ctx.chat.id) ??
-        ctx.store.findAwaitingGroupByParty(ctx.from.id, ctx.chat.id);
-    }
-
-    if (!deal) {
-      await ctx.reply(it.noDealInGroup);
-      return;
-    }
-
-    if (!canRunAvvia(deal, ctx.from.id)) {
-      await ctx.reply(it.notDealParty, { parse_mode: "Markdown" });
-      return;
-    }
-
-    if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
-      await ctx.reply(it.alreadyBoundElsewhere(deal), {
-        parse_mode: "Markdown",
-      });
-      return;
-    }
-
-    await hardenGroupPermissions(ctx.api, ctx.chat.id);
-
-    const runner = {
-      runnerId: ctx.from.id,
-      runnerUsername: ctx.from.username,
-      runnerDisplayName: displayNameOf(ctx.from),
-    };
-
-    const { deal: started, perms, autoBind } = await startDealInGroup(
-      ctx.api,
-      ctx.store,
-      deal,
-      ctx.chat.id,
-      runner,
-    );
-
-    if (!perms.ok) {
-      // Hint cancellabile (igiene Q→A); Accetto/card vivente non toccati.
-      await sendTrackedPrompt(
-        ctx.api,
-        ctx.store,
-        started,
-        adminPermsMessage(perms),
-        { parse_mode: "Markdown" },
+        runner,
       );
-      return;
-    }
 
-    if (autoBind) {
-      // Card vivente già mostra counterpartAsk — niente secondo messaggio uguale.
-      // Solo too_many ha copy diversa (gruppo troppo pieno).
-      if (autoBind === "too_many") {
+      if (!perms.ok) {
+        // Hint cancellabile (igiene Q→A); Accetto/card vivente non toccati.
+        await sendTrackedPrompt(
+          ctx.api,
+          ctx.store,
+          started,
+          adminPermsMessage(perms),
+          { parse_mode: "Markdown" },
+        );
+        return;
+      }
+
+      if (autoBind) {
+        // Card + reply: /avvia ripetuto non deve mai andare in silenzio
+        // (es. deal già bound, titolo rinominato dall'utente, aspetta controparte).
         await sendTrackedPrompt(
           ctx.api,
           ctx.store,
@@ -424,21 +423,33 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           autoBindReply(autoBind, started),
           { parse_mode: "Markdown" },
         );
+        return;
       }
-      return;
-    }
 
-    // Deal ok: cancella hint di setup (admin / scrivi messaggio), non la card.
-    await clearBotPrompts(ctx.api, ctx.store, started);
+      // Deal ok: cancella hint di setup (admin / scrivi messaggio), non la card.
+      await clearBotPrompts(ctx.api, ctx.store, started);
 
-    if (
-      bothPartiesPresent(started) &&
-      started.status !== "awaiting_counterpart" &&
-      !isPreDepositSetup(started.status) &&
-      tosAccepted(started) &&
-      amountConfirmed(started)
-    ) {
-      await ctx.reply(it.alreadyActivated);
+      if (
+        bothPartiesPresent(started) &&
+        started.status !== "awaiting_counterpart" &&
+        !isPreDepositSetup(started.status) &&
+        tosAccepted(started) &&
+        amountConfirmed(started)
+      ) {
+        await ctx.reply(it.alreadyActivated);
+      }
+    } catch (err) {
+      console.error(
+        `/avvia failed in chat ${ctx.chat.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+      try {
+        await ctx.reply(
+          "Non sono riuscito a completare /avvia. Riprova tra poco o verifica che il bot sia ancora admin.",
+        );
+      } catch {
+        // chat morta / bot kickato
+      }
     }
   };
 
