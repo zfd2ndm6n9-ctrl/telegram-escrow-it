@@ -5,13 +5,16 @@ import { formatDealStatus, it } from "../messages/it.js";
 import {
   groupActionsKeyboard,
   payoutHashKeyboard,
+  refundConfirmKeyboard,
   sellerConfirmPayKeyboard,
 } from "../keyboards/menus.js";
 import {
   addUniqueVote,
+  buyerHasReleaseVote,
   isAdminUser,
   isParty,
   isPreDepositSetup,
+  pendingVoterId,
 } from "../services/deal-logic.js";
 import {
   createAdminInviteLink,
@@ -223,6 +226,11 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   bot.callbackQuery("seller_confirm_pay", async (ctx) => {
     await ctx.answerCallbackQuery();
     await handleSellerConfirmPay(ctx);
+  });
+
+  bot.callbackQuery("confirm_refund", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleConfirmRefund(ctx);
   });
 
   bot.callbackQuery("show_hash", async (ctx) => {
@@ -517,6 +525,8 @@ async function verifyDeposit(
 
 /** Lock in-process: evita doppio sendAndConfirm concorrente sullo stesso deal. */
 const payoutInFlight = new Set<string>();
+/** Evita doppio tap sullo stesso voto (release/refund) prima che lo store aggiorni. */
+const voteInFlight = new Set<string>();
 
 function markPayoutCompleted(
   ctx: BotContext,
@@ -719,6 +729,7 @@ async function runPayout(
 async function handlePayOrRefund(
   ctx: BotContext,
   kind: "release" | "refund",
+  opts?: { asUserId?: number },
 ): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
@@ -731,7 +742,10 @@ async function handlePayOrRefund(
     return;
   }
 
-  if (!isParty(deal, ctx.from.id)) {
+  // Admin può proxy-are un voto di ruolo; il voto va attribuito alla parte, non all'admin.
+  const voterId = opts?.asUserId ?? ctx.from.id;
+
+  if (!isParty(deal, voterId) && !isParty(deal, ctx.from.id)) {
     await ctx.reply(it.notParty);
     return;
   }
@@ -746,7 +760,10 @@ async function handlePayOrRefund(
     (kind === "release" && deal.status === "refund_pending") ||
     (kind === "refund" && deal.status === "release_pending")
   ) {
-    await ctx.reply(
+    await replaceActionReply(
+      ctx.api,
+      ctx.store,
+      deal,
       it.confirmConflict(
         deal,
         deal.status === "release_pending" ? "release" : "refund",
@@ -774,89 +791,144 @@ async function handlePayOrRefund(
     return;
   }
 
-  // Merge voto sul record fresco (sync get→update: no await in mezzo)
-  const latest = ctx.store.get(deal.id) ?? deal;
-  if (
-    latest.payoutCompleted ||
-    latest.status === "released" ||
-    latest.status === "refunded"
-  ) {
-    await ctx.reply(it.payoutAlreadyDone(latest), { parse_mode: "Markdown" });
+  const lockKey = `${deal.id}:${kind}:${voterId}`;
+  if (voteInFlight.has(lockKey)) {
     return;
   }
-  if (
-    (kind === "release" && latest.status === "refund_pending") ||
-    (kind === "refund" && latest.status === "release_pending")
-  ) {
-    await ctx.reply(
-      it.confirmConflict(
+  voteInFlight.add(lockKey);
+
+  try {
+    // Merge voto sul record fresco (sync get→update: no await in mezzo)
+    const latest = ctx.store.get(deal.id) ?? deal;
+    if (
+      latest.payoutCompleted ||
+      latest.status === "released" ||
+      latest.status === "refunded"
+    ) {
+      await ctx.reply(it.payoutAlreadyDone(latest), { parse_mode: "Markdown" });
+      return;
+    }
+    if (
+      (kind === "release" && latest.status === "refund_pending") ||
+      (kind === "refund" && latest.status === "release_pending")
+    ) {
+      await replaceActionReply(
+        ctx.api,
+        ctx.store,
         latest,
-        latest.status === "release_pending" ? "release" : "refund",
-      ),
-      { parse_mode: "Markdown" },
-    );
-    return;
-  }
-  const allowedNow =
-    kind === "release"
-      ? ["funded", "release_pending"]
-      : ["funded", "refund_pending"];
-  if (!allowedNow.includes(latest.status)) {
-    await ctx.reply(it.wrongStatus(latest.status));
-    return;
-  }
-
-  const voteKey = kind === "release" ? "releaseVotes" : "refundVotes";
-  const prevVotes = latest[voteKey];
-
-  // Già 2/2 release: riprendi review o payout (crash / re-tap / alreadyVoted).
-  if (
-    kind === "release" &&
-    prevVotes.length >= 2 &&
-    !latest.payoutCompleted
-  ) {
-    await afterReleaseVotesReady(ctx, latest);
-    return;
-  }
-
-  if (prevVotes.includes(ctx.from.id)) {
-    await ctx.reply(it.alreadyVoted(latest, kind), { parse_mode: "Markdown" });
-    return;
-  }
-  const votes = addUniqueVote(prevVotes, ctx.from.id);
-  const pendingStatus = kind === "release" ? "release_pending" : "refund_pending";
-  const done = votes.length >= 2;
-
-  const pending = ctx.store.update(latest.id, {
-    [voteKey]: votes,
-    status: pendingStatus,
-  })!;
-
-  if (!done) {
-    const remaining = Math.max(0, 2 - votes.length);
-    const msg =
+        it.confirmConflict(
+          latest,
+          latest.status === "release_pending" ? "release" : "refund",
+        ),
+        { parse_mode: "Markdown" },
+      );
+      return;
+    }
+    const allowedNow =
       kind === "release"
-        ? it.releaseVote(pending, remaining)
-        : it.refundVote(pending, remaining);
-    // Togli prompt CTAs precedenti; conferma 1/2 con bottone seller se release.
-    await clearBotPrompts(ctx.api, ctx.store, pending);
-    if (kind === "release") {
+        ? ["funded", "release_pending"]
+        : ["funded", "refund_pending"];
+    if (!allowedNow.includes(latest.status)) {
+      await ctx.reply(it.wrongStatus(latest.status));
+      return;
+    }
+
+    const voteKey = kind === "release" ? "releaseVotes" : "refundVotes";
+    const prevVotes = latest[voteKey];
+
+    // Già 2/2 release: riprendi review o payout (crash / re-tap / alreadyVoted).
+    if (
+      kind === "release" &&
+      prevVotes.length >= 2 &&
+      !latest.payoutCompleted
+    ) {
+      await afterReleaseVotesReady(ctx, latest);
+      return;
+    }
+
+    if (prevVotes.includes(voterId)) {
+      await replaceActionReply(
+        ctx.api,
+        ctx.store,
+        latest,
+        it.alreadyVoted(latest, kind),
+        { parse_mode: "Markdown" },
+      );
+      return;
+    }
+
+    // Release: buyer-first. Seller/comando non può votare prima del buyer.
+    if (
+      kind === "release" &&
+      latest.buyerId != null &&
+      !prevVotes.includes(latest.buyerId) &&
+      voterId !== latest.buyerId
+    ) {
+      await replaceRoleError(
+        ctx.api,
+        ctx.store,
+        latest,
+        it.releaseNeedBuyerFirst(latest),
+        { parse_mode: "Markdown" },
+      );
+      return;
+    }
+
+    // Secondo voto: solo la parte ancora in attesa (tag = chi può premere).
+    if (prevVotes.length === 1) {
+      const expectedId = pendingVoterId(latest, prevVotes);
+      if (expectedId != null && voterId !== expectedId) {
+        await replaceRoleError(
+          ctx.api,
+          ctx.store,
+          latest,
+          it.onlyPendingConfirm(latest, kind),
+          { parse_mode: "Markdown" },
+        );
+        return;
+      }
+    }
+
+    const votes = addUniqueVote(prevVotes, voterId);
+    const pendingStatus =
+      kind === "release" ? "release_pending" : "refund_pending";
+    const done = votes.length >= 2;
+
+    const pending = ctx.store.update(latest.id, {
+      [voteKey]: votes,
+      status: pendingStatus,
+    })!;
+
+    if (!done) {
+      const remaining = Math.max(0, 2 - votes.length);
+      const msg =
+        kind === "release"
+          ? it.releaseVote(pending, remaining)
+          : it.refundVote(pending, remaining);
+      // Togli prompt CTAs precedenti; 1/2 con bottone allineato al tag.
+      await clearBotPrompts(ctx.api, ctx.store, pending);
+      await clearRoleError(ctx.api, ctx.store, pending);
       await sendTrackedPrompt(ctx.api, ctx.store, pending, msg, {
         parse_mode: "Markdown",
-        reply_markup: sellerConfirmPayKeyboard(),
+        reply_markup:
+          kind === "release"
+            ? sellerConfirmPayKeyboard()
+            : refundConfirmKeyboard(),
       });
-    } else {
-      await ctx.reply(msg, { parse_mode: "Markdown" });
+      return;
     }
-    return;
-  }
 
-  // Refund: payout immediato. Release: review seller→buyer, poi payout.
-  if (kind === "refund") {
-    await runPayout(ctx, pending, kind);
-    return;
+    await clearRoleError(ctx.api, ctx.store, pending);
+
+    // Refund: payout immediato. Release: review seller→buyer, poi payout.
+    if (kind === "refund") {
+      await runPayout(ctx, pending, kind);
+      return;
+    }
+    await afterReleaseVotesReady(ctx, pending);
+  } finally {
+    voteInFlight.delete(lockKey);
   }
-  await afterReleaseVotesReady(ctx, pending);
 }
 
 /**
@@ -977,6 +1049,10 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
     await ctx.reply(it.noDealInGroup);
     return;
   }
+  if (deal.buyerId == null) {
+    await ctx.reply("Mancano ancora buyer o seller nel deal.");
+    return;
+  }
   if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
     await replaceRoleError(
       ctx.api,
@@ -998,7 +1074,8 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
-  await handlePayOrRefund(ctx, "release");
+  // Admin proxy: attribuisci il voto al buyer, non all'admin id.
+  await handlePayOrRefund(ctx, "release", { asUserId: deal.buyerId });
 }
 
 /** Seller conferma il secondo voto di rilascio. */
@@ -1008,18 +1085,67 @@ async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
     await ctx.reply(it.noDealInGroup);
     return;
   }
+  if (deal.sellerId == null || deal.buyerId == null) {
+    await ctx.reply("Mancano ancora buyer o seller nel deal.");
+    return;
+  }
+  if (!buyerHasReleaseVote(deal)) {
+    await replaceRoleError(
+      ctx.api,
+      ctx.store,
+      deal,
+      it.releaseNeedBuyerFirst(deal),
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
   if (deal.sellerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
     await replaceRoleError(
       ctx.api,
       ctx.store,
       deal,
-      it.sellerOnlyConfirm(deal),
+      it.onlyPendingConfirm(deal, "release"),
       { parse_mode: "Markdown" },
     );
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
-  await handlePayOrRefund(ctx, "release");
+  // Admin proxy: attribuisci il voto al seller.
+  await handlePayOrRefund(ctx, "release", { asUserId: deal.sellerId });
+}
+
+/** Parte in attesa conferma il secondo voto di rimborso. */
+async function handleConfirmRefund(ctx: BotContext): Promise<void> {
+  const deal = await requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    await ctx.reply(it.noDealInGroup);
+    return;
+  }
+  const expectedId = pendingVoterId(deal, deal.refundVotes);
+  if (expectedId == null) {
+    if (deal.refundVotes.includes(ctx.from.id) || isAdminUser(ctx.from.id)) {
+      await replaceActionReply(
+        ctx.api,
+        ctx.store,
+        deal,
+        it.alreadyVoted(deal, "refund"),
+        { parse_mode: "Markdown" },
+      );
+    }
+    return;
+  }
+  if (ctx.from.id !== expectedId && !isAdminUser(ctx.from.id)) {
+    await replaceRoleError(
+      ctx.api,
+      ctx.store,
+      deal,
+      it.onlyPendingConfirm(deal, "refund"),
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+  await clearRoleError(ctx.api, ctx.store, deal);
+  await handlePayOrRefund(ctx, "refund", { asUserId: expectedId });
 }
 
 async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {

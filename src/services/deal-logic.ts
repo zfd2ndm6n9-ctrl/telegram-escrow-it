@@ -420,6 +420,24 @@ export function mentionCounterpart(
   return mentionUser(cp.username, cp.id, fallback);
 }
 
+/** Ruolo della parte non ancora presente nei voti (dual-confirm 1/2). */
+export function pendingVoterRole(
+  deal: Deal,
+  votes: number[],
+): PartyRole | null {
+  if (deal.buyerId != null && !votes.includes(deal.buyerId)) return "buyer";
+  if (deal.sellerId != null && !votes.includes(deal.sellerId)) return "seller";
+  return null;
+}
+
+/** Telegram id della parte ancora da votare, o null se entrambe hanno votato. */
+export function pendingVoterId(deal: Deal, votes: number[]): number | null {
+  const role = pendingVoterRole(deal, votes);
+  if (role === "buyer") return deal.buyerId ?? null;
+  if (role === "seller") return deal.sellerId ?? null;
+  return null;
+}
+
 /** Parte del deal non ancora presente nei voti (per «aspetta @user»). */
 export function mentionPendingVoter(
   deal: Deal,
@@ -433,6 +451,11 @@ export function mentionPendingVoter(
     return mentionUser(deal.sellerUsername, deal.sellerId, fallback);
   }
   return fallback;
+}
+
+/** True se il buyer ha già espresso il voto di release (buyer-first). */
+export function buyerHasReleaseVote(deal: Deal): boolean {
+  return deal.buyerId != null && deal.releaseVotes.includes(deal.buyerId);
 }
 
 export function assignJoiningParty(
