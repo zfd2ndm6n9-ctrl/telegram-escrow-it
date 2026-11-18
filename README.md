@@ -93,8 +93,8 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 5. *ToS*: card con *Accetta* o *Proponi i ToS* (la controparte). Proponi → stesse 3 domande *nel gruppo* (igiene Q+A); si scambiano finché uno Accetta (lock €→SOL)
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
-8. Rilevamento automatico → seller *Ho spedito* → buyer *Paga* (dual-confirm; alias silenti `/payseller` per admin)
-9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (Prodotto/Prezzo/Condizioni + review @) → release on-chain (seller 95% + fee 5%). Refund: payout immediato senza review
+8. Rilevamento automatico → seller *Ho spedito* → buyer *Paga* (dual-confirm; alias silenti `/payseller` per admin). In parallelo: *Rimborsa buyer* (dual-confirm buyer+seller; anche pre-spedizione da stato / ship ask)
+9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (Prodotto/Prezzo/Condizioni + review @) → release on-chain (seller 95% + fee 5%). Refund 2/2: payout immediato 100% → buyer (0 fee servizio), senza review; stato `refunded` / «rimborsato» in `/miei`
 10. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; admin forza release/refund on-chain (salta review)
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato, solo deal *conclusi* `released`/`refunded`), `/invito CODICE`.  

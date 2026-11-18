@@ -103,16 +103,21 @@ export function amountConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo importo", `amtok:${dealId}`);
 }
 
-/** Post-deposito: seller segna spedizione. */
+/** Post-deposito: seller segna spedizione; rimborso mutuale sempre raggiungibile. */
 export function shipAskKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("📦 Ho spedito", "shipped");
+  return new InlineKeyboard()
+    .text("📦 Ho spedito", "shipped")
+    .row()
+    .text("↩️ Rimborsa buyer", "refund_buyer");
 }
 
-/** Dopo spedizione: CTA buyer (paga / info / disputa). */
+/** Dopo spedizione: CTA buyer (paga primario / rimborso / info / disputa). */
 export function buyerAfterShipKeyboard(deal: Deal): InlineKeyboard {
   const sellerLabel = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
   return new InlineKeyboard()
     .text(`🔓 Paga ${sellerLabel}`, "buyer_pay")
+    .row()
+    .text("↩️ Rimborsa buyer", "refund_buyer")
     .row()
     .text("ℹ️ Altre info", "buyer_info")
     .text("⚠️ Disputa", "buyer_dispute");
@@ -136,7 +141,7 @@ export function payoutHashKeyboard(): InlineKeyboard {
 /**
  * Tastiera azioni gruppo.
  * Niente «Paga seller» / pay_seller in UI: rilascio via flusso ship→buyer.
- * Refund resta silenzioso (comando) o via disputa/admin.
+ * «Rimborsa buyer» post-deposito (dual-confirm); in disputa admin usa comandi silenti.
  */
 export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboard {
   const kb = new InlineKeyboard();
@@ -167,6 +172,11 @@ export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboar
     // In disputa: niente label /payseller; admin usa comandi silenti.
     kb.text("📄 Stato", "stato");
     return kb;
+  }
+
+  // Mutual refund: solo post-deposito, finché non chiuso / in rilascio.
+  if (status === "funded" || status === "refund_pending") {
+    kb.text("↩️ Rimborsa buyer", "refund_buyer").row();
   }
 
   kb.text("⚠️ Disputa", "dispute").text("📄 Stato", "stato");
