@@ -75,6 +75,11 @@ export class DealLogStore {
     return this.filePath;
   }
 
+  /** Numero di deal con almeno un log (per anteprima wipe). */
+  get size(): number {
+    return this.buckets.size;
+  }
+
   private load(): void {
     try {
       const raw = readFileSync(this.filePath, "utf8");
@@ -230,5 +235,16 @@ export class DealLogStore {
     }
     if (removed > 0) this.persist();
     return removed;
+  }
+
+  /**
+   * Svuota tutti i transcript (`deal-logs.json` → `{ logs: [] }`).
+   * Usato da `/admin_wipe_deals` insieme allo store deal.
+   */
+  clearAll(): number {
+    const n = this.buckets.size;
+    this.buckets.clear();
+    this.persist();
+    return n;
   }
 }

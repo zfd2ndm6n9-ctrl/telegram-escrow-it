@@ -12,9 +12,10 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
     }
     if (!ctx.from) return;
     await dismissInviteStep(ctx);
-    const deals = ctx.store.listForUser(ctx.from.id);
+    // Solo conclusi (released / refunded): i deal aperti vivono nel gruppo.
+    const deals = ctx.store.listConcludedForUser(ctx.from.id);
     if (deals.length === 0) {
-      await ctx.reply(it.noDeals, { reply_markup: mainMenuKeyboard() });
+      await ctx.reply(it.noConcludedDeals, { reply_markup: mainMenuKeyboard() });
       return;
     }
 
@@ -22,7 +23,7 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
       const amt = d.amount ? `${d.amount} ${d.asset}` : d.asset;
       return `• *#${d.id}* — ${amt} — ${statusLabel(d.status)}`;
     });
-    await ctx.reply(`*I tuoi deal*\n\n${lines.join("\n")}`, {
+    await ctx.reply(`*I tuoi deal conclusi*\n\n${lines.join("\n")}`, {
       parse_mode: "Markdown",
       reply_markup: mainMenuKeyboard(),
     });

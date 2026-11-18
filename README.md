@@ -43,7 +43,7 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `FEE_WALLET_PUBKEY` | sì in prod | Fee 5% release → `57fv8agNAjcsaLgodeNDjexTo5azsJpjLyMigaZnfVNP`. Se assente = master |
 | `SOLANA_RPC_URL` | no | RPC mainnet. Default pubblico. Consigliato: Helius / QuickNode / Alchemy |
 | `SOLANA_WATCH_INTERVAL_MS` | no | Poll depositi (default `20000`) |
-| `ADMIN_TELEGRAM_ID` | sì in prod | User id admin (dispute + `/log` + force + `/iscritti` + `/codice`) |
+| `ADMIN_TELEGRAM_ID` | sì in prod | User id admin (dispute + `/log` + force + `/iscritti` + `/codice` + `/admin_wipe_deals`) |
 | `ADMIN_TELEGRAM_IDS` | no | Lista admin (csv). Unita a `ADMIN_TELEGRAM_ID` |
 | `PUBLIC_BASE_URL` | sì in prod (Web) | Host HTTPS del servizio (es. `https://….onrender.com`). Mini App ToS = `/tos`. Fallback: `RENDER_EXTERNAL_URL` |
 | `TOS_URL` | no | Override URL Mini App (default `${PUBLIC_BASE_URL}/tos`) |
@@ -97,8 +97,8 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (Prodotto/Prezzo/Condizioni + review @) → release on-chain (seller 95% + fee 5%). Refund: payout immediato senza review
 10. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; admin forza release/refund on-chain (salta review)
 
-Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato), `/invito CODICE`.  
-Admin: `/log #dealId` (DM), `/iscritti`, `/codice`, `/codici`, `/fee`.
+Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato, solo deal *conclusi* `released`/`refunded`), `/invito CODICE`.  
+Admin: `/log #dealId` (DM), `/iscritti`, `/codice`, `/codici`, `/fee`, `/admin_wipe_deals` (DM: svuota `deals.json` + `deal-logs.json`; con saldi escrow richiede `FORCE`).
 
 ### Log dispute (`/log`) — privacy
 
@@ -132,7 +132,7 @@ Admin: `/log #dealId` (DM), `/iscritti`, `/codice`, `/codici`, `/fee`.
 2. Invia **~0.05 SOL** alla **pubkey master** (solo per fee tx)
 3. Deploy / restart del worker (**Manual Deploy**)
 4. Su Telegram: `/crea` → buyer → SOL → `0.01`
-5. Crea gruppo privato → aggiungi bot admin → `/avvia` → invita controparte (scrive un messaggio per bind)
+5. Crea gruppo privato → aggiungi bot admin → `/avvia` → invita controparte (scrive un messaggio per bind). Hai *10 minuti* dopo le istruzioni DM; oltre → deal auto-annullato, rifai `/crea`.
 6. Termini DM opener → controparte *Accetta* (o *Proponi i ToS*) → `/wallet` seller poi buyer
 7. Invia `0.01 SOL` all’indirizzo mostrato da `/indirizzo`
 8. Attendi “deposito rilevato” → ship → *Paga* (dual-confirm)
@@ -152,6 +152,7 @@ npm run recover:escrow:bulk -- --to FEE_WALLET_PUBKEY --execute
 ```
 
 - Admin in gruppo: `/ripristina 82978c05` · `/admin_payout 82978c05 seller`
+- Soft-launch cleanup store (DM admin): `/admin_wipe_deals` → anteprima → `/admin_wipe_deals CONFERMA` (o `CONFERMA FORCE` se escrow on-chain ancora finanziati; i SOL restano sull’indirizzo derivato)
 
 Dettagli: [`docs/solana-escrow.md`](./docs/solana-escrow.md).
 

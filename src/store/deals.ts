@@ -158,35 +158,79 @@ export class DealStore {
     return [...this.deals.values()].find((d) => d.groupChatId === chatId);
   }
 
-  /** Deal del creator ancora da avviare / in setup gruppo (il più recente). */
-  findAwaitingGroupByCreator(creatorId: number): Deal | undefined {
-    return [...this.deals.values()]
-      .filter(
-        (d) =>
-          d.creatorId === creatorId &&
-          (d.status === "awaiting_group" ||
-            d.status === "awaiting_bot_admin" ||
-            d.status === "awaiting_counterpart"),
-      )
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  /**
+   * Sceglie un deal in setup gruppo tra i candidati.
+   * Con `chatId`: non restituisce mai un deal già bound a un *altro* gruppo;
+   * preferisce bound a questo chat, poi unbound (`groupChatId` assente).
+   */
+  private pickAwaitingGroupDeal(
+    candidates: Deal[],
+    chatId?: number,
+  ): Deal | undefined {
+    let list = candidates;
+    if (chatId != null) {
+      list = list.filter(
+        (d) => d.groupChatId == null || d.groupChatId === chatId,
+      );
+    }
+    if (list.length === 0) return undefined;
+
+    const byUpdated = (a: Deal, b: Deal) =>
+      b.updatedAt.localeCompare(a.updatedAt);
+
+    if (chatId != null) {
+      const boundHere = list
+        .filter((d) => d.groupChatId === chatId)
+        .sort(byUpdated);
+      if (boundHere[0]) return boundHere[0];
+    }
+
+    const unbound = list.filter((d) => d.groupChatId == null).sort(byUpdated);
+    if (unbound[0]) return unbound[0];
+
+    return [...list].sort(byUpdated)[0];
+  }
+
+  private isAwaitingGroupStatus(status: DealStatus): boolean {
+    return (
+      status === "awaiting_group" ||
+      status === "awaiting_bot_admin" ||
+      status === "awaiting_counterpart"
+    );
+  }
+
+  /**
+   * Deal del creator ancora da avviare / in setup gruppo.
+   * @param chatId gruppo corrente: esclude deal già collegati ad altri chat.
+   */
+  findAwaitingGroupByCreator(
+    creatorId: number,
+    chatId?: number,
+  ): Deal | undefined {
+    const candidates = [...this.deals.values()].filter(
+      (d) => d.creatorId === creatorId && this.isAwaitingGroupStatus(d.status),
+    );
+    return this.pickAwaitingGroupDeal(candidates, chatId);
   }
 
   /**
    * Deal in attesa di gruppo/bind dove `userId` è creator, buyer o seller.
    * Consente /avvia anche alla controparte (non solo al DM opener).
+   * @param chatId gruppo corrente: esclude deal già collegati ad altri chat
+   *   (evita «già collegato» quando si apre un secondo deal con lo stesso amico).
    */
-  findAwaitingGroupByParty(userId: number): Deal | undefined {
-    return [...this.deals.values()]
-      .filter(
-        (d) =>
-          (d.creatorId === userId ||
-            d.buyerId === userId ||
-            d.sellerId === userId) &&
-          (d.status === "awaiting_group" ||
-            d.status === "awaiting_bot_admin" ||
-            d.status === "awaiting_counterpart"),
-      )
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  findAwaitingGroupByParty(
+    userId: number,
+    chatId?: number,
+  ): Deal | undefined {
+    const candidates = [...this.deals.values()].filter(
+      (d) =>
+        (d.creatorId === userId ||
+          d.buyerId === userId ||
+          d.sellerId === userId) &&
+        this.isAwaitingGroupStatus(d.status),
+    );
+    return this.pickAwaitingGroupDeal(candidates, chatId);
   }
 
   listForUser(userId: number): Deal[] {
@@ -196,6 +240,30 @@ export class DealStore {
           d.creatorId === userId || d.buyerId === userId || d.sellerId === userId,
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** Deal conclusi (rilasciati / rimborsati) per «I miei deal». */
+  listConcludedForUser(userId: number): Deal[] {
+    return [...this.deals.values()]
+      .filter(
+        (d) =>
+          (d.creatorId === userId ||
+            d.buyerId === userId ||
+            d.sellerId === userId) &&
+          (d.status === "released" || d.status === "refunded"),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /**
+   * Svuota lo store in memoria e su disco (`deals.json` → `{ deals: [] }`).
+   * Non tocca escrow on-chain. Usato da `/admin_wipe_deals`.
+   */
+  clearAll(): number {
+    const n = this.deals.size;
+    this.deals.clear();
+    this.persist();
+    return n;
   }
 
   listByStatus(status: DealStatus): Deal[] {

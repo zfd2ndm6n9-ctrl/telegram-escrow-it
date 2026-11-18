@@ -6,7 +6,11 @@ import { mainMenuKeyboard } from "../keyboards/menus.js";
 import { publishIscrittiCount } from "../services/public-count.js";
 import { registerHandleFromMessage } from "../services/registration.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
-import { isValidSolAddress, lamportsToSolString } from "../services/solana/index.js";
+import {
+  getEscrowBalanceLamports,
+  isValidSolAddress,
+  lamportsToSolString,
+} from "../services/solana/index.js";
 import {
   checkVouchMembership,
   vouchInviteLink,
@@ -569,6 +573,97 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       it.feeDisclosureShort(),
     ].join("\n");
     await ctx.reply(body, { parse_mode: "Markdown" });
+  });
+
+  /**
+   * Admin: svuota deals.json + deal-logs.json (soft-launch cleanup).
+   * Non tocca members/invites/vouch pin. Non sposta fondi on-chain.
+   * Uso: /admin_wipe_deals | /admin_wipe_deals CONFERMA | … CONFERMA FORCE
+   */
+  bot.command(["admin_wipe_deals", "adminwipedeals"], async (ctx) => {
+    if (!ctx.from || !isAdminUser(ctx.from.id)) {
+      await ctx.reply(it.adminOnly);
+      return;
+    }
+    if (ctx.chat?.type !== "private") {
+      await ctx.reply("Usa `/admin_wipe_deals` in privato col bot.", {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+
+    const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
+    const arg1 = (parts[1] ?? "").trim().toUpperCase();
+    const arg2 = (parts[2] ?? "").trim().toUpperCase();
+    const confirm = arg1 === "CONFERMA" || arg1 === "CONFIRM";
+    const force = arg2 === "FORCE" || arg1 === "FORCE";
+
+    if (arg1 && !confirm && arg1 !== "FORCE") {
+      await ctx.reply(it.adminWipeUsage, { parse_mode: "Markdown" });
+      return;
+    }
+
+    const all = ctx.store.listAll();
+    const fundedLines: string[] = [];
+    let checkErrors = 0;
+
+    // Cap RPC: soft-launch store piccolo; evita hammer se migliaia di deal.
+    const toCheck = all.slice(0, 80);
+    for (const d of toCheck) {
+      const addr = d.escrowAddress?.trim();
+      if (!addr || addr === "PENDING_SOL_ESCROW" || !isValidSolAddress(addr)) {
+        continue;
+      }
+      try {
+        const bal = await getEscrowBalanceLamports(addr);
+        if (bal > 0n) {
+          fundedLines.push(
+            `• *#${d.id}* \`${lamportsToSolString(bal)} SOL\` · \`${addr}\``,
+          );
+        }
+      } catch {
+        checkErrors += 1;
+      }
+    }
+    if (all.length > toCheck.length) {
+      checkErrors += 1; // segnala check parziale
+    }
+
+    if (!confirm) {
+      await ctx.reply(
+        it.adminWipePreview({
+          dealCount: all.length,
+          logBuckets: ctx.dealLogs.size,
+          fundedLines: fundedLines.slice(0, 15),
+          checkErrors,
+        }),
+        { parse_mode: "Markdown" },
+      );
+      return;
+    }
+
+    if ((fundedLines.length > 0 || checkErrors > 0) && !force) {
+      await ctx.reply(
+        `${it.adminWipeNeedForce}\n\n${it.adminWipePreview({
+          dealCount: all.length,
+          logBuckets: ctx.dealLogs.size,
+          fundedLines: fundedLines.slice(0, 15),
+          checkErrors,
+        })}`,
+        { parse_mode: "Markdown" },
+      );
+      return;
+    }
+
+    const dealsRemoved = ctx.store.clearAll();
+    const logsRemoved = ctx.dealLogs.clearAll();
+    console.warn(
+      `[admin_wipe_deals] by ${ctx.from.id}: removed ${dealsRemoved} deals, ${logsRemoved} log buckets` +
+        (force ? " (FORCE)" : ""),
+    );
+    await ctx.reply(it.adminWipeDone(dealsRemoved, logsRemoved), {
+      parse_mode: "Markdown",
+    });
   });
 
   /**

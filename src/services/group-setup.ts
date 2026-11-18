@@ -25,12 +25,43 @@ import { startTermsWizard } from "./dm-terms.js";
 import {
   clearEphemeralReplies,
   clearRoleError,
+  deleteMessageSafe,
   sendTrackedPrompt,
   upsertSetupMessage,
 } from "./prompt-cleanup.js";
 
 /** PNG branding gruppi deal (repo `assets/`, non compilato in dist/). */
 const GROUP_PHOTO_FILENAME = "escrowita-group.png";
+
+/**
+ * Best-effort: cancella istruzioni «aggiungi bot» in DM e deadline bind
+ * quando il deal viene collegato a un gruppo.
+ */
+async function clearAwaitingGroupDmHints(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  if (
+    deal.awaitingGroupExpiresAt == null &&
+    deal.dmGroupInstructionsMessageId == null
+  ) {
+    return deal;
+  }
+  if (deal.dmGroupInstructionsMessageId != null) {
+    await deleteMessageSafe(
+      api,
+      deal.creatorId,
+      deal.dmGroupInstructionsMessageId,
+    );
+  }
+  return (
+    store.update(deal.id, {
+      awaitingGroupExpiresAt: undefined,
+      dmGroupInstructionsMessageId: undefined,
+    }) ?? deal
+  );
+}
 
 /**
  * Path assoluto a `assets/escrowita-group.png`.
@@ -434,11 +465,13 @@ export async function bindGroupToDeal(
   const perms = await checkRequiredBotAdminPerms(api, chatId);
 
   if (!perms.ok) {
-    const updated =
+    let updated =
       store.update(deal.id, {
         groupChatId: chatId,
         status: "awaiting_bot_admin",
+        awaitingGroupExpiresAt: undefined,
       }) ?? deal;
+    updated = await clearAwaitingGroupDmHints(api, store, updated);
     return { deal: updated, perms };
   }
 
@@ -459,14 +492,17 @@ export async function bindGroupToDeal(
 
   const nextStatus = resolveBoundStatus(deal);
 
-  const updated =
+  let updated =
     store.update(deal.id, {
       groupChatId: chatId,
       status: nextStatus,
+      awaitingGroupExpiresAt: undefined,
       ...(groupPhotoSetAt && groupPhotoSetAt !== deal.groupPhotoSetAt
         ? { groupPhotoSetAt }
         : {}),
     }) ?? deal;
+
+  updated = await clearAwaitingGroupDmHints(api, store, updated);
 
   return { deal: updated, perms };
 }

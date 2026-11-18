@@ -231,13 +231,17 @@ Nel gruppo la controparte può *Accetta* o *Proponi i ToS*.`,
 • Ruolo: *${deal.creatorRole}*
 • Crypto: *${deal.asset}*${termsNote}
 
-Ora:
+Ora (*entro 10 minuti*):
 1. Crea un *gruppo privato*
 2. Aggiungi questo bot al gruppo
 3. Nel gruppo: /avvia
 
 Poi invita l'altra parte.`;
   },
+
+  /** Timer 10 min scaduto: bot non aggiunto / deal non collegato. */
+  groupBindExpired: (deal: Deal) =>
+    `⏱ Deal *#${deal.id}* annullato: il bot non è stato aggiunto al gruppo entro *10 minuti*.\nUsa /crea per ricominciare.`,
 
   groupReady: (deal: Deal, inviteLink: string, creatorInvited: boolean) =>
     `✅ Gruppo escrow pronto per deal *#${deal.id}*.
@@ -741,18 +745,63 @@ Scegli:`;
   notCreator: "Solo buyer o seller del deal possono usare /avvia.",
   notDealParty: "Solo *buyer* o *seller* del deal possono usare /avvia.",
   dealNotFound: "Deal non trovato.",
+  /** @deprecated Preferire noConcludedDeals per /miei. */
   noDeals: "Nessun deal. Usa /crea in privato.",
+  noConcludedDeals:
+    "Nessun deal concluso. I deal aperti restano nel gruppo — usa /crea per uno nuovo.",
   onlyPrivate: "Usa questo comando in *chat privata* con il bot.",
   onlyGroup: "Usa questo comando nel *gruppo escrow*.",
   noDealInGroup:
     "Nessun deal collegato. In privato: /crea → poi qui /avvia (buyer o seller).",
+  /** Questo chat ha già un deal (es. /ripristina su gruppo occupato). */
   alreadyBound: "Questo gruppo è già collegato a un deal.",
+  /** Il deal scelto è già bound a un *altro* gruppo (multi-deal / link sbagliato). */
+  alreadyBoundElsewhere: (deal: Deal) =>
+    `Deal *#${deal.id}* è già collegato a un *altro* gruppo. Per un nuovo escrow: crea un gruppo nuovo, aggiungi il bot admin, poi /avvia.`,
   alreadyActivated: "Il deal in questo gruppo è già avviato.",
   /** /avvia ripetuto su deal già collegato: niente seconda card. */
   alreadyLinkedShort: (deal: Deal) =>
     `Deal *#${deal.id}* già collegato — \`${STATUS_LABELS[deal.status]}\`. Usa /stato.`,
   counterpartIsOpener: "Chi ha avviato il deal non conferma come controparte.",
   counterpartTaken: "La controparte è già assegnata.",
+
+  adminWipeUsage:
+    "Uso (solo admin, in privato):\n" +
+    "• `/admin_wipe_deals` — anteprima (conteggio + escrows con saldo on-chain)\n" +
+    "• `/admin_wipe_deals CONFERMA` — svuota `deals.json` + `deal-logs.json` se *nessun* escrow ha saldo\n" +
+    "• `/admin_wipe_deals CONFERMA FORCE` — svuota *anche* con saldi on-chain (i fondi restano sull'indirizzo derivato; usa `recover:escrow` dopo)\n\n" +
+    "⚠️ Non cancella i SOL on-chain. Non tocca `members.json` / `invites.json` / pin vouch.",
+  adminWipePreview: (opts: {
+    dealCount: number;
+    logBuckets: number;
+    fundedLines: string[];
+    checkErrors: number;
+  }) => {
+    const head = `Anteprima wipe store: *${opts.dealCount}* deal · *${opts.logBuckets}* log.\nPath: \`DATA_DIR/deals.json\` + \`deal-logs.json\`.`;
+    if (opts.fundedLines.length === 0 && opts.checkErrors === 0) {
+      return (
+        `${head}\n\nNessun saldo escrow rilevato.\n` +
+        `Per procedere: \`/admin_wipe_deals CONFERMA\``
+      );
+    }
+    const funded =
+      opts.fundedLines.length > 0
+        ? `\n\n⚠️ Escrow con saldo on-chain:\n${opts.fundedLines.join("\n")}`
+        : "";
+    const errs =
+      opts.checkErrors > 0
+        ? `\n\n⚠️ ${opts.checkErrors} check saldo falliti (RPC). Usa FORCE solo se sai cosa fai.`
+        : "";
+    return (
+      `${head}${funded}${errs}\n\n` +
+      `Con saldi: \`/admin_wipe_deals CONFERMA FORCE\` (i fondi restano on-chain).\n` +
+      `Senza saldi: \`/admin_wipe_deals CONFERMA\`.`
+    );
+  },
+  adminWipeNeedForce:
+    "Ci sono escrow con saldo (o check falliti). Ripeti con `FORCE` oppure recupera prima i fondi (`npm run recover:escrow`).",
+  adminWipeDone: (dealsRemoved: number, logsRemoved: number) =>
+    `✅ Store svuotato: *${dealsRemoved}* deal, *${logsRemoved}* log. Members/invites/pin vouch intatti.`,
   /** Proponente non può accettare la propria proposta. */
   tosProposerCannotAccept:
     "Hai proposto tu i termini. Aspetta *Accetta* o *Proponi i ToS* dalla controparte.",

@@ -185,6 +185,15 @@ export interface Deal {
    * Cancellato dopo ogni risposta + a fine wizard.
    */
   groupTermsPromptMessageId?: number;
+  /**
+   * Deadline ISO: dopo le istruzioni «aggiungi il bot al gruppo» in DM.
+   * Se `groupChatId` resta assente oltre la deadline → status `cancelled`.
+   */
+  awaitingGroupExpiresAt?: string;
+  /**
+   * Message id delle istruzioni gruppo in DM del creator (cancellato a bind o scadenza).
+   */
+  dmGroupInstructionsMessageId?: number;
   createdAt: string;
   updatedAt: string;
 }
