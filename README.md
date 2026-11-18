@@ -1,6 +1,6 @@
 # telegram-escrow-it
 
-Bot Telegram di **escrow crypto** per il mercato italiano (**Escrowita**).
+Bot Telegram di **escrow crypto** per il mercato italiano (**Escrowita**) — pensato per *servizi digitali*, info e lavoro online.
 
 - Dopo `/crea`: crea un **gruppo privato**, aggiungi il bot come **admin**, poi `/avvia`
 - Buyer + seller + bot nel gruppo; il **supporto** entra solo in disputa
@@ -85,7 +85,7 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 
 1. `/start` → iscrizione (anche senza `@`: «utente» + soft remind) → entra nel **canale reviews** (hard gate) → `/crea`
 2. Ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) — **niente wallet in DM**
-3. Chi apre (`/crea`) risponde alle **3 domande** termini in DM (Prodotto → Prezzo € → Condizioni), poi istruzioni gruppo → bot admin → `/avvia`
+3. Chi apre (`/crea`) risponde alle **3 domande** termini in DM (Prodotto/servizio → Prezzo € → Condizioni), poi istruzioni gruppo → bot admin → `/avvia`
 
 ### Nel gruppo
 
@@ -93,8 +93,8 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 5. *ToS*: card con *Accetta* o *Proponi i ToS* (la controparte). Proponi → stesse 3 domande *nel gruppo* (igiene Q+A); si scambiano finché uno Accetta (lock €→SOL)
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
-8. Rilevamento automatico → seller *Ho spedito* → buyer *Paga* (dual-confirm; alias silenti `/payseller` per admin). In parallelo: *Rimborsa buyer* (dual-confirm buyer+seller; anche pre-spedizione da stato / ship ask)
-9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (Prodotto/Prezzo/Condizioni + review @) → release on-chain (seller 95% + fee 5%). Refund 2/2: payout immediato 100% → buyer (0 fee servizio), senza review; stato `refunded` / «rimborsato» in `/miei`
+8. Rilevamento automatico → seller *Consegnato* → buyer *Paga* (dual-confirm; alias silenti `/payseller` per admin). In parallelo: *Rimborsa buyer* (dual-confirm buyer+seller; anche pre-consegna da stato / ship ask)
+9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (Prodotto/servizio/Prezzo/Condizioni + review @) → release on-chain (seller 95% + fee 5%). Refund 2/2: payout immediato 100% → buyer (0 fee servizio), senza review; stato `refunded` / «rimborsato» in `/miei`
 10. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; admin forza release/refund on-chain (salta review)
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato, solo deal *conclusi* `released`/`refunded`), `/invito CODICE`.  
@@ -102,7 +102,7 @@ Admin: `/log #dealId` (DM), `/iscritti`, `/codice`, `/codici`, `/fee`, `/admin_w
 
 ### Log dispute (`/log`) — privacy
 
-- Mentre un deal è attivo, il bot **trattiene** i testi delle parti nel gruppo (user-to-user) + eventi chiave (wallet, spedito, disputa, payout). **Non** i prompt effimeri del bot.
+- Mentre un deal è attivo, il bot **trattiene** i testi delle parti nel gruppo (user-to-user) + eventi chiave (wallet, consegnato, disputa, payout). **Non** i prompt effimeri del bot.
 - Quando l’igiene cancella un messaggio utente, resta la copia locale (`[del]` nel transcript).
 - **Solo admin** (DM): `/log #250538a0` o `/log 250538a0`.
 - Cap: max **200** voci/deal; retention **30 giorni** dall’ultimo aggiornamento del bucket (`deal-logs.json` in `DATA_DIR`).
@@ -135,7 +135,7 @@ Admin: `/log #dealId` (DM), `/iscritti`, `/codice`, `/codici`, `/fee`, `/admin_w
 5. Crea gruppo privato → aggiungi bot admin → `/avvia` → invita controparte (scrive un messaggio per bind). Hai *10 minuti* dopo le istruzioni DM; oltre → deal auto-annullato, rifai `/crea`.
 6. Termini DM opener → controparte *Accetta* (o *Proponi i ToS*) → `/wallet` seller poi buyer
 7. Invia `0.01 SOL` all’indirizzo mostrato da `/indirizzo`
-8. Attendi “deposito rilevato” → ship → *Paga* (dual-confirm)
+8. Attendi “deposito rilevato” → *Consegnato* → *Paga* (dual-confirm)
 
 ### Persistenza e recovery
 

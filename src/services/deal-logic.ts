@@ -193,6 +193,7 @@ export function normalizeTosField(
     current = stripRepeatedLabel(current, "Price");
   }
   if (label === "Prodotto") {
+    current = stripRepeatedLabel(current, "Prodotto/servizio");
     current = stripRepeatedLabel(current, "Product");
   }
   return current;
@@ -230,12 +231,17 @@ export function nextDmTermsStep(deal: Deal): DmTermsStep | null {
 }
 
 /**
- * Elenco puntato fisso Prodotto / Prezzo € / Condizioni.
+ * Elenco puntato fisso Prodotto/servizio / Prezzo € / Condizioni.
  * Campi vuoti → `—` (card sempre completa).
  */
 export function formatTosBullets(deal: Deal): string {
   const product = deal.tosProduct
-    ? escMd(stripRepeatedLabel(deal.tosProduct, "Prodotto"))
+    ? escMd(
+        stripRepeatedLabel(
+          stripRepeatedLabel(deal.tosProduct, "Prodotto/servizio"),
+          "Prodotto",
+        ),
+      )
     : "—";
   const price = deal.priceEur
     ? escMd(formatEuroPrice(deal.priceEur))
@@ -251,7 +257,7 @@ export function formatTosBullets(deal: Deal): string {
       : "";
   const conditions = conditionsRaw ? escMd(conditionsRaw) : "—";
   return (
-    `• Prodotto: ${product}\n` +
+    `• Prodotto/servizio: ${product}\n` +
     `• Prezzo: ${price}\n` +
     `• Condizioni: ${conditions}`
   );
@@ -266,7 +272,7 @@ export function composeTosText(
   const p = normalizeTosField(product, "Prodotto");
   const c = normalizeTosField(conditions, "Condizioni");
   return [
-    `• Prodotto: ${p}`,
+    `• Prodotto/servizio: ${p}`,
     `• Prezzo: ${formatEuroPrice(priceEur)}`,
     `• Condizioni: ${c}`,
   ].join("\n");

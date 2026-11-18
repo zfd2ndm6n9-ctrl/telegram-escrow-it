@@ -17,7 +17,7 @@ import {
 } from "../services/deal-logic.js";
 
 const ESSENTIAL_LABELS: Record<EssentialTermsField, string> = {
-  product: "Prodotto",
+  product: "Prodotto/servizio",
   price: "Prezzo",
   conditions: "Condizioni",
 };
@@ -87,7 +87,7 @@ export const it = {
       : "\n\n_Imposta una @ Telegram per usare /crea._";
     return `✅ Iscrizione ok — ${who}.${softAt}
 
-Escrow crypto tra due parti già d'accordo.
+Escrow per *servizi digitali*, info e lavoro online.
 
 /crea — nuovo deal
 /miei — i tuoi deal`;
@@ -102,6 +102,8 @@ Escrow crypto tra due parti già d'accordo.
       ? ""
       : "\n\n_Imposta una @ Telegram per usare /crea._";
     return `Bentornato su *Escrowita* — ${who}.${softAt}
+
+Escrow per *servizi digitali*, info e lavoro online.
 
 /crea — nuovo deal
 /miei — i tuoi deal`;
@@ -198,12 +200,12 @@ Entra, poi *Ho entrato* o \`/start\`.`,
 
   dmTermsAsk: (step: DmTermsStep, _deal: Deal) => {
     if (step === "product") {
-      return "1️⃣ Qual è il *Prodotto*?";
+      return "1️⃣ Qual è il *Prodotto/servizio*?";
     }
     if (step === "price") {
       return "2️⃣ Qual è il *Prezzo* in euro? (es. `10` o `12,50`)";
     }
-    return "3️⃣ Quali sono le *Condizioni*?";
+    return "3️⃣ Quali sono le *Condizioni*? (consegna, tempi, formato…)";
   },
 
   dmTermsComplete: (deal: Deal) =>
@@ -232,7 +234,7 @@ Nel gruppo la controparte può *Accetta* o *Proponi i ToS*.`,
   afterAmountInstructions: (deal: Deal) => {
     const termsNote = termsReadyForConfirm(deal)
       ? "\nTermini già compilati in privato."
-      : "\nRispondi alle *3 domande* in privato (Prodotto, Prezzo €, Condizioni).";
+      : "\nRispondi alle *3 domande* in privato (Prodotto/servizio, Prezzo €, Condizioni).";
     return `✅ Deal *#${deal.id}* pronto.
 
 • Ruolo: *${deal.creatorRole}*
@@ -344,7 +346,7 @@ ${missingRole}: entra o scrivi un messaggio nel gruppo.`;
     if (fundedLike) {
       bullets.push("• *DEPOSITO CONFERMATO*");
       if (deal.sellerShippedAt) {
-        bullets.push("• Spedizione: segnata");
+        bullets.push("• Consegna: segnata");
       }
     }
 
@@ -493,51 +495,61 @@ ${missingRole}: entra o scrivi un messaggio nel gruppo.`;
   depositAddress: depositPrompt,
 
   /**
-   * Post-deposito: tagga seller + prodotto (stato funded è sulla card pinnata).
+   * Post-deposito: tagga seller + prodotto/servizio (stato funded è sulla card pinnata).
    * Niente riga shouty «DEPOSITO…» qui — resta sulla pin.
    */
   shipAsk: (deal: Deal) => {
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
     const product = deal.tosProduct
-      ? escMd(stripRepeatedLabel(deal.tosProduct, "Prodotto"))
+      ? escMd(
+          stripRepeatedLabel(
+            stripRepeatedLabel(deal.tosProduct, "Prodotto/servizio"),
+            "Prodotto",
+          ),
+        )
       : "—";
-    return `${seller}, spedisci:
+    return `${seller}, consegna:
 
 • ${product}
 
-Poi: *Ho spedito*`;
+Poi: *Consegnato*`;
   },
 
   /** @deprecated Preferire shipAsk; alias per watcher legacy. */
   depositDetected: (deal: Deal, _balanceSol: string) => {
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
     const product = deal.tosProduct
-      ? escMd(stripRepeatedLabel(deal.tosProduct, "Prodotto"))
+      ? escMd(
+          stripRepeatedLabel(
+            stripRepeatedLabel(deal.tosProduct, "Prodotto/servizio"),
+            "Prodotto",
+          ),
+        )
       : "—";
-    return `${seller}, spedisci:
+    return `${seller}, consegna:
 
 • ${product}
 
-Poi: *Ho spedito*`;
+Poi: *Consegnato*`;
   },
 
   shipOnlySeller: (deal: Deal) => {
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
-    return `Ora tocca a ${seller} segnare la spedizione.`;
+    return `Ora tocca a ${seller} segnare la consegna.`;
   },
 
   alreadyShipped: (deal: Deal) =>
-    `Spedizione già segnata (#${deal.id}).`,
+    `Consegna già segnata (#${deal.id}).`,
 
   needShipFirst: (deal: Deal) => {
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
-    return `Prima ${seller} deve segnare *Ho spedito*.`;
+    return `Prima ${seller} deve segnare *Consegnato*.`;
   },
 
-  /** Buyer dopo «ho spedito». */
+  /** Buyer dopo «consegnato». */
   buyerAfterShip: (deal: Deal) => {
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
-    return `${buyer} — seller ha spedito.
+    return `${buyer} — seller ha consegnato.
 
 Scegli:`;
   },
@@ -759,7 +771,7 @@ Scegli:`;
     `❌ Escrow derivato diverso dall'atteso per *#${dealId}*.\nAtteso: \`${expected}\`\nDerivato: \`${derived}\`\nNon procedere: verifica che la master key su Render sia quella originale.`,
 
   ripristinaOk: (deal: Deal, balanceSol: string) =>
-    `✅ Deal *#${deal.id}* ricollegato a questo gruppo.\nStato: \`${deal.status}\` · saldo escrow ~*${balanceSol} SOL*\nSeller: \`${deal.sellerWallet}\`\nBuyer: \`${deal.buyerWallet}\`\nPoi: spedizione → paga seller (o /admin_payout).`,
+    `✅ Deal *#${deal.id}* ricollegato a questo gruppo.\nStato: \`${deal.status}\` · saldo escrow ~*${balanceSol} SOL*\nSeller: \`${deal.sellerWallet}\`\nBuyer: \`${deal.buyerWallet}\`\nPoi: consegna → paga seller (o /admin_payout).`,
 
   adminPayoutUsage:
     "Uso (solo admin): `/admin_payout <dealId> seller|buyer`\nEs: `/admin_payout 82978c05 seller`",
@@ -933,7 +945,7 @@ export function formatDealStatus(deal: Deal): string {
     lines.push(`• Invito: \`${deal.inviteCode}\``);
   }
   if (deal.sellerShippedAt && deal.status === "funded") {
-    lines.push(`• Spedizione: segnata`);
+    lines.push(`• Consegna: segnata`);
   }
   if (deal.payoutTxSig) {
     lines.push(`• Hash: disponibile (bottone)`);

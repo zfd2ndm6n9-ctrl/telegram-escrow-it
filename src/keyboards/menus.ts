@@ -103,15 +103,15 @@ export function amountConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo importo", `amtok:${dealId}`);
 }
 
-/** Post-deposito: seller segna spedizione; rimborso mutuale sempre raggiungibile. */
+/** Post-deposito: seller segna consegna; rimborso mutuale sempre raggiungibile. */
 export function shipAskKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📦 Ho spedito", "shipped")
+    .text("✅ Consegnato", "shipped")
     .row()
     .text("↩️ Rimborsa buyer", "refund_buyer");
 }
 
-/** Dopo spedizione: CTA buyer (paga primario / rimborso / info / disputa). */
+/** Dopo consegna: CTA buyer (paga primario / rimborso / info / disputa). */
 export function buyerAfterShipKeyboard(deal: Deal): InlineKeyboard {
   const sellerLabel = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
   return new InlineKeyboard()
@@ -140,7 +140,7 @@ export function payoutHashKeyboard(): InlineKeyboard {
 
 /**
  * Tastiera azioni gruppo.
- * Niente «Paga seller» / pay_seller in UI: rilascio via flusso ship→buyer.
+ * Niente «Paga seller» / pay_seller in UI: rilascio via flusso consegna→buyer.
  * «Rimborsa buyer» post-deposito (dual-confirm); in disputa admin usa comandi silenti.
  */
 export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboard {
@@ -163,9 +163,9 @@ export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboar
     kb.text("💰 Verifica deposito", "funded").row();
   }
 
-  // Post-deposito: se non ancora spedito, bottone ship (CTA dedicate altrimenti).
+  // Post-deposito: se non ancora consegnato, bottone consegna (CTA dedicate altrimenti).
   if (status === "funded" && deal && !deal.sellerShippedAt) {
-    kb.text("📦 Ho spedito", "shipped").row();
+    kb.text("✅ Consegnato", "shipped").row();
   }
 
   if (status === "disputed") {

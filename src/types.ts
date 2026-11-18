@@ -41,9 +41,9 @@ export interface Deal {
   buyerWallet?: string;
   /** Indirizzo Solana del seller (rilascio) */
   sellerWallet?: string;
-  /** Termini del deal (elenco Prodotto / Prezzo € / Condizioni) */
+  /** Termini del deal (elenco Prodotto/servizio / Prezzo € / Condizioni) */
   tosText?: string;
-  /** Campo strutturato: Prodotto */
+  /** Campo strutturato: Prodotto/servizio */
   tosProduct?: string;
   /**
    * Prezzo commerciale in EUR (display, es. `5` o `12,50`).
@@ -111,8 +111,9 @@ export interface Deal {
   depositLamports?: string;
   depositDetectedAt?: string;
   /**
-   * Seller ha segnato «ho spedito» (post-deposito).
+   * Seller ha segnato «consegnato» (post-deposito).
    * Stato on-chain resta `funded` finché non partono i voti di release.
+   * Nome campo storico `sellerShippedAt` (ex «ho spedito»).
    */
   sellerShippedAt?: string;
   /**

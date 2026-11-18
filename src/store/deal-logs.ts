@@ -160,7 +160,7 @@ export class DealLogStore {
     });
   }
 
-  /** Evento chiave deal (disputa, spedito, wallet, payout, …). */
+  /** Evento chiave deal (disputa, consegnato, wallet, payout, …). */
   appendEvent(dealId: string, text: string): void {
     const t = clampText(text);
     if (!t) return;

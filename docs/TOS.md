@@ -1,11 +1,13 @@
 # ESCROWITA TOS
 
-**Versione:** soft-launch · **Ultimo aggiornamento:** 17 novembre 2026  
+**Versione:** soft-launch · **Ultimo aggiornamento:** 18 novembre 2026  
 **Lingua:** italiano · **Mercato:** Italia
 
 Usando il bot Telegram **Escrowita** accetti questi Termini. Se non li accetti, non usare il bot.
 
 In Telegram i termini si aprono come **Mini App** (`GET /tos` sul Web Service), non come messaggio lungo in chat.
+
+Escrowita è pensato soprattutto per **servizi digitali**, informazioni, dati e lavoro online, con consegna e conferma di completamento tra le parti.
 
 ---
 
@@ -15,7 +17,7 @@ Strumento tecnico di deposito a garanzia. Non siamo parte della compravendita, n
 
 ## 2. Nessuna garanzia sul prodotto
 
-Qualità, autenticità e conformità del bene sono responsabilità di acquirente e venditore. Escrowita è la garanzia del deal (fondi fino a rilascio/rimborso), non del prodotto.
+Qualità, autenticità e conformità del prodotto o servizio sono responsabilità di acquirente e venditore. Escrowita è la garanzia del deal (fondi fino a rilascio/rimborso), non del prodotto o servizio.
 
 ## 3. Rischio criptovalute
 
@@ -27,11 +29,11 @@ Non sono rimborsabili se il deal si chiude in positivo (rilascio al venditore). 
 
 ## 5. Accettazione dei termini del deal
 
-Con «Accetta» le parti fissano il loro accordo (prodotto, prezzo, condizioni). Il bot esegue solo rilascio o rimborso secondo il flusso previsto.
+Con «Accetta» le parti fissano il loro accordo (prodotto/servizio, prezzo, condizioni). Il bot esegue solo rilascio o rimborso secondo il flusso previsto, dopo conferma reciproca di completamento.
 
 ## 6. Contestazioni
 
-Decide l’amministratore dopo aver analizzato i messaggi salvati. Se c’è una spedizione, venditore e acquirente devono filmare e conservare un video del pacco (prima di spedire / prima di aprire al ricevimento).
+Decide l’amministratore dopo aver analizzato i messaggi salvati. In caso di contestazione, conservate prove della consegna o dell’esecuzione del servizio (messaggi, file, accessi, conferme).
 
 ## 7. Crash o gruppo sabotato
 

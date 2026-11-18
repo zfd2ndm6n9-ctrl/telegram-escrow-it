@@ -664,7 +664,7 @@ export async function postDealActivated(
 
 /**
  * Dopo deposito confermato: aggiorna la card pinnata (*DEPOSITO CONFERMATO*),
- * chiude UI deposito (prompt + effimeri + errori ruolo) e chiede al seller di spedire.
+ * chiude UI deposito (prompt + effimeri + errori ruolo) e chiede al seller di consegnare.
  * Usato da watcher e Verifica deposito.
  */
 export async function postShipAsk(
@@ -693,7 +693,7 @@ export async function postShipAsk(
   });
 }
 
-/** Seller ha spedito: CTA buyer (paga / info / disputa). */
+/** Seller ha consegnato: CTA buyer (paga / info / disputa). */
 export async function postBuyerAfterShip(
   api: Api,
   store: DealStore,
