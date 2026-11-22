@@ -3,7 +3,10 @@
  * npm exec tsx scripts/check-wallet-command.ts
  */
 import { parseWalletCommand } from "../src/handlers/group-commands.js";
-import { isValidSolAddress } from "../src/services/solana/index.js";
+import {
+  isValidSolAddress,
+  looksLikeSolAddressAttempt,
+} from "../src/services/solana/index.js";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);
@@ -48,6 +51,25 @@ assert(isValidSolAddress(FEE_SAMPLE), "fee sample must be valid SOL address");
 assert(
   !isValidSolAddress("not-an-address"),
   "garbage must fail isValidSolAddress",
+);
+
+// Free chat vs wallet attempt (turno wallet: no delete su «ciao»)
+assert(!looksLikeSolAddressAttempt("ciao"), "short chat must not look like wallet");
+assert(
+  !looksLikeSolAddressAttempt("ok mando dopo"),
+  "italian chat must not look like wallet",
+);
+assert(
+  looksLikeSolAddressAttempt(FEE_SAMPLE),
+  "valid pubkey must look like wallet attempt",
+);
+assert(
+  looksLikeSolAddressAttempt("11111111111111111111111111111111"),
+  "long base58 junk must look like attempt",
+);
+assert(
+  !looksLikeSolAddressAttempt("short"),
+  "short token must not look like wallet",
 );
 
 // Spazi / newline nell'indirizzo: strip → stesso pubkey
