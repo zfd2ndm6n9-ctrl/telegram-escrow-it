@@ -1,8 +1,11 @@
 /**
- * Smoke: /avvia awaiting-counterpart must never resolve to empty/silent copy.
+ * Smoke: /avvia awaiting-counterpart copy + dedupe vs living card.
  * npm exec tsx scripts/check-avvia-status-reply.ts
  */
-import { avviaAutoBindReply } from "../src/services/group-setup.js";
+import {
+  avviaAutoBindReply,
+  shouldSendAvviaAutoBindStatus,
+} from "../src/services/group-setup.js";
 import { it } from "../src/messages/it.js";
 
 function assert(cond: boolean, msg: string): void {
@@ -40,5 +43,38 @@ for (const reason of ["none", "need_message", "too_many"] as const) {
 const direct = it.avviaAwaitingCounterpart(dealSeller);
 assert(direct.includes("2b5f532b"), "direct missing id");
 assert(direct.includes("Buyer"), "seller opener → ask Buyer");
+
+// Dedupe: first /avvia that just posted the living card → no second status.
+assert(
+  shouldSendAvviaAutoBindStatus("none", undefined, 42) === false,
+  "first start with card must skip status",
+);
+assert(
+  shouldSendAvviaAutoBindStatus("need_message", undefined, 99) === false,
+  "need_message first start with card must skip status",
+);
+// Repeat /avvia (card already existed) → one status (clear prior wait prompt).
+assert(
+  shouldSendAvviaAutoBindStatus("none", 10, 10) === true,
+  "repeat /avvia must send status",
+);
+assert(
+  shouldSendAvviaAutoBindStatus("need_message", 7, 7) === true,
+  "repeat need_message must send status",
+);
+// Card refresh failed → still send status (no silence).
+assert(
+  shouldSendAvviaAutoBindStatus("none", undefined, undefined) === true,
+  "missing card must send status",
+);
+// too_many always visible (different from card copy).
+assert(
+  shouldSendAvviaAutoBindStatus("too_many", undefined, 42) === true,
+  "too_many always sends",
+);
+assert(
+  shouldSendAvviaAutoBindStatus("too_many", 1, 1) === true,
+  "too_many on repeat always sends",
+);
 
 console.log("check-avvia-status-reply: OK");

@@ -732,7 +732,7 @@ export type StartDealResult = {
 /**
  * Testo italiano da mostrare dopo /avvia se l'auto-bind non chiude i ruoli.
  * `too_many` → troppi membri; altrimenti status «aspetta controparte».
- * Pure: usata da handler + smoke check (mai leave /avvia senza reply).
+ * Pure: usata da handler + smoke check.
  */
 export function avviaAutoBindReply(
   reason: AutoBindFailure,
@@ -740,6 +740,26 @@ export function avviaAutoBindReply(
 ): string {
   if (reason === "too_many") return it.autoBindTooMany;
   return it.avviaAwaitingCounterpart(deal);
+}
+
+/**
+ * Evita doppio stack dopo /avvia: la living card (refreshGroupSetupCard)
+ * è già il prompt italiano «Buyer/Seller: entra…».
+ *
+ * - `too_many` → sempre inviare (messaggio diverso dalla card)
+ * - primo avvio con card appena postata → skip (la card basta)
+ * - /avvia ripetuto (card già presente) o card fallita → un solo status
+ *   (sendTrackedPrompt cancella i wait prompt precedenti)
+ */
+export function shouldSendAvviaAutoBindStatus(
+  reason: AutoBindFailure,
+  priorSetupMessageId: number | undefined,
+  afterSetupMessageId: number | undefined,
+): boolean {
+  if (reason === "too_many") return true;
+  const cardJustPosted =
+    priorSetupMessageId == null && afterSetupMessageId != null;
+  return !cardJustPosted;
 }
 
 /**
