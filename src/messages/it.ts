@@ -28,31 +28,31 @@ function formatMissingList(fields: EssentialTermsField[]): string {
 }
 
 const STATUS_LABELS: Record<Deal["status"], string> = {
-  awaiting_group: "in attesa gruppo",
-  awaiting_bot_admin: "permessi bot incompleti",
-  awaiting_counterpart: "in attesa controparte",
-  awaiting_tos: "in attesa termini",
-  awaiting_tos_confirm: "in attesa conferma termini",
-  awaiting_amount: "in attesa importo",
-  awaiting_amount_confirm: "in attesa conferma importo",
-  awaiting_seller_wallet: "in attesa wallet seller",
-  awaiting_buyer_wallet: "in attesa wallet buyer",
-  awaiting_deposit: "in attesa deposito",
-  funded: "fondato",
-  release_pending: "rilascio in corso",
-  refund_pending: "rimborso in corso",
-  released: "rilasciato",
-  refunded: "rimborsato",
-  disputed: "in disputa",
-  cancelled: "annullato",
+  awaiting_group: "In attesa gruppo",
+  awaiting_bot_admin: "Permessi bot incompleti",
+  awaiting_counterpart: "In attesa controparte",
+  awaiting_tos: "In attesa termini",
+  awaiting_tos_confirm: "In attesa conferma termini",
+  awaiting_amount: "In attesa importo",
+  awaiting_amount_confirm: "In attesa conferma importo",
+  awaiting_seller_wallet: "In attesa wallet seller",
+  awaiting_buyer_wallet: "In attesa wallet buyer",
+  awaiting_deposit: "In attesa deposito",
+  funded: "Fondato",
+  release_pending: "Rilascio in corso",
+  refund_pending: "Rimborso in corso",
+  released: "Rilasciato",
+  refunded: "Rimborsato",
+  disputed: "In disputa",
+  cancelled: "Annullato",
 };
 
 function amountLine(deal: Deal): string {
   if (amountConfirmed(deal) || deal.amount) {
-    return `• Escrow: *${deal.amount} ${deal.asset}*`;
+    return `• Importo: *${deal.amount} ${deal.asset}*`;
   }
   if (deal.priceEur) {
-    return `• Prezzo: *${deal.priceEur} €* · escrow SOL all'Accetto`;
+    return `• Prezzo: *${deal.priceEur} €*`;
   }
   return `• Crypto: *${deal.asset}*`;
 }
@@ -341,8 +341,7 @@ ${missingRole}: entra o scrivi un messaggio nel gruppo.`;
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
 
     const bullets = [
-      `• Buyer: ${buyer}`,
-      `• Seller: ${seller}`,
+      `• ${buyer} · ${seller}`,
       formatTosBullets(deal),
     ];
 
@@ -426,7 +425,7 @@ ${missingRole}: entra o scrivi un messaggio nel gruppo.`;
 
   tosAccepted: (deal: Deal) =>
     deal.amount
-      ? `✅ Termini accettati (#${deal.id}). Escrow: *${deal.amount} ${deal.asset}*.`
+      ? `✅ Termini accettati (#${deal.id}). Importo: *${deal.amount} ${deal.asset}*.`
       : `✅ Termini accettati (#${deal.id}).`,
 
   tosLocked:
@@ -441,12 +440,12 @@ ${missingRole}: entra o scrivi un messaggio nel gruppo.`;
 
   askSellerWallet: (deal: Deal) => {
     const who = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
-    return `👛 *Seller* (${who}): invia \`/wallet\` seguito dal tuo indirizzo *${deal.asset}*.`;
+    return `👛 ${who}: invia \`/wallet\` seguito dal tuo indirizzo *${deal.asset}*.`;
   },
 
   askBuyerWallet: (deal: Deal) => {
     const who = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
-    return `👛 *Buyer* (${who}): invia \`/wallet\` seguito dal tuo indirizzo *${deal.asset}*.`;
+    return `👛 ${who}: invia \`/wallet\` seguito dal tuo indirizzo *${deal.asset}*.`;
   },
 
   walletSaved: (deal: Deal, role: string, address: string) =>
@@ -605,9 +604,13 @@ Scegli:`;
     return `${seller}: il buyer chiede altre info.`;
   },
 
-  /** Sotto Altre info: percorso secondario (disputa). */
+  /** Altre info: fee / supporto (Disputa è sulla tastiera principale). */
   altreInfoMenu: (deal: Deal) =>
-    `Altre info (#${deal.id}). Apri una disputa solo se necessario:`,
+    `Info #${deal.id}\n\n${
+      deal.collaboratorWallet
+        ? "Fee alla release: *2.5%* admin + *2.5%* collab (seller 95%). Nessuna fee sul rimborso."
+        : "Fee alla release: *5%* admin (seller 95%). Nessuna fee sul rimborso."
+    }\n\nServe un operatore? Usa *Disputa*.`,
 
   /**
    * Conferma same-@ prima di azione sensibile.
@@ -1019,7 +1022,7 @@ export function statusLabel(status: Deal["status"]): string {
   return STATUS_LABELS[status];
 }
 
-/** /stato e callback: corto, senza wall di lamports. */
+/** /stato e callback: corto, professionale; niente indirizzo/invito clutter. */
 export function formatDealStatus(deal: Deal): string {
   const buyer = deal.buyerUsername
     ? `@${deal.buyerUsername}`
@@ -1034,20 +1037,23 @@ export function formatDealStatus(deal: Deal): string {
   const lines = [
     `*#${deal.id}* — ${STATUS_LABELS[deal.status]}`,
     amountLine(deal),
-    `• Buyer ${buyer} · Seller ${seller}`,
-    `• Escrow: \`${deal.escrowAddress}\``,
-    deal.collaboratorWallet
-      ? `• Fee release: 2.5% admin + 2.5% collab (seller 95%; rimborso senza fee)`
-      : `• Fee release: 5% admin (seller 95%; rimborso senza fee)`,
+    `• ${buyer} · ${seller}`,
   ];
-  if (deal.inviteCode) {
-    lines.push(`• Invito: \`${deal.inviteCode}\``);
+  if (deal.status === "awaiting_deposit" || deal.status === "funded") {
+    lines.push(
+      deal.collaboratorWallet
+        ? "• Fee: 2.5% + 2.5% alla release"
+        : "• Fee: 5% alla release",
+    );
   }
   if (deal.sellerShippedAt && deal.status === "funded") {
-    lines.push(`• Consegna: segnata`);
+    lines.push("• Consegna: segnata");
+  }
+  if (deal.status === "disputed") {
+    lines.push("• Disputa aperta");
   }
   if (deal.payoutTxSig) {
-    lines.push(`• Hash: disponibile (bottone)`);
+    lines.push("• Hash: disponibile (bottone)");
   }
   return lines.join("\n");
 }

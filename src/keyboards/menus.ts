@@ -116,22 +116,27 @@ export function selfConfirmKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("Sì", "sc_yes").text("← Indietro", "sc_back");
 }
 
-/** Sotto Altre info: disputa (non accanto a Verifica deposito / Paga). */
+/**
+ * Sotto Altre info (legacy). Disputa è sulla tastiera principale;
+ * tenuto per callback mid-flight senza bottoni.
+ */
 export function altreInfoKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("⚠️ Disputa", "dispute");
+  return new InlineKeyboard();
 }
 
-/** Post-deposito: seller segna consegna; rimborso mutuale sempre raggiungibile. */
+/** Post-deposito: seller segna consegna; rimborso + disputa raggiungibili. */
 export function shipAskKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("✅ Consegnato", "shipped")
     .row()
-    .text("↩️ Rimborsa buyer", "refund_buyer");
+    .text("↩️ Rimborsa buyer", "refund_buyer")
+    .row()
+    .text("⚠️ Disputa", "dispute")
+    .text("ℹ️ Altre info", "altre_info");
 }
 
 /**
- * Dopo consegna: CTA buyer (paga / rimborso / Altre info).
- * Disputa sotto Altre info — non impulsiva accanto a Paga.
+ * Dopo consegna: CTA buyer (paga / rimborso / disputa / altre info).
  */
 export function buyerAfterShipKeyboard(deal: Deal): InlineKeyboard {
   const sellerLabel = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
@@ -140,6 +145,7 @@ export function buyerAfterShipKeyboard(deal: Deal): InlineKeyboard {
     .row()
     .text("↩️ Rimborsa buyer", "refund_buyer")
     .row()
+    .text("⚠️ Disputa", "dispute")
     .text("ℹ️ Altre info", "buyer_info");
 }
 
@@ -165,29 +171,16 @@ export function payoutHashKeyboard(): InlineKeyboard {
 /**
  * Tastiera azioni gruppo.
  * Niente «Paga seller» / pay_seller in UI: rilascio via flusso consegna→buyer.
- * «Rimborsa buyer» post-deposito (dual-confirm); in disputa admin usa comandi silenti.
- * Disputa sotto Altre info (non accanto a Verifica deposito).
+ * Niente «Indirizzo escrow» in UI: indirizzo nel messaggio di pagamento / Verifica.
+ * Disputa + Stato in chiaro; Annulla disputa solo opener (gate nel handler).
  */
 export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboard {
   const kb = new InlineKeyboard();
 
   if (status === "disputed") {
-    kb.text("📫 Indirizzo escrow", "addr").row();
     kb.text("📄 Stato", "stato").row();
     kb.text("↩️ Annulla disputa", "dispute_cancel");
     return kb;
-  }
-
-  const depositReady =
-    status === "awaiting_deposit" ||
-    status === "funded" ||
-    status === "release_pending" ||
-    status === "refund_pending" ||
-    status === "released" ||
-    status === "refunded";
-
-  if (depositReady) {
-    kb.text("📫 Indirizzo escrow", "addr").row();
   }
 
   if (status === "awaiting_deposit") {
@@ -204,7 +197,7 @@ export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboar
     kb.text("↩️ Rimborsa buyer", "refund_buyer").row();
   }
 
-  // Disputa sotto Altre info — riga secondaria, non accanto a Verifica.
-  kb.text("ℹ️ Altre info", "altre_info").text("📄 Stato", "stato");
+  kb.text("⚠️ Disputa", "dispute").text("ℹ️ Altre info", "altre_info").row();
+  kb.text("📄 Stato", "stato");
   return kb;
 }

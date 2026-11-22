@@ -33,6 +33,7 @@ import {
   autoBindCounterpart,
   avviaAutoBindReply,
   checkRequiredBotAdminPerms,
+  clearAwaitingGroupDmHints,
   kickUnauthorized,
   postAskSellerWallet,
   refreshGroupSetupCard,
@@ -326,23 +327,23 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       ctx.store.findAwaitingGroupByCreator(update.from.id, chat.id) ??
       ctx.store.findAwaitingGroupByParty(update.from.id, chat.id);
     if (pending && pending.groupChatId == null) {
-      const instructionsId = pending.dmGroupInstructionsMessageId;
       // Non azzerare TTL: se non arriva /avvia entro 10 min → auto-cancel.
-      ctx.store.update(pending.id, {
-        groupChatId: chat.id,
-        status: "awaiting_bot_admin",
-        awaitingGroupExpiresAt:
-          pending.awaitingGroupExpiresAt ?? groupBindExpiresAtIso(),
-        dmGroupInstructionsMessageId: undefined,
-      });
-      if (instructionsId != null) {
-        await deleteMessageSafe(ctx.api, pending.creatorId, instructionsId);
-      }
-      trackSeenGroupUser(
-        ctx.store,
-        ctx.store.get(pending.id) ?? pending,
-        update.from.id,
-      );
+      // clearAwaitingGroupDmHints toglie istruzioni/termini DM ma azzera anche
+      // awaitingGroupExpiresAt — ripristiniamo il TTL sotto.
+      const expiresAt =
+        pending.awaitingGroupExpiresAt ?? groupBindExpiresAtIso();
+      let linked =
+        ctx.store.update(pending.id, {
+          groupChatId: chat.id,
+          status: "awaiting_bot_admin",
+          awaitingGroupExpiresAt: expiresAt,
+        }) ?? pending;
+      linked = await clearAwaitingGroupDmHints(ctx.api, ctx.store, linked);
+      linked =
+        ctx.store.update(linked.id, {
+          awaitingGroupExpiresAt: expiresAt,
+        }) ?? linked;
+      trackSeenGroupUser(ctx.store, linked, update.from.id);
     }
 
     const bound = ctx.store.findByGroupChatId(chat.id);
@@ -884,17 +885,18 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           canRunAvvia(deal, ctx.from.id) &&
           deal.groupChatId == null
         ) {
-          const instructionsId = deal.dmGroupInstructionsMessageId;
-          ctx.store.update(deal.id, {
-            groupChatId: ctx.chat.id,
-            status: "awaiting_bot_admin",
-            awaitingGroupExpiresAt:
-              deal.awaitingGroupExpiresAt ?? groupBindExpiresAtIso(),
-            dmGroupInstructionsMessageId: undefined,
+          const expiresAt =
+            deal.awaitingGroupExpiresAt ?? groupBindExpiresAtIso();
+          let linked =
+            ctx.store.update(deal.id, {
+              groupChatId: ctx.chat.id,
+              status: "awaiting_bot_admin",
+              awaitingGroupExpiresAt: expiresAt,
+            }) ?? deal;
+          linked = await clearAwaitingGroupDmHints(ctx.api, ctx.store, linked);
+          ctx.store.update(linked.id, {
+            awaitingGroupExpiresAt: expiresAt,
           });
-          if (instructionsId != null) {
-            await deleteMessageSafe(ctx.api, deal.creatorId, instructionsId);
-          }
         }
 
         trackSeenGroupUser(
