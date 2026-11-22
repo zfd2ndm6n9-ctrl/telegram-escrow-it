@@ -23,7 +23,7 @@
 1. `SOLANA_PRIVATE_KEY` = master hot wallet (base58 o JSON array)
 2. Per deal `id`: `HMAC-SHA256(masterSecret, "telegram-escrow-it:deal:"+id)` → 32 byte seed → keypair
 3. Buyer invia SOL a quell’indirizzo
-4. Watcher (~20s) o `/depositato` / «Verifica deposito» → `funded` se saldo ≥ **importo SOL lockato** (mai FX live)
+4. Watcher (~20s) o `/depositato` / «Stato» (verifica inclusa) → `funded` se saldo ≥ **importo SOL lockato** (mai FX live)
 5. Dual-confirm paga-seller (UX buyer-first; alias silenti `/pay_seller` / `/payseller`) / **Rimborsa buyer** in UI (dual-confirm; alias `/refund_buyer`; o admin in disputa)
 6. Dopo 2/2 **release** (non refund): review breve seller → buyer → post su `VOUCH_CHANNEL_ID` (solo Prezzo + review; no prodotto/condizioni) → «Grazie per la vostra valutazione.» → payout + Hash. Admin in disputa / refund saltano le review. ~30 min dopo closed: cleanup gruppo (deleteChat se permesso, altrimenti leave)
 7. **Release:** una tx atomica — **95%** → seller, **5%** fee piattaforma. Se il deal ha invito collaboratore: **2.5%** → master/`FEE_WALLET_PUBKEY`, **2.5%** → wallet collaboratore. **Refund:** 100% → buyer (nessuna fee servizio, nessuna review)
@@ -87,7 +87,7 @@ All’avvio i log Render stampano:
 3. Telegram: `/crea` → buyer → `0.01` (niente wallet in DM)
 4. Gruppo + bot admin + `/avvia` → controparte Confermo → ToS creatore + Accetto → wallet seller poi buyer
 5. Invia `0.01 SOL` a `/indirizzo`
-6. Attendi “Deposito rilevato” (o «Verifica deposito»)
+6. Attendi “Deposito rilevato” (o apri «Stato» per la verifica)
 7. Entrambi `/pay_seller` → signature su [Solscan](https://solscan.io)
 8. Prova anche `/refund_buyer` su un secondo micro-deal
 

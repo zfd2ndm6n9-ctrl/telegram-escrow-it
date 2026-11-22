@@ -133,6 +133,28 @@ export function canMarkShipped(deal: Deal, userId: number): boolean {
   return deal.sellerId != null;
 }
 
+/**
+ * Solo il buyer avvia «Paga» / self-confirm release.
+ * Admin-parte seller → no (mai avanzare); terzo admin ok se buyer noto.
+ */
+export function canStartBuyerPay(deal: Deal, userId: number): boolean {
+  if (deal.buyerId != null && userId === deal.buyerId) return true;
+  if (!isAdminUser(userId)) return false;
+  if (deal.sellerId != null && userId === deal.sellerId) return false;
+  return deal.buyerId != null;
+}
+
+/**
+ * Solo il seller conferma il 2/2 rilascio («Confermo»).
+ * Admin-parte buyer → no; terzo admin ok se seller noto.
+ */
+export function canConfirmSellerPay(deal: Deal, userId: number): boolean {
+  if (deal.sellerId != null && userId === deal.sellerId) return true;
+  if (!isAdminUser(userId)) return false;
+  if (deal.buyerId != null && userId === deal.buyerId) return false;
+  return deal.sellerId != null;
+}
+
 export function isAllowedHuman(deal: Deal, userId: number): boolean {
   if (isParty(deal, userId)) return true;
   if (isAdminUser(userId)) return true;

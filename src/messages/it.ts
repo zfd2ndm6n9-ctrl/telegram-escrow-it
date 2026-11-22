@@ -624,13 +624,12 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     return `${seller}: il buyer chiede altre info.`;
   },
 
-  /** Altre info: fee / supporto (Disputa è sulla tastiera principale). */
+  /**
+   * Altre info: solo contenuto distinto dallo Stato (niente status/ruoli/deposito).
+   * Fee UI: sempre 5% puntato — niente split 2.5/2.5 o «seller 95%».
+   */
   altreInfoMenu: (deal: Deal) =>
-    `Info #${deal.id}\n\n${
-      deal.collaboratorWallet
-        ? "Fee alla release: *2.5%* admin + *2.5%* collab (seller 95%). Nessuna fee sul rimborso."
-        : "Fee alla release: *5%* admin (seller 95%). Nessuna fee sul rimborso."
-    }\n\nServe un operatore? Usa *Disputa*.`,
+    `Info #${deal.id}\n• Fee: *5%*\n• Rimborso: senza fee\n• Supporto: *Disputa*`,
 
   /**
    * Conferma same-@ prima di azione sensibile.
@@ -691,11 +690,8 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     `Disputa annullata (#${deal.id}).`,
 
 
-  /** Disclosure corta fee (card/status). */
-  feeDisclosureShort: (deal?: Deal) =>
-    deal?.collaboratorWallet
-      ? "Alla release: *2.5%* admin + *2.5%* collaboratore (seller 95%). Nessuna fee sul rimborso."
-      : "Alla release: fee *5%* admin (seller riceve 95%). Nessuna fee sul rimborso.",
+  /** Disclosure corta fee (UI utente): sempre 5%, elenco puntato. */
+  feeDisclosureShort: (_deal?: Deal) => "• Fee: *5%*\n• Rimborso: senza fee",
 
   /** Stessa parte riconferma 1/2. */
   alreadyVoted: (deal: Deal, kind: "release" | "refund") =>
@@ -723,6 +719,16 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     funded
       ? `✅ #${deal.id} fondato: *${balanceSol} SOL*.`
       : `⏳ #${deal.id}: *${balanceSol}* / *${deal.amount} SOL* (target lockato)\n\`${deal.escrowAddress}\``,
+
+  /** Riga deposito per reply Stato (elenco puntato, senza tastiera Verifica). */
+  depositStatusBullets: (
+    balanceSol: string,
+    expectedSol: string,
+    funded: boolean,
+  ) =>
+    funded
+      ? `• Deposito: ricevuto (*${balanceSol} SOL*)`
+      : `• Deposito: *${balanceSol}* / *${expectedSol} SOL*`,
 
   markFundedAdmin: (deal: Deal) =>
     `💰 Admin: #${deal.id} forzato a *funded*.`,
@@ -1044,10 +1050,14 @@ export function statusLabel(status: Deal["status"]): string {
 
 /**
  * /stato e callback: elenco puntato italiano chiaro.
- * Niente indirizzo escrow; invito solo sulla card pinnata (non qui).
- * La reply Stato non deve portare tastiera azioni.
+ * Niente fee (sta in Altre info), niente indirizzo escrow; invito solo sulla card.
+ * Opzionale: riga deposito da verifica inclusa nella stessa reply.
+ * La reply Stato porta solo ← Indietro (niente tastiera azioni).
  */
-export function formatDealStatus(deal: Deal): string {
+export function formatDealStatus(
+  deal: Deal,
+  opts?: { depositLine?: string },
+): string {
   const seller = deal.sellerUsername
     ? `@${deal.sellerUsername}`
     : deal.sellerId
@@ -1064,12 +1074,8 @@ export function formatDealStatus(deal: Deal): string {
     `• Seller: ${seller}`,
     `• Buyer: ${buyer}`,
   ];
-  if (deal.status === "awaiting_deposit" || deal.status === "funded") {
-    lines.push(
-      deal.collaboratorWallet
-        ? "• Fee: 2.5% + 2.5% alla release"
-        : "• Fee: 5% alla release",
-    );
+  if (opts?.depositLine) {
+    lines.push(opts.depositLine);
   }
   if (deal.sellerShippedAt && deal.status === "funded") {
     lines.push("• Consegna: segnata");

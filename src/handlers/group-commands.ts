@@ -8,11 +8,14 @@ import {
   refundConfirmKeyboard,
   selfConfirmKeyboard,
   sellerConfirmPayKeyboard,
+  uiBackKeyboard,
 } from "../keyboards/menus.js";
 import {
   addUniqueVote,
   buyerHasReleaseVote,
+  canConfirmSellerPay,
   canMarkShipped,
+  canStartBuyerPay,
   isAdminUser,
   isParty,
   isPreDepositSetup,
@@ -249,10 +252,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.noDealInGroup);
       return;
     }
-    // Solo testo stato: niente Verifica/Disputa/Altre info sotto la reply.
-    await replaceStatusMessage(ctx.api, ctx.store, deal, formatDealStatus(deal), {
-      parse_mode: "Markdown",
-    });
+    await showDealStatus(ctx, deal);
   });
 
   // Alias silenti: non in UI; restano per admin/compat.
@@ -410,6 +410,24 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     await handleSelfConfirmBack(ctx);
   });
 
+  /** Chiude schermata click (Stato / Altre info / hash): torna ai CTA stage. */
+  bot.callbackQuery("ui_back", async (ctx) => {
+    const deal = await requireGroupDeal(ctx);
+    if (!deal || !ctx.from) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+      return;
+    }
+    if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.notParty),
+        show_alert: true,
+      });
+      return;
+    }
+    await answerCbOk(ctx);
+    await clearEphemeralReplies(ctx.api, ctx.store, deal);
+  });
+
   bot.callbackQuery("stato", async (ctx) => {
     const deal = await requireGroupDeal(ctx);
     if (!deal || !ctx.from) {
@@ -423,11 +441,8 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       });
       return;
     }
-    await ctx.answerCallbackQuery();
-    // Solo testo stato: niente tastiera azioni sulla reply Stato.
-    await replaceStatusMessage(ctx.api, ctx.store, deal, formatDealStatus(deal), {
-      parse_mode: "Markdown",
-    });
+    await answerCbOk(ctx);
+    await showDealStatus(ctx, deal);
   });
 
   // Review post-pay, «consegnato», oppure wallet in chiaro.
@@ -692,6 +707,53 @@ async function applyWallet(
     deal,
     it.wrongStatus(deal.status),
     { parse_mode: "Markdown" },
+  );
+}
+
+/**
+ * Stato: elenco puntato + verifica deposito inclusa (niente bottone Verifica).
+ * Se il check fonda il deal → ship ask (come ex Verifica deposito).
+ * Altrimenti reply con ← Indietro (igiene: niente tastiera azioni duplicate).
+ */
+async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
+  let current = deal;
+  let depositLine: string | undefined;
+
+  if (
+    (current.status === "awaiting_deposit" || current.status === "funded") &&
+    current.escrowAddress
+  ) {
+    const wasAwaiting = current.status === "awaiting_deposit";
+    const result = await checkDealDeposit(ctx.store, current.id);
+    current = ctx.store.get(current.id) ?? current;
+
+    if (!result.ok) {
+      depositLine = "• Deposito: verifica non riuscita";
+    } else {
+      depositLine = it.depositStatusBullets(
+        result.balanceSol,
+        result.expectedSol,
+        result.funded,
+      );
+      // Appena fondato da questa verifica → passa a consegna (chiude UI deposito).
+      if (wasAwaiting && result.funded && current.status === "funded") {
+        if (!current.sellerShippedAt) {
+          await postShipAsk(ctx.api, ctx.store, current);
+          return;
+        }
+      }
+    }
+  }
+
+  await replaceStatusMessage(
+    ctx.api,
+    ctx.store,
+    current,
+    formatDealStatus(current, { depositLine }),
+    {
+      parse_mode: "Markdown",
+      reply_markup: uiBackKeyboard(),
+    },
   );
 }
 
@@ -1404,7 +1466,8 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
     }
     return;
   }
-  if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
+  // Buyer-only (seller anche se admin → alert, mai avanzare).
+  if (!canStartBuyerPay(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.buyerOnlyPay(deal));
     return;
   }
@@ -1418,7 +1481,7 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
     await beginSelfConfirm(ctx, deal, "release", deal.buyerId);
     return;
   }
-  // Admin proxy: attribuisci il voto al buyer, non all'admin id.
+  // Admin proxy (terzo): attribuisci il voto al buyer, non all'admin id.
   await handlePayOrRefund(ctx, "release", { asUserId: deal.buyerId });
 }
 
@@ -1445,12 +1508,13 @@ async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
     await rejectWrongRole(ctx, deal, it.releaseNeedBuyerFirst(deal));
     return;
   }
-  if (deal.sellerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
+  // Seller-only (buyer anche se admin → alert).
+  if (!canConfirmSellerPay(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.onlyPendingConfirm(deal, "release"));
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
-  // Admin proxy: attribuisci il voto al seller.
+  // Admin proxy (terzo): attribuisci il voto al seller.
   await handlePayOrRefund(ctx, "release", { asUserId: deal.sellerId });
 }
 
@@ -1591,7 +1655,8 @@ async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {
     return;
   }
   if (await rejectFrozenInDispute(ctx, deal)) return;
-  if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
+  // Buyer-only (seller anche se admin → alert).
+  if (!canStartBuyerPay(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.buyerOnlyPay(deal));
     return;
   }
@@ -1602,7 +1667,7 @@ async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {
     ctx.store,
     deal,
     it.askSellerMoreInfo(deal),
-    { parse_mode: "Markdown" },
+    { parse_mode: "Markdown", reply_markup: uiBackKeyboard() },
   );
 }
 
@@ -1631,6 +1696,7 @@ async function handleAltreInfo(ctx: BotContext): Promise<void> {
   await answerCbOk(ctx);
   await replaceActionReply(ctx.api, ctx.store, deal, it.altreInfoMenu(deal), {
     parse_mode: "Markdown",
+    reply_markup: uiBackKeyboard(),
   });
 }
 
@@ -1641,7 +1707,9 @@ async function handleShowHash(ctx: BotContext): Promise<void> {
     return;
   }
   if (!deal.payoutTxSig) {
-    await replaceActionReply(ctx.api, ctx.store, deal, it.payoutHashMissing);
+    await replaceActionReply(ctx.api, ctx.store, deal, it.payoutHashMissing, {
+      reply_markup: uiBackKeyboard(),
+    });
     return;
   }
   await replaceActionReply(
@@ -1649,7 +1717,7 @@ async function handleShowHash(ctx: BotContext): Promise<void> {
     ctx.store,
     deal,
     it.payoutHashReveal(deal.payoutTxSig),
-    { parse_mode: "Markdown" },
+    { parse_mode: "Markdown", reply_markup: uiBackKeyboard() },
   );
 }
 
@@ -2074,7 +2142,7 @@ async function restoreUiAfterDisputeCancel(
     }
     return;
   }
-  // Fallback: testo stato senza tastiera azioni (come bottone Stato).
+  // Fallback: testo stato + ← Indietro (come bottone Stato).
   await replaceStatusMessage(
     ctx.api,
     ctx.store,
@@ -2082,6 +2150,7 @@ async function restoreUiAfterDisputeCancel(
     formatDealStatus(deal),
     {
       parse_mode: "Markdown",
+      reply_markup: uiBackKeyboard(),
     },
   );
 }

@@ -1,5 +1,5 @@
 /**
- * Smoke statico: tastiere dual-confirm + disputa (senza Telegram).
+ * Smoke statico: tastiere dual-confirm + disputa + Stato/fee/role gates (senza Telegram).
  * npm exec tsx scripts/check-sensitive-confirm.ts
  */
 import assert from "node:assert/strict";
@@ -11,11 +11,19 @@ import {
   selfConfirmKeyboard,
   sellerConfirmPayKeyboard,
   shipAskKeyboard,
+  uiBackKeyboard,
 } from "../src/keyboards/menus.js";
 import { formatDealStatus, it } from "../src/messages/it.js";
+import {
+  canConfirmSellerPay,
+  canMarkShipped,
+  canStartBuyerPay,
+} from "../src/services/deal-logic.js";
 import type { Deal } from "../src/types.js";
 
-function callbacksOf(kb: { inline_keyboard: { text: string; callback_data?: string }[][] }): string[] {
+function callbacksOf(kb: {
+  inline_keyboard: { text: string; callback_data?: string }[][];
+}): string[] {
   return kb.inline_keyboard.flat().map((b) => b.callback_data ?? "");
 }
 
@@ -48,6 +56,13 @@ const baseDeal = {
   assert.deepEqual(callbacksOf(selfConfirmKeyboard()), ["sc_yes", "sc_back"]);
 }
 
+// Schermate click: ← Indietro → ui_back
+{
+  assert.deepEqual(labelsOf(uiBackKeyboard()), ["← Indietro"]);
+  assert.deepEqual(callbacksOf(uiBackKeyboard()), ["ui_back"]);
+  assert.deepEqual(callbacksOf(altreInfoKeyboard()), ["ui_back"]);
+}
+
 // Buyer after ship: Disputa + Altre info sulla CTA primaria
 {
   const cbs = callbacksOf(buyerAfterShipKeyboard(baseDeal));
@@ -58,22 +73,17 @@ const baseDeal = {
   assert.ok(!cbs.includes("buyer_dispute"));
 }
 
-// Altre info: Disputa non più nested (è sulla tastiera principale)
-{
-  assert.deepEqual(callbacksOf(altreInfoKeyboard()), []);
-}
-
-// awaiting_deposit: Verifica + Disputa + Altre info + Stato; niente Indirizzo escrow
+// awaiting_deposit: Disputa + Altre info + Stato; niente Verifica / Indirizzo
 {
   const cbs = callbacksOf(groupActionsKeyboard("awaiting_deposit", baseDeal));
-  assert.ok(cbs.includes("funded"));
+  assert.ok(!cbs.includes("funded"), "Verifica deposito standalone rimossa");
   assert.ok(cbs.includes("dispute"));
   assert.ok(cbs.includes("altre_info"));
   assert.ok(cbs.includes("stato"));
   assert.ok(!cbs.includes("addr"));
   assert.ok(!cbs.includes("refund_buyer"));
   const labels = labelsOf(groupActionsKeyboard("awaiting_deposit", baseDeal));
-  assert.ok(labels.includes("💰 Verifica deposito"));
+  assert.ok(!labels.includes("💰 Verifica deposito"));
   assert.ok(labels.includes("⚠️ Disputa"));
   assert.ok(labels.includes("ℹ️ Altre info"));
   assert.ok(labels.includes("📄 Stato"));
@@ -128,7 +138,7 @@ const baseDeal = {
   assert.match(it.buyerAfterShip(baseDeal), /Chiedi il rimborso/i);
 }
 
-// Stato: Seller/Buyer su righe separate; niente indirizzo / Invito / «Escrow:»
+// Stato: Seller/Buyer bullets; niente fee / indirizzo / Invito
 {
   const status = formatDealStatus({
     ...baseDeal,
@@ -143,8 +153,48 @@ const baseDeal = {
   assert.ok(!/@seller_y · @buyer_x/.test(status));
   assert.ok(!status.includes(baseDeal.escrowAddress));
   assert.ok(!/Escrow:/.test(status));
-  // Invito solo sulla card pinnata, non su /stato
   assert.ok(!/Invito:/.test(status));
+  assert.ok(!/Fee:/i.test(status), "fee solo in Altre info");
+}
+
+// Stato + riga deposito inclusa
+{
+  const withDep = formatDealStatus(
+    { ...baseDeal, status: "awaiting_deposit" },
+    { depositLine: it.depositStatusBullets("0.01", "0.1", false) },
+  );
+  assert.match(withDep, /• Deposito: \*0\.01\* \/ \*0\.1 SOL\*/);
+  assert.ok(!withDep.includes(baseDeal.escrowAddress));
+}
+
+// Altre info: fee 5% puntato, niente split 2.5 / seller 95%, niente status
+{
+  const info = it.altreInfoMenu(baseDeal);
+  assert.match(info, /• Fee: \*5%\*/);
+  assert.match(info, /• Rimborso: senza fee/);
+  assert.match(info, /• Supporto: \*Disputa\*/);
+  assert.ok(!/2\.5%/.test(info));
+  assert.ok(!/95%/.test(info));
+  assert.ok(!/Seller:/.test(info));
+  assert.ok(!/Buyer:/.test(info));
+  assert.ok(!/Fondato|deposito/i.test(info));
+
+  const withCollab = it.altreInfoMenu({
+    ...baseDeal,
+    collaboratorWallet: "Collab111111111111111111111111111111111111",
+  });
+  assert.match(withCollab, /• Fee: \*5%\*/);
+  assert.ok(!/2\.5%/.test(withCollab));
+}
+
+// Role gates: seller non avvia Paga; buyer non conferma rilascio
+{
+  assert.equal(canStartBuyerPay(baseDeal, 10), true);
+  assert.equal(canStartBuyerPay(baseDeal, 20), false);
+  assert.equal(canConfirmSellerPay(baseDeal, 20), true);
+  assert.equal(canConfirmSellerPay(baseDeal, 10), false);
+  assert.equal(canMarkShipped(baseDeal, 20), true);
+  assert.equal(canMarkShipped(baseDeal, 10), false);
 }
 
 // Card pinnata: Seller/Buyer bullets + Invito quando presente
@@ -160,7 +210,13 @@ const baseDeal = {
   assert.match(card, /• Seller: @seller\\_y/);
   assert.match(card, /• Buyer: @buyer\\_x/);
   assert.match(card, /• Invito: \*KEYTEST\*/);
-  assert.ok(!/·/.test(card.split("\n").find((l) => l.includes("Seller") || l.includes("Buyer")) ?? ""));
+  assert.ok(
+    !/·/.test(
+      card
+        .split("\n")
+        .find((l) => l.includes("Seller") || l.includes("Buyer")) ?? "",
+    ),
+  );
 }
 
 // Copy conferma
@@ -174,12 +230,18 @@ const baseDeal = {
 
 // Dual-confirm 1/2: Confermo + Annulla (pay e refund)
 {
-  assert.deepEqual(labelsOf(sellerConfirmPayKeyboard()), ["✅ Confermo", "Annulla"]);
+  assert.deepEqual(labelsOf(sellerConfirmPayKeyboard()), [
+    "✅ Confermo",
+    "Annulla",
+  ]);
   assert.deepEqual(callbacksOf(sellerConfirmPayKeyboard()), [
     "seller_confirm_pay",
     "cancel_confirm_pay",
   ]);
-  assert.deepEqual(labelsOf(refundConfirmKeyboard()), ["✅ Confermo", "Annulla"]);
+  assert.deepEqual(labelsOf(refundConfirmKeyboard()), [
+    "✅ Confermo",
+    "Annulla",
+  ]);
   assert.deepEqual(callbacksOf(refundConfirmKeyboard()), [
     "confirm_refund",
     "cancel_confirm_refund",
