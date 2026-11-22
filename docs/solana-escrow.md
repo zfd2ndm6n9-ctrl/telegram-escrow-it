@@ -146,7 +146,7 @@ Admin in Telegram (dopo deploy):
 ```
 
 Esempio: `/codice So111…abc @mario` → genera `ESC-XXXXXX`.  
-L’utente: `/invito ESC-XXXXXX` (o dopo soft signup, oppure `/start ESC-XXXXXX`).  
+L’utente: codice opzionale a ogni `/crea` (skip silenzioso), oppure `/invito ESC-XXXXXX`, oppure deep-link `/start ESC-XXXXXX` (applicato al prossimo `/crea`).  
 I deal che **crea** ereditano il codice → split 2.5/2.5 alla release.
 
 Altri comandi admin: `/codici` (lista), `/fee` (riepilogo fee da deal released).

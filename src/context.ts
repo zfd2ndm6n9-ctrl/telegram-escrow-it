@@ -5,13 +5,17 @@ import type { InviteStore } from "./store/invites.js";
 import type { MemberStore } from "./store/members.js";
 import type { Asset, DmTermsStep, PartyRole } from "./types.js";
 
-export type CreateDealStep = "role" | "asset";
+export type CreateDealStep = "invite" | "role" | "asset";
 
 export interface SessionData {
   creating?: {
     step: CreateDealStep;
     role?: PartyRole;
     asset?: Asset;
+    /** Snapshot invito opzionale per *questo* deal (da step /crea). */
+    inviteCode?: string;
+    collaboratorUserId?: number;
+    collaboratorWallet?: string;
   };
   /** Messaggi effimeri /crea (ruolo, crypto, risposte) da cancellare a fine step. */
   creatingEphemeralIds?: number[];
@@ -32,7 +36,7 @@ export interface SessionData {
    * Cancellati al successo o quando si ripete la domanda.
    */
   signupEphemeralIds?: number[];
-  /** Dopo iscrizione: in attesa di codice invito opzionale. */
+  /** Durante /crea: in attesa di codice invito opzionale (non su /start). */
   awaitingInviteCode?: boolean;
   /** Message id del prompt «Codice invito?» (+ bottone Nessun codice). */
   invitePromptMessageId?: number;
@@ -41,8 +45,13 @@ export interface SessionData {
    * Cancellati a skip/riscatto ok.
    */
   inviteEphemeralIds?: number[];
-  /** Codice invito da deep-link `/start invito_CODE` (applicato dopo @). */
+  /**
+   * Codice invito da deep-link `/start invito_CODE`
+   * (applicato al prossimo /crea).
+   */
   pendingInviteCode?: string;
+  /** Deep-link `/start crea`: dopo iscrizione/vouch avvia /crea. */
+  pendingCrea?: boolean;
   /** Ultimo messaggio lista `/miei` (delete+repost, no stack). */
   mieiListMessageId?: number;
   /** Echo utente `/miei` o «I miei deal» (cancellato al prossimo /miei). */

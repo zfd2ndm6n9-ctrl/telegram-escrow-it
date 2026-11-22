@@ -131,6 +131,7 @@ ${inviteLink}
 
 Entra, poi *Ho entrato* o \`/start\`.`,
 
+  /** Opzionale su ogni /crea (si aggancia al deal). */
   askInviteOptional:
     "Codice invito? Invia il codice oppure tocca *Nessun codice*.",
 
@@ -172,13 +173,17 @@ Entra, poi *Ho entrato* o \`/start\`.`,
   needUsernameSoft:
     "Imposta una *@* Telegram nel profilo, poi riprova `/crea`.",
 
-  /** Gate /start: solo opener (/crea, wizard termini opener, /invito). */
-  needRegistration:
-    "Per usare l'escrow apri una chat *privata* con il bot e invia `/start`.",
+  /**
+   * Soft nudge in DM se non iscritto (mai «apri una chat privata»
+   * quando sei già in privato).
+   */
+  needRegistration: "Prima `/start` qui.",
 
-  /** @deprecated alias */
-  needPrivateStart:
-    "Per usare l'escrow apri una chat *privata* con il bot e invia `/start`.",
+  /** @deprecated alias — stesso soft nudge DM. */
+  needPrivateStart: "Prima `/start` qui.",
+
+  /** /crea fuori dal privato: redirect corto + deep link. */
+  creaInGroup: "Per creare un deal apri la chat *privata* col bot e usa `/crea`.",
 
   iscrittiCount: (n: number) => `Iscritti: *${n}*`,
 
@@ -193,7 +198,7 @@ Entra, poi *Ho entrato* o \`/start\`.`,
   invalidAmount:
     "Importo non valido. Invia un numero positivo in SOL (es. `0.01`).",
   invalidWallet:
-    "Indirizzo Solana non valido. Usa `/wallet` seguito dall'indirizzo base58.",
+    "Indirizzo Solana non valido. Usa `/wallet` + indirizzo.",
   solanaNotConfigured:
     "Escrow SOL non configurato sul server. Avvisa il supporto.",
   cancelled: "Operazione annullata.",

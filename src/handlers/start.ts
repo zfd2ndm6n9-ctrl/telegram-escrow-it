@@ -2,13 +2,14 @@ import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { isAdminUser } from "../services/deal-logic.js";
 import { it } from "../messages/it.js";
-import {
-  inviteSkipKeyboard,
-  mainMenuKeyboard,
-} from "../keyboards/menus.js";
+import { mainMenuKeyboard } from "../keyboards/menus.js";
 import { publishIscrittiCount } from "../services/public-count.js";
 import { registerHandleFromMessage } from "../services/registration.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
+import {
+  clearInvitePrompt,
+  trackInviteEphemeral,
+} from "../services/invite-step.js";
 import {
   getEscrowBalanceLamports,
   isValidSolAddress,
@@ -21,27 +22,14 @@ import {
 } from "../services/vouch-membership.js";
 import { ensureVouchTosPin } from "../services/vouch-tos-pin.js";
 import { config } from "../config.js";
+import { beginCreateDealFlow } from "./create-deal.js";
 
-/** Pulsanti menu / wizard: non sono un codice invito. */
-const MENU_TEXTS = new Set([
-  "➕ Crea escrow",
-  "📋 I miei deal",
-  "❌ Annulla",
-  "🛒 Sono il buyer",
-  "🏪 Sono il seller",
-  "◎ SOL",
-  "ETH (presto)",
-  "LTC (presto)",
-]);
+// Re-export per callers legacy
+export { dismissInviteStep } from "../services/invite-step.js";
 
 function trackSignupEphemeral(ctx: BotContext, messageId: number): void {
   const prev = ctx.session.signupEphemeralIds ?? [];
   ctx.session.signupEphemeralIds = [...prev, messageId];
-}
-
-function trackInviteEphemeral(ctx: BotContext, messageId: number): void {
-  const prev = ctx.session.inviteEphemeralIds ?? [];
-  ctx.session.inviteEphemeralIds = [...prev, messageId];
 }
 
 async function clearSignupEphemerals(ctx: BotContext): Promise<void> {
@@ -52,71 +40,22 @@ async function clearSignupEphemerals(ctx: BotContext): Promise<void> {
   ctx.session.signupEphemeralIds = undefined;
 }
 
-async function clearInvitePrompt(ctx: BotContext): Promise<void> {
-  if (!ctx.chat) return;
-  if (ctx.session.invitePromptMessageId != null) {
-    await deleteMessageSafe(
-      ctx.api,
-      ctx.chat.id,
-      ctx.session.invitePromptMessageId,
-    );
-  }
-  for (const id of ctx.session.inviteEphemeralIds ?? []) {
-    await deleteMessageSafe(ctx.api, ctx.chat.id, id);
-  }
-  ctx.session.invitePromptMessageId = undefined;
-  ctx.session.inviteEphemeralIds = undefined;
-}
-
-/** Chiude lo step invito opzionale senza rispostone (es. tap su Crea). */
-export async function dismissInviteStep(ctx: BotContext): Promise<void> {
-  if (!ctx.session.awaitingInviteCode) return;
-  await clearInvitePrompt(ctx);
-  ctx.session.awaitingInviteCode = undefined;
-}
-
-async function askInviteOptional(ctx: BotContext): Promise<void> {
-  ctx.session.awaitingInviteCode = true;
-  if (ctx.chat && ctx.session.invitePromptMessageId != null) {
-    await deleteMessageSafe(
-      ctx.api,
-      ctx.chat.id,
-      ctx.session.invitePromptMessageId,
-    );
-  }
-  // Inline «Nessun codice» — niente `/skip` bare nel testo (tap accidentale → Bug B).
-  const msg = await ctx.reply(it.askInviteOptional, {
-    parse_mode: "Markdown",
-    reply_markup: inviteSkipKeyboard(),
-  });
-  ctx.session.invitePromptMessageId = msg.message_id;
-}
-
-/**
- * Skip invito solo se l'utente era in attesa (tap bottone o /skip).
- * Silenzioso: cancella il prompt, niente «Ok, nessun codice.»
- */
-async function completeInviteSkip(
-  ctx: BotContext,
-  opts?: { userMessageId?: number },
-): Promise<boolean> {
-  if (!ctx.session.awaitingInviteCode) return false;
-  const userMsgId = opts?.userMessageId;
-  await clearInvitePrompt(ctx);
-  if (userMsgId != null && ctx.chat) {
-    await deleteMessageSafe(ctx.api, ctx.chat.id, userMsgId);
-  }
-  ctx.session.awaitingInviteCode = undefined;
-  return true;
+/** Payload `/start crea` → avvia wizard dopo iscrizione/vouch. */
+function parseStartCreaPayload(text: string | undefined): boolean {
+  if (!text) return false;
+  const parts = text.trim().split(/\s+/);
+  const payload = (parts[1] ?? "").trim().toLowerCase();
+  return payload === "crea" || payload === "create";
 }
 
 /** Payload `/start invito_CODE` o `invito CODE`. */
 function parseStartInvitePayload(text: string | undefined): string | undefined {
   if (!text) return undefined;
   const parts = text.trim().split(/\s+/);
-  // /start INVITE_CODE or /start invito_CODE
+  // /start INVITE_CODE or /start invito_CODE (not crea)
   const payload = parts[1];
   if (!payload) return undefined;
+  if (/^(crea|create)$/i.test(payload)) return undefined;
   const m = payload.match(/^(?:invito[_-])?([A-Za-z0-9-]{4,24})$/i);
   if (!m) return undefined;
   return m[1]!.toUpperCase();
@@ -196,6 +135,7 @@ async function redeemInvite(
 /**
  * /start: iscrizione (con o senza @) + check canale vouch + welcome.
  * Hard gate vouch: senza membership niente menu /crea.
+ * Invito opzionale: solo su /crea (non qui).
  */
 async function completeStart(ctx: BotContext): Promise<void> {
   if (!ctx.from) return;
@@ -216,11 +156,11 @@ async function completeStart(ctx: BotContext): Promise<void> {
     );
   }
 
-  // /start fresco: chiudi stato invito precedente senza «Ok, nessun codice.»
-  // (Bug B: stale awaitingInviteCode + tap /skip o re-/start).
+  // /start fresco: chiudi eventuale step invito di un /crea interrotto
   await clearInvitePrompt(ctx);
   ctx.session.awaitingInviteCode = undefined;
   // pendingInviteCode resta se impostato dal payload /start invito_CODE
+  // pendingCrea resta se /start crea
 
   ctx.session.awaitingHandle = undefined;
   ctx.session.signupPromptMessageId = undefined;
@@ -240,17 +180,12 @@ async function completeStart(ctx: BotContext): Promise<void> {
       parse_mode: "Markdown",
       reply_markup: mainMenuKeyboard(),
     });
-    // Link canale solo come nota secondaria se già membro — skip nag
-    if (ctx.session.pendingInviteCode && !result.member.inviteCode) {
-      await redeemInvite(ctx, ctx.session.pendingInviteCode);
-    } else if (
-      !result.reconnected &&
-      result.isNew &&
-      !result.member.inviteCode &&
-      !ctx.session.awaitingInviteCode
-    ) {
-      await askInviteOptional(ctx);
+    // Deep-link /start crea → wizard (invito chiesto lì)
+    if (ctx.session.pendingCrea) {
+      ctx.session.pendingCrea = undefined;
+      await beginCreateDealFlow(ctx);
     }
+    // pendingInviteCode: applicato al prossimo /crea (niente ask qui)
     console.log(
       `/start ok chat=${ctx.chat?.id} from=${ctx.from.id} vouch=in iscritti=${ctx.members.registeredCount}`,
     );
@@ -287,6 +222,9 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
 
     if (!ctx.from) return;
 
+    if (parseStartCreaPayload(ctx.message?.text)) {
+      ctx.session.pendingCrea = true;
+    }
     const inviteFromStart = parseStartInvitePayload(ctx.message?.text);
     if (inviteFromStart) {
       ctx.session.pendingInviteCode = inviteFromStart;
@@ -327,12 +265,10 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
           reply_markup: mainMenuKeyboard(),
         },
       );
-      if (
-        ctx.session.pendingInviteCode &&
-        !member.inviteCode &&
-        ctx.members.isRegistered(ctx.from.id)
-      ) {
-        await redeemInvite(ctx, ctx.session.pendingInviteCode);
+      // pendingInviteCode resta per il prossimo /crea
+      if (ctx.session.pendingCrea && ctx.members.isRegistered(ctx.from.id)) {
+        ctx.session.pendingCrea = undefined;
+        await beginCreateDealFlow(ctx);
       }
       return;
     }
@@ -359,32 +295,6 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     await redeemInvite(ctx, code, {
       userMessageId: ctx.message?.message_id,
     });
-  });
-
-  bot.command("skip", async (ctx) => {
-    if (ctx.chat?.type !== "private" || !ctx.from) return;
-    // Solo se abbiamo chiesto l'invito: plain /skip dopo /start non parla.
-    await completeInviteSkip(ctx, {
-      userMessageId: ctx.message?.message_id,
-    });
-  });
-
-  bot.callbackQuery("invite_skip", async (ctx) => {
-    if (ctx.chat?.type !== "private" || !ctx.from) {
-      await ctx.answerCallbackQuery();
-      return;
-    }
-    if (!ctx.session.awaitingInviteCode) {
-      await ctx.answerCallbackQuery({ text: "Nessun invito in attesa" });
-      return;
-    }
-    await ctx.answerCallbackQuery();
-    try {
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined });
-    } catch {
-      // ok
-    }
-    await completeInviteSkip(ctx);
   });
 
   /**
@@ -740,8 +650,8 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
   });
 
   /**
-   * Invito opzionale + path legacy «invia @» (solo se awaitingHandle).
-   * Iscrizione normale è su /start senza forzare @.
+   * Path legacy «invia @» (solo se awaitingHandle).
+   * Invito opzionale: gestito in create-deal (ogni /crea).
    */
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "private" || !ctx.from) {
@@ -754,30 +664,9 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Dopo iscrizione: codice invito opzionale (testo libero)
-    if (
-      ctx.session.awaitingInviteCode &&
-      ctx.members.isRegistered(ctx.from.id) &&
-      !ctx.session.creating &&
-      !ctx.session.termsQa
-    ) {
-      // Menu / wizard → chiudi invito silenzioso e lascia passare (no prompt stack)
-      if (MENU_TEXTS.has(text)) {
-        await dismissInviteStep(ctx);
-        await next();
-        return;
-      }
-
-      const maybe = text.replace(/^#/, "").trim();
-      if (/^[A-Za-z0-9-]{4,24}$/.test(maybe)) {
-        await redeemInvite(ctx, maybe, {
-          userMessageId: ctx.message.message_id,
-        });
-        return;
-      }
-
-      // Testo non-codice: non riesporre il prompt; cancella solo la risposta
-      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+    // Step invito /crea → lascia a create-deal
+    if (ctx.session.awaitingInviteCode || ctx.session.creating?.step === "invite") {
+      await next();
       return;
     }
 

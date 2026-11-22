@@ -1,5 +1,6 @@
 import type { BotContext } from "../context.js";
 import { clearDmTermsUi } from "./dm-terms.js";
+import { dismissInviteStep } from "./invite-step.js";
 import { deleteMessageSafe } from "./prompt-cleanup.js";
 
 /** Igiene: cancella messaggi effimeri del wizard /crea (ruolo, crypto, risposte). */
@@ -77,6 +78,7 @@ export async function cancelMidCreaBeforeGroupBind(
   }
   ctx.session.termsErrorMessageIds = undefined;
 
+  await dismissInviteStep(ctx);
   await clearCreatingEphemeral(ctx);
   ctx.session.creating = undefined;
   ctx.session.termsQa = undefined;
