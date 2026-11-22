@@ -21,7 +21,7 @@ import {
   termsReadyForConfirm,
   tosAccepted,
 } from "./deal-logic.js";
-import { startTermsWizard } from "./dm-terms.js";
+import { clearDmTermsUi, startTermsWizard } from "./dm-terms.js";
 import {
   extractMigrateToChatId,
   remapDealGroupChatId,
@@ -40,20 +40,21 @@ import {
 const GROUP_PHOTO_FILENAME = "escrowita-group.png";
 
 /**
- * Best-effort: cancella istruzioni «aggiungi bot» in DM e deadline bind
- * quando il deal viene collegato a un gruppo.
+ * Best-effort: pulisce DM create-flow del creator quando il bot è nel gruppo
+ * o /avvia avvia il deal — istruzioni «aggiungi bot», termini residuali, TTL.
  */
-async function clearAwaitingGroupDmHints(
+export async function clearAwaitingGroupDmHints(
   api: Api,
   store: DealStore,
   deal: Deal,
 ): Promise<Deal> {
-  if (
-    deal.awaitingGroupExpiresAt == null &&
-    deal.dmGroupInstructionsMessageId == null
-  ) {
-    return deal;
-  }
+  const hasHints =
+    deal.awaitingGroupExpiresAt != null ||
+    deal.dmGroupInstructionsMessageId != null ||
+    deal.dmTermsPromptMessageId != null ||
+    deal.dmTermsSummaryMessageId != null;
+  if (!hasHints) return deal;
+
   if (deal.dmGroupInstructionsMessageId != null) {
     await deleteMessageSafe(
       api,
@@ -61,12 +62,16 @@ async function clearAwaitingGroupDmHints(
       deal.dmGroupInstructionsMessageId,
     );
   }
-  return (
+
+  let current =
     store.update(deal.id, {
       awaitingGroupExpiresAt: undefined,
       dmGroupInstructionsMessageId: undefined,
-    }) ?? deal
-  );
+    }) ?? deal;
+
+  // Termini DM già chiusi di solito; ripulisci residui se presenti.
+  current = await clearDmTermsUi(api, store, current, current.creatorId);
+  return current;
 }
 
 /**

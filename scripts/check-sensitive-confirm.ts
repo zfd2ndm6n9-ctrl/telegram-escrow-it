@@ -12,7 +12,7 @@ import {
   sellerConfirmPayKeyboard,
   shipAskKeyboard,
 } from "../src/keyboards/menus.js";
-import { it } from "../src/messages/it.js";
+import { formatDealStatus, it } from "../src/messages/it.js";
 import type { Deal } from "../src/types.js";
 
 function callbacksOf(kb: { inline_keyboard: { text: string; callback_data?: string }[][] }): string[] {
@@ -48,47 +48,86 @@ const baseDeal = {
   assert.deepEqual(callbacksOf(selfConfirmKeyboard()), ["sc_yes", "sc_back"]);
 }
 
-// Buyer after ship: Disputa NON sul path primario (sotto Altre info)
+// Buyer after ship: Disputa + Altre info sulla CTA primaria
 {
   const cbs = callbacksOf(buyerAfterShipKeyboard(baseDeal));
   assert.ok(cbs.includes("buyer_pay"));
   assert.ok(cbs.includes("refund_buyer"));
   assert.ok(cbs.includes("buyer_info"));
+  assert.ok(cbs.includes("dispute"));
   assert.ok(!cbs.includes("buyer_dispute"));
-  assert.ok(!cbs.includes("dispute"));
 }
 
-// Altre info espone solo Disputa
+// Altre info: Disputa non più nested (è sulla tastiera principale)
 {
-  assert.deepEqual(callbacksOf(altreInfoKeyboard()), ["dispute"]);
+  assert.deepEqual(callbacksOf(altreInfoKeyboard()), []);
 }
 
-// awaiting_deposit: Verifica sì, Disputa no (sotto Altre info)
+// awaiting_deposit: Verifica + Disputa + Altre info + Stato; niente Indirizzo escrow
 {
   const cbs = callbacksOf(groupActionsKeyboard("awaiting_deposit", baseDeal));
   assert.ok(cbs.includes("funded"));
+  assert.ok(cbs.includes("dispute"));
   assert.ok(cbs.includes("altre_info"));
   assert.ok(cbs.includes("stato"));
-  assert.ok(!cbs.includes("dispute"));
+  assert.ok(!cbs.includes("addr"));
   assert.ok(!cbs.includes("refund_buyer"));
+  const labels = labelsOf(groupActionsKeyboard("awaiting_deposit", baseDeal));
+  assert.ok(labels.includes("💰 Verifica deposito"));
+  assert.ok(labels.includes("⚠️ Disputa"));
+  assert.ok(labels.includes("ℹ️ Altre info"));
+  assert.ok(labels.includes("📄 Stato"));
+  assert.ok(!labels.includes("📫 Indirizzo escrow"));
 }
 
-// disputed: solo addr / stato / annulla — niente paga/rimborsa/verifica/consegnato
+// disputed: stato + annulla — niente addr/paga/rimborsa/verifica/consegnato
 {
   const cbs = callbacksOf(groupActionsKeyboard("disputed", baseDeal));
-  assert.deepEqual(cbs.sort(), ["addr", "dispute_cancel", "stato"].sort());
+  assert.deepEqual(cbs.sort(), ["dispute_cancel", "stato"].sort());
+  assert.ok(!cbs.includes("addr"));
   assert.ok(!cbs.includes("funded"));
   assert.ok(!cbs.includes("buyer_pay"));
   assert.ok(!cbs.includes("refund_buyer"));
   assert.ok(!cbs.includes("shipped"));
 }
 
-// funded ship ask: rimborsa sì, disputa no
+// funded ship ask: rimborsa + disputa
 {
   const cbs = callbacksOf(shipAskKeyboard());
   assert.ok(cbs.includes("shipped"));
   assert.ok(cbs.includes("refund_buyer"));
-  assert.ok(!cbs.includes("dispute"));
+  assert.ok(cbs.includes("dispute"));
+  assert.ok(cbs.includes("altre_info"));
+}
+
+// Mentions: wallet prompt senza label Seller/Buyer prima della @
+{
+  const sellerAsk = it.askSellerWallet(baseDeal);
+  const buyerAsk = it.askBuyerWallet(baseDeal);
+  assert.match(sellerAsk, /@seller\\_y/);
+  assert.match(buyerAsk, /@buyer\\_x/);
+  assert.ok(!/\*Seller\*/.test(sellerAsk));
+  assert.ok(!/\*Buyer\*/.test(buyerAsk));
+  // Eccezione: notifica sull'altra parte tiene la parola seller/buyer
+  assert.match(it.buyerAfterShip(baseDeal), /seller ha consegnato/i);
+}
+
+// Stato: corto, senza indirizzo / Invito / «Escrow:»
+{
+  const status = formatDealStatus({
+    ...baseDeal,
+    status: "awaiting_deposit",
+    inviteCode: "KEYTEST",
+  });
+  assert.match(status, /#deadbeef/);
+  assert.match(status, /Importo/);
+  assert.match(status, /@buyer_x/);
+  assert.match(status, /@seller_y/); // plain text in status (no md escape)
+  assert.ok(!status.includes(baseDeal.escrowAddress));
+  assert.ok(!/Escrow:/.test(status));
+  assert.ok(!/Invito:/.test(status));
+  assert.ok(!/Buyer @/.test(status));
+  assert.ok(!/Seller @/.test(status));
 }
 
 // Copy conferma
@@ -118,13 +157,6 @@ const baseDeal = {
   const cancelRefund = it.dualConfirmCancelled(baseDeal, "refund");
   assert.match(cancelRefund, /annullata/i);
   assert.match(cancelRefund, /aperto/i);
-}
-
-// Post-ship: Altre info → Disputa resta raggiungibile dopo abort
-{
-  const cbs = callbacksOf(buyerAfterShipKeyboard(baseDeal));
-  assert.ok(cbs.includes("buyer_info"));
-  assert.deepEqual(callbacksOf(altreInfoKeyboard()), ["dispute"]);
 }
 
 console.log("check-sensitive-confirm: ok");

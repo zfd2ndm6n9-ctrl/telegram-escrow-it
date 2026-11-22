@@ -3,7 +3,6 @@ import type { BotContext } from "../context.js";
 import { config } from "../config.js";
 import { formatDealStatus, it } from "../messages/it.js";
 import {
-  altreInfoKeyboard,
   groupActionsKeyboard,
   payoutHashKeyboard,
   refundConfirmKeyboard,
@@ -308,7 +307,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       return;
     }
     await ctx.answerCallbackQuery();
-    // Sostituisce verifica/stato/disputa precedenti: resta solo Indirizzo escrow.
+    // Callback legacy `addr` (bottone rimosso): mostra solo il messaggio pagamento.
     await replaceActionReply(ctx.api, ctx.store, deal, it.depositAddress(deal), {
       parse_mode: "Markdown",
     });
@@ -1597,20 +1596,17 @@ async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {
     return;
   }
   await answerCbOk(ctx);
-  // Avvisa seller + Disputa sotto Altre info (non accanto a Paga).
+  // Avvisa seller (Disputa è sulla tastiera principale).
   await replaceActionReply(
     ctx.api,
     ctx.store,
     deal,
     it.askSellerMoreInfo(deal),
-    {
-      parse_mode: "Markdown",
-      reply_markup: altreInfoKeyboard(),
-    },
+    { parse_mode: "Markdown" },
   );
 }
 
-/** Percorso secondario: Disputa (fuori dal path paga / verifica deposito). */
+/** Fee / supporto; Disputa è sulla tastiera principale. */
 async function handleAltreInfo(ctx: BotContext): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
@@ -1635,7 +1631,6 @@ async function handleAltreInfo(ctx: BotContext): Promise<void> {
   await answerCbOk(ctx);
   await replaceActionReply(ctx.api, ctx.store, deal, it.altreInfoMenu(deal), {
     parse_mode: "Markdown",
-    reply_markup: altreInfoKeyboard(),
   });
 }
 
