@@ -2,7 +2,10 @@
  * Smoke check fee split + EUR→SOL parse roundtrip (no network).
  * npm exec tsx scripts/check-fee-math.ts
  */
-import { computeReleaseFeeSplit } from "../src/services/solana/fees.js";
+import {
+  cannotFundNewAccount,
+  computeReleaseFeeSplit,
+} from "../src/services/solana/fees.js";
 import { solToLamports } from "../src/services/solana/amounts.js";
 import { eurToSolAmount } from "../src/services/fx/sol-eur.js";
 
@@ -37,6 +40,23 @@ for (const { bal, collab } of cases) {
     );
   }
 }
+
+// Rent gate: empty KEYTEST-style wallet + tiny 2.5% must fold
+const rent = 650_240n;
+const tinyCollab = computeReleaseFeeSplit(10_000_000n, true); // 0.01 SOL → 250k collab
+assert(tinyCollab.collaboratorLamports === 250_000n, "expected 2.5% of 0.01");
+assert(
+  cannotFundNewAccount(false, tinyCollab.collaboratorLamports, rent),
+  "empty wallet + sub-rent collab must fold",
+);
+assert(
+  !cannotFundNewAccount(true, tinyCollab.collaboratorLamports, rent),
+  "existing wallet accepts dust",
+);
+assert(
+  !cannotFundNewAccount(false, rent, rent),
+  "exact rent creates account",
+);
 
 const sol = eurToSolAmount(5, 150);
 assert(sol != null, "eurToSolAmount null");

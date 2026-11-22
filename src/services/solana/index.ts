@@ -22,6 +22,7 @@ export {
 } from "./transfer.js";
 export {
   computeReleaseFeeSplit,
+  cannotFundNewAccount,
   PLATFORM_FEE_BPS,
   COLLAB_FEE_BPS,
   feeBpsLabel,

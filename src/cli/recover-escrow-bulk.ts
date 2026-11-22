@@ -26,7 +26,11 @@ import {
 } from "../services/solana/index.js";
 
 /** Deal noti stuck/orphan da includere anche se assenti dallo store. */
-const KNOWN_RESIDUAL_DEAL_IDS = ["9414aac5", "82978c05"] as const;
+const KNOWN_RESIDUAL_DEAL_IDS = [
+  "9414aac5",
+  "82978c05",
+  "b3958bca", // KEYTEST dual-confirm release failed (collab rent)
+] as const;
 
 /** Fallback rent-exempt system account (0 byte) se RPC fallisce. */
 const RENT_EXEMPT_FALLBACK = 890_880n;
