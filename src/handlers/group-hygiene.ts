@@ -5,7 +5,7 @@ import {
   detectIdentityChange,
   isParty,
 } from "../services/deal-logic.js";
-import { healMigratedGroupDeal } from "../services/group-chat-remap.js";
+import { findDealForGroupChat } from "../services/group-chat-remap.js";
 import {
   kickUnauthorized,
   refreshGroupSetupCard,
@@ -57,14 +57,12 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
       await next();
       return;
     }
-    const deal =
-      ctx.store.findByGroupChatId(ctx.chat.id) ??
-      (await healMigratedGroupDeal(
-        ctx.api,
-        ctx.store,
-        ctx.chat.id,
-        ctx.from?.id,
-      ));
+    const deal = await findDealForGroupChat(
+      ctx.api,
+      ctx.store,
+      ctx.chat.id,
+      ctx.from?.id,
+    );
     if (!deal || !ctx.message) {
       await next();
       return;
@@ -89,16 +87,12 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
       await next();
       return;
     }
-    const deal =
-      ctx.store.findByGroupChatId(ctx.chat.id) ??
-      (ctx.from
-        ? await healMigratedGroupDeal(
-            ctx.api,
-            ctx.store,
-            ctx.chat.id,
-            ctx.from.id,
-          )
-        : undefined);
+    const deal = await findDealForGroupChat(
+      ctx.api,
+      ctx.store,
+      ctx.chat.id,
+      ctx.from?.id,
+    );
     if (!deal || !ctx.from || ctx.from.is_bot) {
       await next();
       return;

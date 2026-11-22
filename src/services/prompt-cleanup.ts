@@ -1,6 +1,11 @@
 import type { Api, InlineKeyboard } from "grammy";
+import type { Message } from "grammy/types";
 import type { Deal } from "../types.js";
 import type { DealStore } from "../store/deals.js";
+import {
+  extractMigrateToChatId,
+  remapDealGroupChatId,
+} from "./group-chat-remap.js";
 
 type PromptExtra = {
   parse_mode?: "Markdown" | "MarkdownV2" | "HTML";
@@ -42,6 +47,36 @@ function isNotModifiedError(err: unknown): boolean {
         ? err.message
         : String(err);
   return /message is not modified/i.test(msg);
+}
+
+/**
+ * sendMessage sul groupChatId del deal; se Telegram ha migrato il gruppo,
+ * remappa e ritenta una volta (mai perdere la card sul nuovo id).
+ */
+async function sendMessageToDealChat(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+  text: string,
+  extra?: PromptExtra,
+): Promise<{ deal: Deal; message: Message } | { deal: Deal; message: null }> {
+  let current = deal;
+  const chatId = current.groupChatId;
+  if (chatId == null) return { deal: current, message: null };
+
+  try {
+    const message = await api.sendMessage(chatId, text, extra);
+    return { deal: current, message };
+  } catch (err) {
+    const toId = extractMigrateToChatId(err);
+    if (toId == null) throw err;
+    current =
+      remapDealGroupChatId(store, chatId, toId) ??
+      store.get(current.id) ??
+      current;
+    const message = await api.sendMessage(toId, text, extra);
+    return { deal: current, message };
+  }
 }
 
 /**
@@ -118,8 +153,9 @@ export async function sendTrackedPrompt(
   }
   if (current.groupChatId == null) return current;
 
-  const msg = await api.sendMessage(current.groupChatId, text, extra);
-  return trackPrompt(store, current, msg.message_id);
+  const sent = await sendMessageToDealChat(api, store, current, text, extra);
+  if (!sent.message) return sent.deal;
+  return trackPrompt(store, sent.deal, sent.message.message_id);
 }
 
 /**
@@ -136,22 +172,55 @@ export async function upsertSetupMessage(
   const chatId = deal.groupChatId;
   if (chatId == null) return deal;
 
+  let current = deal;
+  let liveChatId = chatId;
   const msgId = deal.setupMessageId;
   if (msgId != null) {
     try {
-      await api.editMessageText(chatId, msgId, text, extra);
-      return deal;
+      await api.editMessageText(liveChatId, msgId, text, extra);
+      return current;
     } catch (err) {
-      if (isNotModifiedError(err)) return deal;
-      console.warn(
-        `edit setup msg ${msgId} in ${chatId} failed, re-sending:`,
-        err,
-      );
+      if (isNotModifiedError(err)) return current;
+      const toId = extractMigrateToChatId(err);
+      if (toId != null) {
+        current =
+          remapDealGroupChatId(store, liveChatId, toId) ??
+          store.get(current.id) ??
+          current;
+        liveChatId = toId;
+        try {
+          await api.editMessageText(liveChatId, msgId, text, extra);
+          return current;
+        } catch (err2) {
+          if (isNotModifiedError(err2)) return current;
+          console.warn(
+            `edit setup msg ${msgId} in ${liveChatId} failed after migrate, re-sending:`,
+            err2,
+          );
+        }
+      } else {
+        console.warn(
+          `edit setup msg ${msgId} in ${liveChatId} failed, re-sending:`,
+          err,
+        );
+      }
     }
   }
 
-  const msg = await api.sendMessage(chatId, text, extra);
-  return store.update(deal.id, { setupMessageId: msg.message_id }) ?? deal;
+  const sent = await sendMessageToDealChat(
+    api,
+    store,
+    current.groupChatId === liveChatId
+      ? current
+      : (store.get(current.id) ?? current),
+    text,
+    extra,
+  );
+  if (!sent.message) return sent.deal;
+  return (
+    store.update(sent.deal.id, { setupMessageId: sent.message.message_id }) ??
+    sent.deal
+  );
 }
 
 /**
@@ -197,13 +266,15 @@ export async function replaceActionReply(
   text: string,
   extra?: PromptExtra,
 ): Promise<Deal> {
-  const chatId = deal.groupChatId;
-  if (chatId == null) return deal;
+  if (deal.groupChatId == null) return deal;
 
   const current = await clearEphemeralReplies(api, store, deal);
-  const msg = await api.sendMessage(chatId, text, extra);
+  const sent = await sendMessageToDealChat(api, store, current, text, extra);
+  if (!sent.message) return sent.deal;
   return (
-    store.update(current.id, { lastActionReplyId: msg.message_id }) ?? current
+    store.update(sent.deal.id, {
+      lastActionReplyId: sent.message.message_id,
+    }) ?? sent.deal
   );
 }
 
@@ -215,13 +286,15 @@ export async function replaceStatusMessage(
   text: string,
   extra?: PromptExtra,
 ): Promise<Deal> {
-  const chatId = deal.groupChatId;
-  if (chatId == null) return deal;
+  if (deal.groupChatId == null) return deal;
 
   const current = await clearEphemeralReplies(api, store, deal);
-  const msg = await api.sendMessage(chatId, text, extra);
+  const sent = await sendMessageToDealChat(api, store, current, text, extra);
+  if (!sent.message) return sent.deal;
   return (
-    store.update(current.id, { lastStatusMessageId: msg.message_id }) ?? current
+    store.update(sent.deal.id, {
+      lastStatusMessageId: sent.message.message_id,
+    }) ?? sent.deal
   );
 }
 
@@ -252,14 +325,15 @@ export async function replaceRoleError(
   text: string,
   extra?: PromptExtra,
 ): Promise<Deal> {
-  const chatId = deal.groupChatId;
   let current = await clearRoleError(api, store, deal);
-  if (chatId == null) return current;
+  if (current.groupChatId == null) return current;
 
-  const msg = await api.sendMessage(chatId, text, extra);
+  const sent = await sendMessageToDealChat(api, store, current, text, extra);
+  if (!sent.message) return sent.deal;
   return (
-    store.update(current.id, { lastRoleErrorMessageId: msg.message_id }) ??
-    current
+    store.update(sent.deal.id, {
+      lastRoleErrorMessageId: sent.message.message_id,
+    }) ?? sent.deal
   );
 }
 

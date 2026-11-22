@@ -45,7 +45,7 @@ import {
   reviewsPending,
 } from "../services/reviews.js";
 import {
-  healMigratedGroupDeal,
+  findDealForGroupChat,
   remapDealGroupChatId,
 } from "../services/group-chat-remap.js";
 import {
@@ -101,15 +101,14 @@ function isShipConfirmText(raw: string): boolean {
 
 /**
  * Deal legato a questo gruppo. Se miss (migrazione group→supergroup), tenta heal.
+ * Mai «Nessun deal collegato» se la card è live nello stesso chat.
  */
 async function requireGroupDeal(ctx: BotContext): Promise<Deal | null> {
   if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
     return null;
   }
-  const direct = ctx.store.findByGroupChatId(ctx.chat.id);
-  if (direct) return direct;
   return (
-    (await healMigratedGroupDeal(
+    (await findDealForGroupChat(
       ctx.api,
       ctx.store,
       ctx.chat.id,

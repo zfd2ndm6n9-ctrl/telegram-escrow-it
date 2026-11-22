@@ -1,6 +1,7 @@
 import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { it } from "../messages/it.js";
+import type { Deal } from "../types.js";
 import {
   amountConfirmed,
   assignJoiningParty,
@@ -23,8 +24,10 @@ import { convertPriceEurToSol } from "../services/fx/sol-eur.js";
 import { hardenGroupPermissions } from "../services/group-creator.js";
 import { groupBindExpiresAtIso } from "../services/group-bind-expiry.js";
 import {
+  findDealForGroupChat,
   healMigratedGroupDeal,
   remapDealGroupChatId,
+  syncDealLiveChatId,
 } from "../services/group-chat-remap.js";
 import {
   autoBindCounterpart,
@@ -163,9 +166,7 @@ async function onHumanJoined(
   username: string | undefined,
   displayName?: string,
 ): Promise<void> {
-  const deal =
-    ctx.store.findByGroupChatId(chatId) ??
-    (await healMigratedGroupDeal(ctx.api, ctx.store, chatId, userId));
+  const deal = await findDealForGroupChat(ctx.api, ctx.store, chatId, userId);
   if (!deal) return;
 
   let current = trackSeenGroupUser(ctx.store, deal, userId);
@@ -223,6 +224,32 @@ async function onHumanJoined(
   }
 
   await kickUnauthorized(ctx.api, chatId, userId);
+}
+
+/**
+ * Se `groupChatId` è stale dopo migrazione group→supergroup, heal/sync.
+ * `null` = deal davvero legato a un altro gruppo.
+ */
+async function dealInThisChat(
+  ctx: BotContext,
+  deal: Deal,
+): Promise<Deal | null> {
+  if (!ctx.chat) return null;
+  if (deal.groupChatId == null || deal.groupChatId === ctx.chat.id) {
+    return deal;
+  }
+  const healed = await healMigratedGroupDeal(
+    ctx.api,
+    ctx.store,
+    ctx.chat.id,
+    ctx.from?.id,
+  );
+  if (healed?.id === deal.id) return healed;
+
+  const fresh = ctx.store.get(deal.id) ?? deal;
+  const synced = await syncDealLiveChatId(ctx.api, ctx.store, fresh);
+  if (synced.groupChatId === ctx.chat.id) return synced;
+  return null;
 }
 
 export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
@@ -360,14 +387,12 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     // la controparte può /avvia / scrivere senza /start + @.
 
     try {
-      const existing =
-        ctx.store.findByGroupChatId(ctx.chat.id) ??
-        (await healMigratedGroupDeal(
-          ctx.api,
-          ctx.store,
-          ctx.chat.id,
-          ctx.from.id,
-        ));
+      const existing = await findDealForGroupChat(
+        ctx.api,
+        ctx.store,
+        ctx.chat.id,
+        ctx.from.id,
+      );
       // Già collegato oltre bind/auto-bind: niente seconda card completa.
       // awaiting_counterpart: permetti retry dopo invite.
       if (
@@ -415,11 +440,15 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         return;
       }
 
-      if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
-        await ctx.reply(it.alreadyBoundElsewhere(deal), {
-          parse_mode: "Markdown",
-        });
-        return;
+      {
+        const boundHere = await dealInThisChat(ctx, deal);
+        if (!boundHere) {
+          await ctx.reply(it.alreadyBoundElsewhere(deal), {
+            parse_mode: "Markdown",
+          });
+          return;
+        }
+        deal = boundHere;
       }
 
       await hardenGroupPermissions(ctx.api, ctx.chat.id);
@@ -511,7 +540,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
   // Legacy: vecchi pulsanti «Confermo» ruolo — reindirizza ad auto-bind
   bot.callbackQuery(/^cp:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
-    const deal = ctx.store.get(dealId);
+    let deal = ctx.store.get(dealId);
     if (!deal || !ctx.from || !ctx.chat) {
       await ctx.answerCallbackQuery({ text: "Deal non trovato" });
       return;
@@ -520,9 +549,13 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       await ctx.answerCallbackQuery({ text: "Solo in gruppo" });
       return;
     }
-    if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
-      await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
-      return;
+    {
+      const boundHere = await dealInThisChat(ctx, deal);
+      if (!boundHere) {
+        await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
+        return;
+      }
+      deal = boundHere;
     }
 
     const perms = await checkRequiredBotAdminPerms(ctx.api, ctx.chat.id);
@@ -599,7 +632,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
   // Controparte Accetta termini → lock + pin → converti €→SOL → wallet seller
   bot.callbackQuery(/^tosok:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
-    const deal = ctx.store.get(dealId);
+    let deal = ctx.store.get(dealId);
     if (!deal || !ctx.from || !ctx.chat) {
       await ctx.answerCallbackQuery({ text: "Deal non trovato" });
       return;
@@ -608,9 +641,13 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       await ctx.answerCallbackQuery({ text: "Solo in gruppo" });
       return;
     }
-    if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
-      await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
-      return;
+    {
+      const boundHere = await dealInThisChat(ctx, deal);
+      if (!boundHere) {
+        await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
+        return;
+      }
+      deal = boundHere;
     }
     if (!termsReadyForConfirm(deal) || deal.status !== "awaiting_tos_confirm") {
       await ctx.answerCallbackQuery({ text: "Nessun termine da accettare" });
@@ -690,7 +727,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     await ctx.answerCallbackQuery({ text: "Termini accettati" });
     // Niente reply Accetto leftover: card aggiornata + ask wallet bastano.
-    await refreshGroupTitle(ctx.api, updated);
+    // setChatTitle può migrare group→supergroup: sync id prima della card wallet.
+    updated = await refreshGroupTitle(ctx.api, ctx.store, updated);
     updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
     await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
@@ -698,7 +736,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
   // Controparte Proponi i ToS → 3 domande nel gruppo → card Accetta/Proponi all'altra parte
   bot.callbackQuery(/^tospropose:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
-    const deal = ctx.store.get(dealId);
+    let deal = ctx.store.get(dealId);
     if (!deal || !ctx.from || !ctx.chat) {
       await ctx.answerCallbackQuery({ text: "Deal non trovato" });
       return;
@@ -707,9 +745,13 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       await ctx.answerCallbackQuery({ text: "Solo in gruppo" });
       return;
     }
-    if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
-      await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
-      return;
+    {
+      const boundHere = await dealInThisChat(ctx, deal);
+      if (!boundHere) {
+        await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
+        return;
+      }
+      deal = boundHere;
     }
     if (tosAccepted(deal)) {
       await ctx.answerCallbackQuery({
@@ -758,7 +800,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
   // Legacy dual-confirm importo (deal mid-flight pre-unificazione)
   bot.callbackQuery(/^amtok:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
-    const deal = ctx.store.get(dealId);
+    let deal = ctx.store.get(dealId);
     if (!deal || !ctx.from || !ctx.chat) {
       await ctx.answerCallbackQuery({ text: "Deal non trovato" });
       return;
@@ -767,9 +809,13 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       await ctx.answerCallbackQuery({ text: "Solo in gruppo" });
       return;
     }
-    if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
-      await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
-      return;
+    {
+      const boundHere = await dealInThisChat(ctx, deal);
+      if (!boundHere) {
+        await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
+        return;
+      }
+      deal = boundHere;
     }
     if (!deal.amount || deal.status !== "awaiting_amount_confirm") {
       await ctx.answerCallbackQuery({ text: "Flusso aggiornato: usa i termini" });
@@ -800,7 +846,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     })!;
 
     await ctx.answerCallbackQuery({ text: "Importo ok" });
-    await refreshGroupTitle(ctx.api, updated);
+    updated = await refreshGroupTitle(ctx.api, ctx.store, updated);
     updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
     await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
@@ -817,17 +863,21 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     if (startMatch?.[1] && ctx.from) {
       const dealId = parseStartGroupPayload(startMatch[1]);
       if (dealId) {
-        const deal = ctx.store.get(dealId);
+        let deal = ctx.store.get(dealId);
         if (!deal) {
           await next();
           return;
         }
 
-        if (deal.groupChatId != null && deal.groupChatId !== ctx.chat.id) {
-          await ctx.reply(it.alreadyBoundElsewhere(deal), {
-            parse_mode: "Markdown",
-          });
-          return;
+        {
+          const boundHere = await dealInThisChat(ctx, deal);
+          if (!boundHere) {
+            await ctx.reply(it.alreadyBoundElsewhere(deal), {
+              parse_mode: "Markdown",
+            });
+            return;
+          }
+          deal = boundHere;
         }
 
         if (
@@ -862,16 +912,12 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    const deal =
-      ctx.store.findByGroupChatId(ctx.chat.id) ??
-      (ctx.from
-        ? await healMigratedGroupDeal(
-            ctx.api,
-            ctx.store,
-            ctx.chat.id,
-            ctx.from.id,
-          )
-        : undefined);
+    const deal = await findDealForGroupChat(
+      ctx.api,
+      ctx.store,
+      ctx.chat.id,
+      ctx.from?.id,
+    );
     if (!deal || !ctx.from) {
       await next();
       return;
@@ -944,7 +990,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           status: "awaiting_seller_wallet",
         })!;
         await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-        await refreshGroupTitle(ctx.api, updated);
+        updated = await refreshGroupTitle(ctx.api, ctx.store, updated);
         updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
         await postAskSellerWallet(ctx.api, ctx.store, updated);
         return;
