@@ -397,8 +397,8 @@ ${missingRole}: entra o scrivi un messaggio nel gruppo.`;
   },
 
   /**
-   * /avvia ripetuto mentre manca la controparte (status dedicato).
-   * Primo avvio: la living card basta — non stackare questo testo.
+   * Fallback status se la living card non è disponibile.
+   * Con card presente: non inviare — un solo «entra o scrivi».
    */
   avviaAwaitingCounterpart: (deal: Pick<Deal, "id" | "creatorRole">) => {
     const missingRole = deal.creatorRole === "seller" ? "Buyer" : "Seller";
