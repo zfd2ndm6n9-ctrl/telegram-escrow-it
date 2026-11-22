@@ -47,7 +47,7 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `ADMIN_TELEGRAM_IDS` | no | Lista admin (csv). Unita a `ADMIN_TELEGRAM_ID` |
 | `PUBLIC_BASE_URL` | sì in prod (Web) | Host HTTPS del servizio (es. `https://….onrender.com`). Mini App ToS = `/tos`. Fallback: `RENDER_EXTERNAL_URL` |
 | `TOS_URL` | no | Override URL Mini App (default `${PUBLIC_BASE_URL}/tos`) |
-| `DATA_DIR` | sì in prod | Store deal + iscritti + inviti + log dispute (`deals.json`, `members.json`, `invites.json`, `deal-logs.json`, `vouch-tos-pin.json`). Render: `/var/data` |
+| `DATA_DIR` | sì in prod | Store deal + iscritti + inviti + log (`deals.json`, `members.json`, `invites.json`, `deal-logs.json`, `vouch-tos-pin.json`). Render: **assoluto** `/var/data` (mai `var/data` relativo) |
 | `UPDATES_CHANNEL_ID` | no | Canale pubblico «N iscritti» (id `-100…` o `@nome`). Bot admin del canale |
 | `UPDATES_CHANNEL_MESSAGE_ID` | no | Message id vivente da editare; se assente → aggiorna *description* del canale |
 | `VOUCH_CHANNEL_ID` | no (sì in prod) | Canale vouch + **gate /crea** + teaser ToS pinnato (id `-100…` preferito). Bot **admin** + Post + Pin + `getChatMember`. Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
@@ -139,7 +139,7 @@ Admin: `/log #dealId` (DM), `/iscritti`, `/codice`, `/codici`, `/fee`, `/admin_w
 
 ### Persistenza e recovery
 
-- Su Render serve **Persistent Disk** + `DATA_DIR=/var/data` (vedi `render.yaml`): senza volume i deal spariscono al redeploy, i fondi restano sull’escrow derivato.
+- Su Render serve **Persistent Disk** + `DATA_DIR=/var/data` **assoluto** (vedi `render.yaml`). `DATA_DIR=var/data` (senza `/`) scrive in `/app/var/data` e lascia il disco vuoto — `/codice` non sopravvive e `/crea` dice «codice non valido». Senza volume i deal spariscono al redeploy; i fondi restano sull’escrow derivato.
 - Recovery one-shot (stessa master key, senza ricreare il deal Telegram):
 
 ```bash

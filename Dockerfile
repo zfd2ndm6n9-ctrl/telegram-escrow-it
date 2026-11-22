@@ -16,8 +16,8 @@ COPY --from=build /app/dist ./dist
 COPY assets ./assets
 # Mini App Termini (GET /tos).
 COPY public ./public
-# Persistenza deal: monta un volume persistente su /app/data (o imposta DATA_DIR).
-# Su Render blueprint: disk → /var/data e DATA_DIR=/var/data.
+# Persistenza: volume locale default /app/data. Su Render blueprint: disk mount
+# /var/data e DATA_DIR=/var/data (path **assoluto** — non `var/data`).
 RUN mkdir -p /app/data /var/data
 EXPOSE 8080
 ENV PORT=8080

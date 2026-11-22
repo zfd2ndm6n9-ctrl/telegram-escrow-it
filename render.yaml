@@ -21,6 +21,7 @@ services:
         value: production
       - key: PORT
         value: "10000"
+      # Absolute path required (leading /). `var/data` resolves under /app and skips the disk.
       - key: DATA_DIR
         value: /var/data
       - key: TELEGRAM_BOT_TOKEN

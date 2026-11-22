@@ -1,4 +1,8 @@
 import "dotenv/config";
+import { resolveDataDir } from "./data-dir.js";
+
+export { resolveDataDir } from "./data-dir.js";
+export type { ResolveDataDirOptions } from "./data-dir.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -76,11 +80,12 @@ export const config = {
   ),
   defaultAsset: "SOL" as const,
   /**
-   * Cartella persistente per deals.json e members.json.
-   * Su Render: montare un Persistent Disk e puntare qui (es. /var/data).
-   * Default locale: `data` (gitignored).
+   * Cartella persistente per deals.json, members.json, invites.json, …
+   * Su Render: Persistent Disk + path **assoluto** `DATA_DIR=/var/data`
+   * (non `var/data`: relativo → `/app/var/data` e disco vuoto).
+   * Default locale: `data` (gitignored), risolto ad assoluto.
    */
-  dataDir: process.env.DATA_DIR?.trim() || "data",
+  dataDir: resolveDataDir(),
   /** Impostato a runtime dopo getMe() */
   botUsername: undefined as string | undefined,
   /**
