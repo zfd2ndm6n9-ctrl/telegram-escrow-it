@@ -17,6 +17,21 @@ export type DealStatus =
   | "disputed"
   | "cancelled";
 
+/**
+ * Conferma same-@ prima di azioni sensibili (disputa / paga / rimborsa / annulla).
+ * Il voto controparte (1/2→2/2) resta separato.
+ */
+export type SelfConfirmKind =
+  | "dispute_open"
+  | "dispute_cancel"
+  | "release"
+  | "refund";
+
+export type PendingSelfConfirm = {
+  kind: SelfConfirmKind;
+  userId: number;
+};
+
 /** Roadmap: SOL live → LTC / ETH. Niente USDT. */
 export type Asset = "SOL" | "ETH" | "LTC";
 export type PartyRole = "buyer" | "seller";
@@ -107,6 +122,18 @@ export interface Deal {
   releaseVotes: number[];
   /** Voti per /refund_buyer */
   refundVotes: number[];
+  /**
+   * Chi ha aperto la disputa (solo costui può *Annulla disputa*).
+   */
+  disputeOpenedBy?: number;
+  /**
+   * Stato deal prima di `disputed` — ripristinato su annulla disputa.
+   */
+  statusBeforeDispute?: DealStatus;
+  /**
+   * Prompt «Sei sicuro…?» in attesa (Sì / ← Indietro), same-@.
+   */
+  pendingSelfConfirm?: PendingSelfConfirm;
   /** Lamports rilevati al funding (stringa per JSON) */
   depositLamports?: string;
   depositDetectedAt?: string;

@@ -595,6 +595,69 @@ Scegli:`;
     return `${seller}: il buyer chiede altre info.`;
   },
 
+  /** Sotto Altre info: percorso secondario (disputa). */
+  altreInfoMenu: (deal: Deal) =>
+    `Altre info (#${deal.id}). Apri una disputa solo se necessario:`,
+
+  /**
+   * Conferma same-@ prima di azione sensibile.
+   * Bottoni: Sì + ← Indietro.
+   */
+  selfConfirmAsk: (
+    deal: Deal,
+    kind: "dispute_open" | "dispute_cancel" | "release" | "refund",
+    userId: number,
+  ) => {
+    const who =
+      deal.buyerId === userId
+        ? mentionUser(deal.buyerUsername, deal.buyerId, "buyer")
+        : deal.sellerId === userId
+          ? mentionUser(deal.sellerUsername, deal.sellerId, "seller")
+          : mentionUser(undefined, userId, "tu");
+    switch (kind) {
+      case "dispute_open":
+        return `${who}: sei sicuro di aprire una disputa?`;
+      case "dispute_cancel":
+        return `${who}: sei sicuro di annullare la disputa?`;
+      case "release":
+        return `${who}: sei sicuro di pagare il seller?`;
+      case "refund":
+        return `${who}: sei sicuro di rimborsare il buyer?`;
+    }
+  },
+
+  selfConfirmWrongUser: (deal: Deal, userId: number) => {
+    const who =
+      deal.buyerId === userId
+        ? mentionUser(deal.buyerUsername, deal.buyerId, "buyer")
+        : deal.sellerId === userId
+          ? mentionUser(deal.sellerUsername, deal.sellerId, "seller")
+          : mentionUser(undefined, userId, "la parte");
+    return `Solo ${who} può rispondere.`;
+  },
+
+  /** Azioni soldi bloccate in disputa — alert corto, niente wrongStatus spam. */
+  frozenInDispute: "In disputa.",
+
+  disputeAlreadyOpen: "Disputa già aperta.",
+
+  disputeCancelOnlyOpener: (deal: Deal) => {
+    const openerId = deal.disputeOpenedBy;
+    const who =
+      openerId == null
+        ? "chi l'ha aperta"
+        : deal.buyerId === openerId
+          ? mentionUser(deal.buyerUsername, deal.buyerId, "buyer")
+          : deal.sellerId === openerId
+            ? mentionUser(deal.sellerUsername, deal.sellerId, "seller")
+            : mentionUser(undefined, openerId, "chi l'ha aperta");
+    return `Solo ${who} può annullare la disputa.`;
+  },
+
+  disputeCancelled: (deal: Deal) =>
+    `Disputa annullata (#${deal.id}).`,
+
+
   /** Disclosure corta fee (card/status). */
   feeDisclosureShort: (deal?: Deal) =>
     deal?.collaboratorWallet
@@ -788,7 +851,10 @@ Scegli:`;
     "Uso (solo admin): `/admin_payout <dealId> seller|buyer`\nEs: `/admin_payout 82978c05 seller`",
 
   wrongStatus: (status: string) =>
-    `Azione non disponibile in \`${status}\`.`,
+    status === "disputed"
+      ? "In disputa."
+      : `Azione non disponibile in \`${status}\`.`,
+
 
   notParty: "Solo buyer/seller (o admin in disputa).",
   /** @deprecated /avvia consentito a buyer o seller. */
