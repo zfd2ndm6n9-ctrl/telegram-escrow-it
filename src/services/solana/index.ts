@@ -5,7 +5,12 @@ export {
   getDealEscrowKeypair,
   isSolanaConfigured,
 } from "./client.js";
-export { solToLamports, lamportsToSolString, isValidSolAddress } from "./amounts.js";
+export {
+  solToLamports,
+  lamportsToSolString,
+  isValidSolAddress,
+  looksLikeSolAddressAttempt,
+} from "./amounts.js";
 export {
   payoutDealSol,
   getEscrowBalanceLamports,

@@ -56,6 +56,7 @@ import {
   getMasterKeypair,
   isValidSolAddress,
   lamportsToSolString,
+  looksLikeSolAddressAttempt,
   payoutDealSol,
 } from "../services/solana/index.js";
 import type { Deal, DealStatus, SelfConfirmKind } from "../types.js";
@@ -213,7 +214,15 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       return;
     }
     if (!depositUnlocked(deal)) {
-      await ctx.reply(it.notReadyForDeposit);
+      const chatId = deal.groupChatId ?? ctx.chat?.id;
+      const msgId = ctx.message?.message_id;
+      if (chatId != null && msgId != null) {
+        ctx.dealLogs.markDeletedByBot(deal.id, msgId);
+        await deleteMessageSafe(ctx.api, chatId, msgId);
+      }
+      await replaceRoleError(ctx.api, ctx.store, deal, it.notReadyForDeposit, {
+        parse_mode: "Markdown",
+      });
       return;
     }
     await replaceActionReply(ctx.api, ctx.store, deal, it.depositAddress(deal), {
@@ -471,7 +480,11 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
         return;
       }
       if (!isValidSolAddress(text)) {
-        // Parte giusta, indirizzo invalido: delete + errore corto (no hang)
+        // Solo se sembra un wallet: delete + errore. Chat libera → next().
+        if (!looksLikeSolAddressAttempt(text)) {
+          await next();
+          return;
+        }
         const chatId = deal.groupChatId ?? ctx.chat.id;
         const msgId = ctx.message.message_id;
         ctx.dealLogs.markDeletedByBot(deal.id, msgId);
@@ -700,7 +713,15 @@ async function verifyDeposit(
   if (await rejectFrozenInDispute(ctx, deal)) return;
 
   if (isPreDepositSetup(deal.status) || deal.status === "awaiting_counterpart") {
-    await ctx.reply(it.notReadyForDeposit);
+    const chatId = deal.groupChatId ?? ctx.chat?.id;
+    const msgId = ctx.message?.message_id;
+    if (chatId != null && msgId != null) {
+      ctx.dealLogs.markDeletedByBot(deal.id, msgId);
+      await deleteMessageSafe(ctx.api, chatId, msgId);
+    }
+    await replaceRoleError(ctx.api, ctx.store, deal, it.notReadyForDeposit, {
+      parse_mode: "Markdown",
+    });
     return;
   }
 
@@ -1553,11 +1574,7 @@ async function handleCancelDualConfirm(
   updated = await clearRoleError(ctx.api, ctx.store, updated);
   updated = await clearBotPrompts(ctx.api, ctx.store, updated);
 
-  await ctx.reply(it.dualConfirmCancelled(updated, kind), {
-    parse_mode: "Markdown",
-  });
-
-  // Stesso ripristino CTA di post-disputa su funded: ship ask o buyer after ship.
+  // Niente notice permanente: un solo CTA ripristinato (no stack).
   if (updated.sellerShippedAt) {
     await postBuyerAfterShip(ctx.api, ctx.store, updated);
   } else {
@@ -1998,7 +2015,7 @@ async function executeDisputeCancel(
   updated = await clearRoleError(ctx.api, ctx.store, updated);
   updated = await clearBotPrompts(ctx.api, ctx.store, updated);
 
-  await ctx.reply(it.disputeCancelled(updated), { parse_mode: "Markdown" });
+  // Niente notice permanente: restore CTA stage only (no stack).
   await restoreUiAfterDisputeCancel(ctx, updated);
 }
 

@@ -31,3 +31,13 @@ export function isValidSolAddress(value: string): boolean {
     return false;
   }
 }
+
+/**
+ * Testo che *sembra* un tentativo di wallet (base58 lungo), non chat libera.
+ * Usato in turno wallet: junk address → delete+errore; «ciao» → passa.
+ */
+export function looksLikeSolAddressAttempt(value: string): boolean {
+  const t = value.trim().replace(/\s+/g, "");
+  // Pubkey Solana tipiche ~32–44 char base58 (no 0,O,I,l)
+  return /^[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(t);
+}

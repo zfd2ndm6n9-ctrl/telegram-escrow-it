@@ -376,9 +376,16 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         existing.status !== "awaiting_group" &&
         existing.status !== "awaiting_counterpart"
       ) {
-        await ctx.reply(it.alreadyLinkedShort(existing), {
-          parse_mode: "Markdown",
-        });
+        if (ctx.message?.message_id != null) {
+          await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+        }
+        await replaceRoleError(
+          ctx.api,
+          ctx.store,
+          existing,
+          it.alreadyLinkedShort(existing),
+          { parse_mode: "Markdown" },
+        );
         return;
       }
 
@@ -391,12 +398,20 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       }
 
       if (!deal) {
+        if (ctx.message?.message_id != null) {
+          await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+        }
         await ctx.reply(it.noDealInGroup);
         return;
       }
 
       if (!canRunAvvia(deal, ctx.from.id)) {
-        await ctx.reply(it.notDealParty, { parse_mode: "Markdown" });
+        if (ctx.message?.message_id != null) {
+          await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+        }
+        await replaceRoleError(ctx.api, ctx.store, deal, it.notDealParty, {
+          parse_mode: "Markdown",
+        });
         return;
       }
 
@@ -638,14 +653,18 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       solAmount = deal.amount;
     } else {
       if (!deal.priceEur) {
-        await ctx.answerCallbackQuery({ text: "Manca Prezzo €" });
-        await ctx.reply(it.missingCommercialPrice, { parse_mode: "Markdown" });
+        await ctx.answerCallbackQuery({
+          text: plainAlert(it.missingCommercialPrice),
+          show_alert: true,
+        });
         return;
       }
       const converted = await convertPriceEurToSol(deal.priceEur);
       if (!converted) {
-        await ctx.answerCallbackQuery({ text: "Tasso non disponibile" });
-        await ctx.reply(it.rateUnavailable, { parse_mode: "Markdown" });
+        await ctx.answerCallbackQuery({
+          text: plainAlert(it.rateUnavailable),
+          show_alert: true,
+        });
         return;
       }
       solAmount = converted;
@@ -941,7 +960,14 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       const amount = parseAmount(text);
       if (!amount) {
         if (current.status === "awaiting_amount") {
-          await ctx.reply(it.invalidAmount, { parse_mode: "Markdown" });
+          await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+          await replaceRoleError(
+            ctx.api,
+            ctx.store,
+            current,
+            it.invalidAmount,
+            { parse_mode: "Markdown" },
+          );
           return;
         }
         await next();
@@ -965,7 +991,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       current.status === "awaiting_tos_confirm"
     ) {
       if (tosAccepted(current)) {
-        await ctx.reply(it.tosLocked);
+        await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+        await replaceRoleError(ctx.api, ctx.store, current, it.tosLocked, {
+          parse_mode: "Markdown",
+        });
         return;
       }
 
