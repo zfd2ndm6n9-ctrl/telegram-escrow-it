@@ -13,11 +13,13 @@ import {
 import {
   addUniqueVote,
   buyerHasReleaseVote,
+  canMarkShipped,
   isAdminUser,
   isParty,
   isPreDepositSetup,
   pendingVoterId,
 } from "../services/deal-logic.js";
+import { scheduleGroupCloseCleanup } from "../services/group-close-cleanup.js";
 import {
   createAdminInviteLink,
   postAskBuyerWallet,
@@ -770,6 +772,10 @@ function markPayoutCompleted(
       ? `Payout release ok · ${result.signature.slice(0, 8)}…`
       : `Payout refund ok · ${result.signature.slice(0, 8)}…`,
   );
+  if (updated) {
+    scheduleGroupCloseCleanup(ctx.store, updated);
+    return ctx.store.get(dealId) ?? updated;
+  }
   return updated;
 }
 
@@ -794,7 +800,8 @@ async function reconcileEmptyEscrow(
     `Payout empty_escrow reconciled #${deal.id} kind=${kind} status→${doneStatus}` +
       (deal.payoutTxSig ? ` tx=${deal.payoutTxSig}` : " (no stored sig)"),
   );
-  return updated;
+  scheduleGroupCloseCleanup(ctx.store, updated);
+  return ctx.store.get(updated.id) ?? updated;
 }
 
 async function runPayout(
@@ -880,6 +887,21 @@ async function runPayout(
     updated = await clearRoleError(ctx.api, ctx.store, updated);
     updated = await clearBotPrompts(ctx.api, ctx.store, updated);
     await clearEphemeralReplies(ctx.api, ctx.store, updated);
+
+    // Release con review: un solo «Grazie…» collettivo, poi messaggio Hash.
+    if (
+      kind === "release" &&
+      (updated.sellerReviewText || updated.buyerReviewText)
+    ) {
+      try {
+        await ctx.reply(it.reviewThanksBoth);
+      } catch (err) {
+        console.warn(
+          `runPayout #${updated.id} reviewThanksBoth failed:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
 
     const body = it.payoutSuccess(updated, kind, result.signature, result.sol, {
       platformFeeSol:
@@ -1241,7 +1263,8 @@ async function handleSellerShipped(
     return;
   }
   if (await rejectFrozenInDispute(ctx, deal)) return;
-  if (deal.sellerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
+  // Seller-only (buyer anche se admin → alert, mai avanzare).
+  if (!canMarkShipped(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.shipOnlySeller(deal));
     return;
   }

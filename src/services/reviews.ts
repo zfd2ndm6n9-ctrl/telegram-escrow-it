@@ -7,7 +7,6 @@ import { MIN_TOS_FIELD } from "./deal-logic.js";
 import {
   clearBotPrompts,
   deleteMessageSafe,
-  sendTrackedPrompt,
 } from "./prompt-cleanup.js";
 
 function normalizeReviewText(raw: string): string {
@@ -157,18 +156,9 @@ export async function acceptReviewAnswer(
         sellerReviewText: text,
         reviewPhase: "buyer",
       }) ?? current;
-    // Grazie resta visibile; ask buyer senza cancellarlo subito.
+    // Niente grazie per-user: un solo messaggio collettivo prima dell'hash.
     // Vouch: un solo post a fine gate (entrambe le review).
-    current = await sendTrackedPrompt(
-      api,
-      store,
-      current,
-      it.reviewThanks,
-      { parse_mode: "Markdown" },
-    );
-    current = await askReview(api, store, current, "buyer", {
-      clearPrevious: false,
-    });
+    current = await askReview(api, store, current, "buyer");
     return { ok: true, deal: current, readyForPayout: false };
   }
 
@@ -178,14 +168,7 @@ export async function acceptReviewAnswer(
       reviewPhase: "done",
     }) ?? current;
   await postDealReviewsToVouch(api, current);
-  current = await sendTrackedPrompt(
-    api,
-    store,
-    current,
-    it.reviewThanks,
-    { parse_mode: "Markdown" },
-  );
-  // Grazie resta fino al clear in runPayout / caller.
+  // Grazie collettivo lo invia runPayout subito prima del messaggio Hash.
   return { ok: true, deal: current, readyForPayout: true };
 }
 

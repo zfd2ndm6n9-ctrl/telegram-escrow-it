@@ -94,7 +94,7 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
 8. Rilevamento automatico → seller *Consegnato* → buyer *Paga* (dual-confirm; alias silenti `/payseller` per admin). In parallelo: *Rimborsa buyer* (dual-confirm buyer+seller; anche pre-consegna da stato / ship ask)
-9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (Prodotto/servizio/Prezzo/Condizioni + review @) → release on-chain (seller 95% + fee 5%). Refund 2/2: payout immediato 100% → buyer (0 fee servizio), senza review; stato `refunded` / «rimborsato» in `/miei`
+9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (solo Prezzo + review @; niente prodotto/condizioni) → «Grazie per la vostra valutazione.» → release on-chain (seller 95% + fee 5%) + Hash. Refund 2/2: payout immediato 100% → buyer (0 fee servizio), senza review; stato `refunded` / «rimborsato» in `/miei`. ~30 min dopo closed: tentativo `deleteChat` (se creator/admin con diritti), altrimenti leave + avviso corto (soft-fail).
 10. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; admin forza release/refund on-chain (salta review)
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato, solo deal *conclusi* `released`/`refunded`), `/invito CODICE`.  
