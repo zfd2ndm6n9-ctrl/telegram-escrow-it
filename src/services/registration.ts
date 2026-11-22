@@ -19,6 +19,8 @@ export async function requireRegistered(ctx: BotContext): Promise<boolean> {
   if (!ctx.from) return false;
 
   if (!ctx.members.isRegistered(ctx.from.id)) {
+    // In privato: soft nudge (non «apri una chat privata»).
+    // Fuori: stesso testo corto — il caller di solito ha già gated sul tipo chat.
     await ctx.reply(it.needRegistration, { parse_mode: "Markdown" });
     return false;
   }

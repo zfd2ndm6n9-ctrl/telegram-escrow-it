@@ -10,9 +10,14 @@ export function mainMenuKeyboard(): Keyboard {
     .persistent();
 }
 
-/** Invito opzionale post-/start: niente `/skip` tappable nel testo. */
+/** Invito opzionale su /crea: niente `/skip` tappable nel testo. */
 export function inviteSkipKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("Nessun codice", "invite_skip");
+}
+
+/** Redirect gruppo → DM bot (deep-link opzionale `?start=crea`). */
+export function openBotDmKeyboard(botUrl: string): InlineKeyboard {
+  return new InlineKeyboard().url("Apri il bot", botUrl);
 }
 
 export function cancelKeyboard(): Keyboard {

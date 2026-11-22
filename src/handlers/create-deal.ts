@@ -7,6 +7,7 @@ import {
   assetKeyboard,
   groupInviteKeyboard,
   mainMenuKeyboard,
+  openBotDmKeyboard,
   roleKeyboard,
 } from "../keyboards/menus.js";
 import {
@@ -32,7 +33,6 @@ import {
 import {
   getDealEscrowAddress,
   isSolanaConfigured,
-  isValidSolAddress,
 } from "../services/solana/index.js";
 import { requireRegistered } from "../services/registration.js";
 import {
@@ -41,16 +41,43 @@ import {
   trackCreatingEphemeral,
 } from "../services/dm-hygiene.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
-import { dismissInviteStep } from "./start.js";
+import {
+  askInviteOptional,
+  clearInvitePrompt,
+  completeInviteSkip,
+  dismissInviteStep,
+  lookupDealInvite,
+  replyInviteAttachError,
+} from "../services/invite-step.js";
 import type { Asset, Deal, PartyRole } from "../types.js";
+
+/** Pulsanti menu / wizard: non sono un codice invito. */
+const MENU_TEXTS = new Set([
+  "➕ Crea escrow",
+  "📋 I miei deal",
+  "❌ Annulla",
+  "🛒 Sono il buyer",
+  "🏪 Sono il seller",
+  "◎ SOL",
+  "ETH (presto)",
+  "LTC (presto)",
+]);
 
 function botCreatesGroupsEnabled(): boolean {
   return config.telegramBotCreatesGroups && groupCreatorReady();
 }
 
+function botUsername(ctx: BotContext): string {
+  return config.botUsername ?? ctx.botUsername ?? "ESCROWITAbot";
+}
+
 function startGroupUrlForDeal(dealId: string, ctx: BotContext): string {
-  const username = config.botUsername ?? ctx.botUsername ?? "ESCROWITAbot";
-  return `https://t.me/${username}?startgroup=${startGroupPayload(dealId)}`;
+  return `https://t.me/${botUsername(ctx)}?startgroup=${startGroupPayload(dealId)}`;
+}
+
+/** Deep link DM: apre il bot e (opz.) avvia /crea dopo /start. */
+function privateCreaDeepLink(ctx: BotContext): string {
+  return `https://t.me/${botUsername(ctx)}?start=crea`;
 }
 
 /** Come nel gruppo: cancella domanda precedente + risposta utente, poi nuovo prompt. */
@@ -66,34 +93,114 @@ async function replaceCreatingPrompt(
   trackCreatingEphemeral(ctx, ask.message_id);
 }
 
+/**
+ * Avvia /crea in DM (dopo gate). Chiede invito opzionale, poi ruolo.
+ * Esportato per deep-link `/start crea`.
+ */
+export async function beginCreateDealFlow(ctx: BotContext): Promise<void> {
+  if (ctx.chat?.type !== "private" || !ctx.from) return;
+  if (!(await requireRegistered(ctx))) return;
+  if (!isSolanaConfigured()) {
+    await ctx.reply(it.solanaNotConfigured);
+    return;
+  }
+
+  // Switching to crea: pulisci UI /miei + eventuali prompt invito stale
+  await dismissInviteStep(ctx);
+  await clearMieiUi(ctx);
+  await clearCreatingEphemeral(ctx);
+  if (ctx.message?.message_id != null) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+  }
+
+  ctx.session.termsQa = undefined;
+  ctx.session.pendingCrea = undefined;
+
+  // Deep-link /start invito_CODE → applica silenzioso a questo deal, no re-ask
+  const pending = ctx.session.pendingInviteCode;
+  if (pending) {
+    ctx.session.pendingInviteCode = undefined;
+    const looked = lookupDealInvite(ctx, pending);
+    if (looked.ok) {
+      ctx.session.creating = {
+        step: "role",
+        ...looked.attribution,
+      };
+      await proceedToRoleStep(ctx);
+      return;
+    }
+  }
+
+  // Ogni /crea: invito opzionale (skip silenzioso → ruolo)
+  ctx.session.creating = { step: "invite" };
+  await askInviteOptional(ctx);
+}
+
+/** Dopo skip/codice: passo ruolo. */
+export async function proceedToRoleStep(ctx: BotContext): Promise<void> {
+  if (ctx.chat?.type !== "private") return;
+  const prev = ctx.session.creating;
+  ctx.session.creating = {
+    step: "role",
+    inviteCode: prev?.inviteCode,
+    collaboratorUserId: prev?.collaboratorUserId,
+    collaboratorWallet: prev?.collaboratorWallet,
+  };
+  ctx.session.awaitingInviteCode = undefined;
+  const ask = await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
+  trackCreatingEphemeral(ctx, ask.message_id);
+}
+
 export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
   const beginCreate = async (ctx: BotContext) => {
+    // Gruppo: redirect corto + deep link DM (mai il vecchio «apri privata…» fuorviante in DM)
     if (ctx.chat?.type !== "private") {
-      await ctx.reply(it.onlyPrivate, { parse_mode: "Markdown" });
+      await ctx.reply(it.creaInGroup, {
+        parse_mode: "Markdown",
+        reply_markup: openBotDmKeyboard(privateCreaDeepLink(ctx)),
+      });
       return;
     }
-    if (!(await requireRegistered(ctx))) return;
-    if (!isSolanaConfigured()) {
-      await ctx.reply(it.solanaNotConfigured);
-      return;
-    }
-    // Invito opzionale: non bloccare /crea; chiudi prompt senza stack
-    await dismissInviteStep(ctx);
-    // Switching to crea: pulisci UI /miei pendente (simmetrico a /miei → crea)
-    await clearMieiUi(ctx);
-    await clearCreatingEphemeral(ctx);
-    if (ctx.message?.message_id != null) {
-      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-    }
-    ctx.session.creating = { step: "role" };
-    ctx.session.termsQa = undefined;
-    const ask = await ctx.reply(it.askRole, { reply_markup: roleKeyboard() });
-    trackCreatingEphemeral(ctx, ask.message_id);
+    await beginCreateDealFlow(ctx);
   };
 
   bot.command("crea", beginCreate);
   bot.command("create", beginCreate);
   bot.hears("➕ Crea escrow", beginCreate);
+
+  /** Skip invito durante /crea (igiene silenziosa → ruolo). */
+  bot.callbackQuery("invite_skip", async (ctx) => {
+    if (ctx.chat?.type !== "private" || !ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!ctx.session.awaitingInviteCode) {
+      await ctx.answerCallbackQuery({ text: "Nessun invito in attesa" });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    try {
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+    } catch {
+      // ok
+    }
+    const skipped = await completeInviteSkip(ctx);
+    if (!skipped) return;
+    if (ctx.session.creating?.step === "invite") {
+      await proceedToRoleStep(ctx);
+    }
+  });
+
+  bot.command("skip", async (ctx) => {
+    if (ctx.chat?.type !== "private" || !ctx.from) return;
+    const skipped = await completeInviteSkip(ctx, {
+      userMessageId: ctx.message?.message_id,
+    });
+    if (!skipped) return;
+    if (ctx.session.creating?.step === "invite") {
+      await proceedToRoleStep(ctx);
+    }
+  });
 
   bot.hears("❌ Annulla", async (ctx) => {
     if (ctx.chat?.type !== "private") return;
@@ -116,6 +223,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
         }
       }
     }
+    await dismissInviteStep(ctx);
     await clearCreatingEphemeral(ctx);
     ctx.session.creating = undefined;
     ctx.session.termsQa = undefined;
@@ -166,6 +274,56 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
+    // Step invito di /crea: codice libero o menu → avanti / dismiss
+    if (
+      ctx.session.awaitingInviteCode &&
+      ctx.session.creating?.step === "invite" &&
+      ctx.from &&
+      ctx.members.isRegistered(ctx.from.id)
+    ) {
+      if (MENU_TEXTS.has(text)) {
+        // «Crea» di nuovo / «I miei» / ruolo: chiudi invito; lascia passare
+        await dismissInviteStep(ctx);
+        if (text === "➕ Crea escrow") {
+          // beginCreate via hears già in coda — reset creating
+          ctx.session.creating = undefined;
+        } else if (text === "📋 I miei deal") {
+          ctx.session.creating = undefined;
+        }
+        await next();
+        return;
+      }
+
+      const maybe = text.replace(/^#/, "").trim();
+      if (/^[A-Za-z0-9-]{4,24}$/.test(maybe)) {
+        const looked = lookupDealInvite(ctx, maybe);
+        if (!looked.ok) {
+          await replyInviteAttachError(ctx, looked.reason, {
+            userMessageId: ctx.message.message_id,
+          });
+          return;
+        }
+        await clearInvitePrompt(ctx);
+        if (ctx.message.message_id != null) {
+          await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+        }
+        ctx.session.awaitingInviteCode = undefined;
+        ctx.session.creating = {
+          step: "role",
+          ...looked.attribution,
+        };
+        await ctx.reply(it.inviteRedeemOk(looked.attribution.inviteCode), {
+          parse_mode: "Markdown",
+        });
+        await proceedToRoleStep(ctx);
+        return;
+      }
+
+      // Testo non-codice: cancella solo la risposta; tieni il prompt
+      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+      return;
+    }
+
     // Wizard termini proponente (session o deal aperto)
     const termsHandled = await handlePrivateTermsReply(ctx, text);
     if (termsHandled) return;
@@ -173,6 +331,12 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     const creating = ctx.session.creating;
     if (!creating || !ctx.from) {
       await next();
+      return;
+    }
+
+    if (creating.step === "invite") {
+      // awaitingInviteCode già gestito sopra; se stale, riprompt
+      await askInviteOptional(ctx);
       return;
     }
 
@@ -308,10 +472,22 @@ async function handlePrivateTermsReply(
 
 async function pickRole(ctx: BotContext, role: PartyRole): Promise<void> {
   if (ctx.chat?.type !== "private" || !ctx.from) return;
-  if (!ctx.session.creating || ctx.session.creating.step !== "role") {
-    ctx.session.creating = { step: "role" };
+  const prev = ctx.session.creating;
+  if (!prev || prev.step !== "role") {
+    ctx.session.creating = {
+      step: "role",
+      inviteCode: prev?.inviteCode,
+      collaboratorUserId: prev?.collaboratorUserId,
+      collaboratorWallet: prev?.collaboratorWallet,
+    };
   }
-  ctx.session.creating = { step: "asset", role };
+  ctx.session.creating = {
+    step: "asset",
+    role,
+    inviteCode: ctx.session.creating?.inviteCode,
+    collaboratorUserId: ctx.session.creating?.collaboratorUserId,
+    collaboratorWallet: ctx.session.creating?.collaboratorWallet,
+  };
   await replaceCreatingPrompt(ctx, () =>
     ctx.reply(it.askAsset, { reply_markup: assetKeyboard() }),
   );
@@ -321,7 +497,12 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
   if (ctx.chat?.type !== "private" || !ctx.from) return;
   const creating = ctx.session.creating;
   if (!creating || creating.step !== "asset" || !creating.role) {
-    ctx.session.creating = { step: "role" };
+    ctx.session.creating = {
+      step: "role",
+      inviteCode: creating?.inviteCode,
+      collaboratorUserId: creating?.collaboratorUserId,
+      collaboratorWallet: creating?.collaboratorWallet,
+    };
     await replaceCreatingPrompt(ctx, () =>
       ctx.reply(it.askRole, { reply_markup: roleKeyboard() }),
     );
@@ -506,28 +687,32 @@ async function assetComingSoon(ctx: BotContext, asset: Asset): Promise<void> {
   );
 }
 
-/** Snapshot invito del creator sul deal (fee 2.5% collaboratore alla release). */
+/**
+ * Snapshot invito sul deal (fee 2.5% collab alla release).
+ * Preferisce il codice scelto in questo /crea; fallback member.inviteCode (/invito).
+ */
 function resolveCreatorInvite(ctx: BotContext): {
   inviteCode?: string;
   collaboratorUserId?: number;
   collaboratorWallet?: string;
 } {
+  const fromCrea = ctx.session.creating;
+  if (
+    fromCrea?.inviteCode &&
+    fromCrea.collaboratorUserId != null &&
+    fromCrea.collaboratorWallet
+  ) {
+    return {
+      inviteCode: fromCrea.inviteCode,
+      collaboratorUserId: fromCrea.collaboratorUserId,
+      collaboratorWallet: fromCrea.collaboratorWallet,
+    };
+  }
   if (!ctx.from) return {};
   const member = ctx.members.get(ctx.from.id);
   const code = member?.inviteCode;
   if (!code) return {};
-  const invite = ctx.invites.get(code);
-  // Solo wallet dall'InviteStore admin — mai da input utente / member fields
-  if (!invite || !invite.active) {
-    return {};
-  }
-  const wallet = invite.collaboratorWallet?.trim();
-  if (!wallet || !isValidSolAddress(wallet)) {
-    return {};
-  }
-  return {
-    inviteCode: invite.code,
-    collaboratorUserId: invite.collaboratorUserId,
-    collaboratorWallet: wallet,
-  };
+  const looked = lookupDealInvite(ctx, code);
+  if (!looked.ok) return {};
+  return looked.attribution;
 }

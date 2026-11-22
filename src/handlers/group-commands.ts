@@ -176,6 +176,31 @@ async function answerCbOk(ctx: BotContext): Promise<void> {
   }
 }
 
+/** Click → alert; write → delete + reminder. Niente wrongStatus spam in chat. */
+async function rejectWrongStatus(
+  ctx: BotContext,
+  deal: Deal,
+  status: string,
+): Promise<void> {
+  const text = it.wrongStatus(status);
+  if (ctx.callbackQuery) {
+    await ctx.answerCallbackQuery({
+      text: plainAlert(text),
+      show_alert: true,
+    });
+    return;
+  }
+  const chatId = deal.groupChatId ?? ctx.chat?.id;
+  const msgId = ctx.message?.message_id;
+  if (chatId != null && msgId != null) {
+    ctx.dealLogs.markDeletedByBot(deal.id, msgId);
+    await deleteMessageSafe(ctx.api, chatId, msgId);
+  }
+  await replaceRoleError(ctx.api, ctx.store, deal, text, {
+    parse_mode: "Markdown",
+  });
+}
+
 export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   bot.command("indirizzo", async (ctx) => {
     const deal = await requireGroupDeal(ctx);
@@ -446,7 +471,14 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
         return;
       }
       if (!isValidSolAddress(text)) {
-        await next();
+        // Parte giusta, indirizzo invalido: delete + errore corto (no hang)
+        const chatId = deal.groupChatId ?? ctx.chat.id;
+        const msgId = ctx.message.message_id;
+        ctx.dealLogs.markDeletedByBot(deal.id, msgId);
+        await deleteMessageSafe(ctx.api, chatId, msgId);
+        await replaceRoleError(ctx.api, ctx.store, deal, it.invalidWallet, {
+          parse_mode: "Markdown",
+        });
         return;
       }
       await applyWallet(ctx, deal, text);
@@ -500,12 +532,16 @@ async function setWallet(ctx: BotContext): Promise<void> {
     const parsed = parseWalletCommand(text);
     const address = parsed.address;
     if (!address || !isValidSolAddress(address)) {
-      await ctx.reply(
-        `Uso: \`/wallet\` seguito dall'indirizzo.\n${it.invalidWallet}`,
-        {
-          parse_mode: "Markdown",
-        },
-      );
+      // Delete comando invalido + reminder corto (no stack usage lungo)
+      const chatId = fresh.groupChatId ?? ctx.chat?.id;
+      const msgId = ctx.message?.message_id;
+      if (chatId != null && msgId != null) {
+        ctx.dealLogs.markDeletedByBot(fresh.id, msgId);
+        await deleteMessageSafe(ctx.api, chatId, msgId);
+      }
+      await replaceRoleError(ctx.api, ctx.store, fresh, it.invalidWallet, {
+        parse_mode: "Markdown",
+      });
       return;
     }
 
@@ -634,12 +670,18 @@ async function applyWallet(
     return;
   }
 
-  if (isPreDepositSetup(deal.status)) {
-    await ctx.reply(it.wrongStatus(deal.status), { parse_mode: "Markdown" });
-    return;
+  // Pre-deposit / altro: delete + reminder corto (no wrongStatus spam)
+  if (chatId != null && userMessageId != null) {
+    ctx.dealLogs.markDeletedByBot(deal.id, userMessageId);
+    await deleteMessageSafe(ctx.api, chatId, userMessageId);
   }
-
-  await ctx.reply(it.wrongStatus(deal.status), { parse_mode: "Markdown" });
+  await replaceRoleError(
+    ctx.api,
+    ctx.store,
+    deal,
+    it.wrongStatus(deal.status),
+    { parse_mode: "Markdown" },
+  );
 }
 
 async function verifyDeposit(
@@ -652,7 +694,7 @@ async function verifyDeposit(
     return;
   }
   if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
-    await ctx.reply(it.notParty);
+    await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
   if (await rejectFrozenInDispute(ctx, deal)) return;
@@ -695,7 +737,7 @@ async function verifyDeposit(
   }
 
   if (deal.status !== "awaiting_deposit" && deal.status !== "funded") {
-    await ctx.reply(it.wrongStatus(deal.status));
+    await rejectWrongStatus(ctx, deal, deal.status);
     return;
   }
 
@@ -1020,14 +1062,7 @@ async function handlePayOrRefund(
       : ["funded", "refund_pending"];
 
   if (!allowed.includes(deal.status)) {
-    if (ctx.callbackQuery) {
-      await ctx.answerCallbackQuery({
-        text: plainAlert(it.wrongStatus(deal.status)),
-        show_alert: true,
-      });
-    } else {
-      await ctx.reply(it.wrongStatus(deal.status));
-    }
+    await rejectWrongStatus(ctx, deal, deal.status);
     return;
   }
 
@@ -1087,14 +1122,7 @@ async function handlePayOrRefund(
         ? ["funded", "release_pending"]
         : ["funded", "refund_pending"];
     if (!allowedNow.includes(latest.status)) {
-      if (ctx.callbackQuery) {
-        await ctx.answerCallbackQuery({
-          text: plainAlert(it.wrongStatus(latest.status)),
-          show_alert: true,
-        });
-      } else {
-        await ctx.reply(it.wrongStatus(latest.status));
-      }
+      await rejectWrongStatus(ctx, latest, latest.status);
       return;
     }
 
@@ -1235,12 +1263,27 @@ async function handleReviewText(
   );
   if (!result.ok) {
     if (result.reason === "too_short") {
-      await ctx.reply(it.reviewTooShort);
+      const chatId = deal.groupChatId ?? ctx.chat?.id;
+      const msgId = ctx.message?.message_id;
+      if (chatId != null && msgId != null) {
+        ctx.dealLogs.markDeletedByBot(deal.id, msgId);
+        await deleteMessageSafe(ctx.api, chatId, msgId);
+      }
+      await replaceRoleError(ctx.api, ctx.store, deal, it.reviewTooShort, {
+        parse_mode: "Markdown",
+      });
       return;
     }
     if (result.reason === "wrong_party" && who) {
       await rejectWrongRole(ctx, deal, it.reviewWrongParty(deal, who));
       return;
+    }
+    // Altro reject (es. not pending): delete junk, no hang
+    const chatId = deal.groupChatId ?? ctx.chat?.id;
+    const msgId = ctx.message?.message_id;
+    if (chatId != null && msgId != null) {
+      ctx.dealLogs.markDeletedByBot(deal.id, msgId);
+      await deleteMessageSafe(ctx.api, chatId, msgId);
     }
     return;
   }
@@ -1277,14 +1320,23 @@ async function handleSellerShipped(
     return;
   }
   if (deal.status !== "funded" && deal.status !== "release_pending") {
-    if (ctx.callbackQuery) {
-      await ctx.answerCallbackQuery({
-        text: plainAlert(it.wrongStatus(deal.status)),
-        show_alert: true,
-      });
-    } else {
-      await ctx.reply(it.wrongStatus(deal.status));
+    if (!ctx.callbackQuery && opts?.userMessageId != null) {
+      // handleSellerShipped passa userMessageId esplicito
+      const chatId = deal.groupChatId ?? ctx.chat?.id;
+      if (chatId != null) {
+        ctx.dealLogs.markDeletedByBot(deal.id, opts.userMessageId);
+        await deleteMessageSafe(ctx.api, chatId, opts.userMessageId);
+      }
+      await replaceRoleError(
+        ctx.api,
+        ctx.store,
+        deal,
+        it.wrongStatus(deal.status),
+        { parse_mode: "Markdown" },
+      );
+      return;
     }
+    await rejectWrongStatus(ctx, deal, deal.status);
     return;
   }
   await answerCbOk(ctx);
@@ -1776,7 +1828,7 @@ async function requestDisputeOpen(
         show_alert: true,
       });
     } else {
-      await ctx.reply(it.disputeAlreadyOpen);
+      await rejectWrongRole(ctx, deal, it.disputeAlreadyOpen);
     }
     return;
   }
@@ -1785,14 +1837,7 @@ async function requestDisputeOpen(
     deal.status === "refunded" ||
     deal.status === "cancelled"
   ) {
-    if (ctx.callbackQuery) {
-      await ctx.answerCallbackQuery({
-        text: plainAlert(it.wrongStatus(deal.status)),
-        show_alert: true,
-      });
-    } else {
-      await ctx.reply(it.wrongStatus(deal.status));
-    }
+    await rejectWrongStatus(ctx, deal, deal.status);
     return;
   }
   if (deal.groupChatId == null) {

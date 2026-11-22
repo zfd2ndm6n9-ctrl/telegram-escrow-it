@@ -4,7 +4,7 @@ import { it, statusLabel } from "../messages/it.js";
 import { mainMenuKeyboard } from "../keyboards/menus.js";
 import { cancelMidCreaBeforeGroupBind } from "../services/dm-hygiene.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
-import { dismissInviteStep } from "./start.js";
+import { dismissInviteStep } from "../services/invite-step.js";
 
 function concludedListBody(
   deals: ReturnType<BotContext["store"]["listConcludedForUser"]>,

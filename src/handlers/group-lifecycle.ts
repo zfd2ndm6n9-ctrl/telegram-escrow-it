@@ -60,6 +60,15 @@ function displayNameOf(user: {
   return parts.length ? parts.join(" ") : undefined;
 }
 
+/** Testo alert callback (max 200, senza Markdown). */
+function plainAlert(text: string): string {
+  return text
+    .replace(/[*_`[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
 function adminPermsMessage(perms: Extract<BotAdminCheck, { ok: false }>): string {
   return it.missingBotPerms(perms.missing, { notAdmin: perms.notAdmin });
 }
@@ -593,8 +602,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
     if (tosAccepted(deal)) {
-      await ctx.answerCallbackQuery({ text: "Già accettati" });
-      await ctx.reply(it.tosAlreadyAccepted);
+      // Click sbagliato: solo alert, niente spam in chat
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.tosAlreadyAccepted),
+        show_alert: true,
+      });
       return;
     }
     if (!isParty(deal, ctx.from.id)) {
@@ -681,8 +693,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
     if (tosAccepted(deal)) {
-      await ctx.answerCallbackQuery({ text: "Già accettati" });
-      await ctx.reply(it.tosAlreadyAccepted);
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.tosAlreadyAccepted),
+        show_alert: true,
+      });
       return;
     }
     if (
@@ -743,8 +757,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       return;
     }
     if (amountConfirmed(deal)) {
-      await ctx.answerCallbackQuery({ text: "Già confermato" });
-      await ctx.reply(it.amountAlreadyConfirmed);
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.amountAlreadyConfirmed),
+        show_alert: true,
+      });
       return;
     }
     if (!isParty(deal, ctx.from.id)) {
