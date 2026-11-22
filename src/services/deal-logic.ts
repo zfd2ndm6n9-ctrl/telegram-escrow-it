@@ -120,6 +120,19 @@ export function isAdminUser(userId: number): boolean {
   return ids.includes(s);
 }
 
+/**
+ * Solo il seller può segnare «Consegnato».
+ * Admin di supporto (terzo) sì; buyer anche se admin → no (mai avanzare).
+ */
+export function canMarkShipped(deal: Deal, userId: number): boolean {
+  if (deal.sellerId != null && userId === deal.sellerId) return true;
+  if (!isAdminUser(userId)) return false;
+  // Admin-parte buyer non deve bypassare il gate consegna.
+  if (deal.buyerId != null && userId === deal.buyerId) return false;
+  // Terzo admin (non buyer/seller): ok se lo slot seller è noto.
+  return deal.sellerId != null;
+}
+
 export function isAllowedHuman(deal: Deal, userId: number): boolean {
   if (isParty(deal, userId)) return true;
   if (isAdminUser(userId)) return true;

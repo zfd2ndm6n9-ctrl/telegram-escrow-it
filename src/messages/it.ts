@@ -4,6 +4,7 @@ import {
   bothPartiesPresent,
   commercialReleaseSplitEur,
   escMd,
+  formatEuroPrice,
   formatTosBullets,
   isTermsProposer,
   mentionPendingVoter,
@@ -152,6 +153,10 @@ Entra, poi *Ho entrato* o \`/start\`.`,
   /** Gruppo leftover dopo wipe admin. */
   groupWipedNotice:
     "⚠️ Store deal azzerato dall'admin. Questo gruppo non è più collegato.\nIn privato: /crea → nuovo gruppo → /avvia.",
+
+  /** Prima di leaveChat se deleteChat non riesce (~30 min post-chiusura). */
+  groupClosingNotice:
+    "Deal concluso. Il bot lascia il gruppo. Potete archiviarlo o eliminarlo.",
 
   handleMismatch: (expected?: string) =>
     expected
@@ -712,7 +717,11 @@ Scegli:`;
     return `${tag}: come valuti *Escrowita*? Una riga basta.`;
   },
 
+  /** @deprecated Per-user grazie rimosso; usare reviewThanksBoth. */
   reviewThanks: "Grazie mille per la tua valutazione.",
+
+  /** Un solo messaggio post-review, prima del flusso hash release. */
+  reviewThanksBoth: "Grazie per la vostra valutazione.",
 
   reviewTooShort: "Troppo corto. Scrivi almeno un paio di caratteri.",
 
@@ -725,18 +734,20 @@ Scegli:`;
   },
 
   /**
-   * Post canale vouch: card deal (Prodotto/Prezzo/Condizioni) + review
-   * seller/buyer con @. Un solo messaggio quando entrambe le review ci sono.
+   * Post canale vouch: solo Prezzo + review seller/buyer (@).
+   * Niente prodotto/condizioni (privacy). Un messaggio a gate completo.
    */
   vouchChannelPost: (deal: Deal) => {
-    const bullets = formatTosBullets(deal);
+    const price = deal.priceEur
+      ? escMd(formatEuroPrice(deal.priceEur))
+      : "—";
     const sellerHandle = deal.sellerUsername
       ? `@${deal.sellerUsername}`
       : `id:${deal.sellerId ?? "?"}`;
     const buyerHandle = deal.buyerUsername
       ? `@${deal.buyerUsername}`
       : `id:${deal.buyerId ?? "?"}`;
-    const lines: string[] = [bullets, ""];
+    const lines: string[] = [`• Prezzo: ${price}`, ""];
     if (deal.sellerReviewText) {
       lines.push(
         `Seller ${sellerHandle}: ${escMd(deal.sellerReviewText)}`,

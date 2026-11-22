@@ -171,6 +171,13 @@ export interface Deal {
   /** true dopo payout release/refund riuscito (idempotenza) */
   payoutCompleted?: boolean;
   /**
+   * Dopo released/refunded: quando tentare deleteChat / leave del gruppo (~30 min).
+   * Soft-fail: se API delete fallisce → leave + avviso corto.
+   */
+  groupDeleteAt?: string;
+  /** ISO: cleanup gruppo (delete o leave) già tentato. */
+  groupCleanupDoneAt?: string;
+  /**
    * Message id dei prompt di stage del bot nel gruppo (wallet/deposit/…).
    * Cancellabili all’avanzamento; non sono evidenze utente.
    * Non include `setupMessageId` / `tosAcceptedMessageId` (card setup vivente).
