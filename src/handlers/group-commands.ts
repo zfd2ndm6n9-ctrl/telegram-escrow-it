@@ -3,9 +3,11 @@ import type { BotContext } from "../context.js";
 import { config } from "../config.js";
 import { formatDealStatus, it } from "../messages/it.js";
 import {
+  altreInfoKeyboard,
   groupActionsKeyboard,
   payoutHashKeyboard,
   refundConfirmKeyboard,
+  selfConfirmKeyboard,
   sellerConfirmPayKeyboard,
 } from "../keyboards/menus.js";
 import {
@@ -54,7 +56,7 @@ import {
   lamportsToSolString,
   payoutDealSol,
 } from "../services/solana/index.js";
-import type { Deal } from "../types.js";
+import type { Deal, DealStatus, SelfConfirmKind } from "../types.js";
 
 /**
  * grammY `bot.command("wallet")` confronta il nome in modo case-sensitive
@@ -229,7 +231,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   });
 
   bot.command("dispute", async (ctx) => {
-    await openDispute(ctx);
+    await requestDisputeOpen(ctx);
   });
 
   bot.command("support", async (ctx) => {
@@ -290,6 +292,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       });
       return;
     }
+    if (await rejectFrozenInDispute(ctx, deal)) return;
     await ctx.answerCallbackQuery();
     await verifyDeposit(ctx, { ephemeral: true });
   });
@@ -315,8 +318,13 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     await handleBuyerMoreInfo(ctx);
   });
 
+  bot.callbackQuery("altre_info", async (ctx) => {
+    await handleAltreInfo(ctx);
+  });
+
+  // Legacy: disputa era sul CTA buyer — ora sotto Altre info; stesso dual-confirm.
   bot.callbackQuery("buyer_dispute", async (ctx) => {
-    await openDispute(ctx, { ephemeral: true, buyerOnly: true });
+    await requestDisputeOpen(ctx, { ephemeral: true });
   });
 
   bot.callbackQuery("seller_confirm_pay", async (ctx) => {
@@ -345,7 +353,19 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
   });
 
   bot.callbackQuery("dispute", async (ctx) => {
-    await openDispute(ctx, { ephemeral: true });
+    await requestDisputeOpen(ctx, { ephemeral: true });
+  });
+
+  bot.callbackQuery("dispute_cancel", async (ctx) => {
+    await requestDisputeCancel(ctx);
+  });
+
+  bot.callbackQuery("sc_yes", async (ctx) => {
+    await handleSelfConfirmYes(ctx);
+  });
+
+  bot.callbackQuery("sc_back", async (ctx) => {
+    await handleSelfConfirmBack(ctx);
   });
 
   bot.callbackQuery("stato", async (ctx) => {
@@ -625,6 +645,7 @@ async function verifyDeposit(
     await ctx.reply(it.notParty);
     return;
   }
+  if (await rejectFrozenInDispute(ctx, deal)) return;
 
   if (isPreDepositSetup(deal.status) || deal.status === "awaiting_counterpart") {
     await ctx.reply(it.notReadyForDeposit);
@@ -908,7 +929,7 @@ async function runPayout(
 async function handlePayOrRefund(
   ctx: BotContext,
   kind: "release" | "refund",
-  opts?: { asUserId?: number },
+  opts?: { asUserId?: number; afterSelfConfirm?: boolean },
 ): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
@@ -925,6 +946,7 @@ async function handlePayOrRefund(
     await runPayout(ctx, deal, kind);
     return;
   }
+  if (await rejectFrozenInDispute(ctx, deal)) return;
 
   // Admin può proxy-are un voto di ruolo; il voto va attribuito alla parte, non all'admin.
   const voterId = opts?.asUserId ?? ctx.from.id;
@@ -1092,6 +1114,18 @@ async function handlePayOrRefund(
       }
     }
 
+    // Primo voto: richiede «Sei sicuro?» same-@ (click accidentale non apre 1/2).
+    if (prevVotes.length === 0 && !opts?.afterSelfConfirm) {
+      voteInFlight.delete(lockKey);
+      await beginSelfConfirm(
+        ctx,
+        latest,
+        kind === "release" ? "release" : "refund",
+        voterId,
+      );
+      return;
+    }
+
     await answerCbOk(ctx);
 
     const votes = addUniqueVote(prevVotes, voterId);
@@ -1206,6 +1240,7 @@ async function handleSellerShipped(
     }
     return;
   }
+  if (await rejectFrozenInDispute(ctx, deal)) return;
   if (deal.sellerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.shipOnlySeller(deal));
     return;
@@ -1247,7 +1282,7 @@ async function handleSellerShipped(
   await postBuyerAfterShip(ctx.api, ctx.store, updated);
 }
 
-/** Buyer avvia rilascio (voto 1); dual-confirm → seller conferma. */
+/** Buyer avvia rilascio: prima «Sei sicuro?» same-@, poi voto 1 → seller conferma. */
 async function handleBuyerPay(ctx: BotContext): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
@@ -1258,6 +1293,7 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
     }
     return;
   }
+  if (await rejectFrozenInDispute(ctx, deal)) return;
   if (deal.buyerId == null) {
     if (ctx.callbackQuery) {
       await ctx.answerCallbackQuery({ text: "Mancano buyer o seller" });
@@ -1275,8 +1311,12 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
+  // Click accidentale non deve aprire il voto 1/2: prima conferma clicker.
+  if (!buyerHasReleaseVote(deal)) {
+    await beginSelfConfirm(ctx, deal, "release", deal.buyerId);
+    return;
+  }
   // Admin proxy: attribuisci il voto al buyer, non all'admin id.
-  // handlePayOrRefund risponde al callback.
   await handlePayOrRefund(ctx, "release", { asUserId: deal.buyerId });
 }
 
@@ -1313,8 +1353,8 @@ async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
 }
 
 /**
- * Avvio rimborso mutuale (voto 1/2). Buyer o seller; admin in disputa forza payout.
- * Callback UI «Rimborsa buyer»; comandi `/refund_buyer` restano silenti.
+ * Avvio rimborso mutuale. Prima «Sei sicuro?» same-@, poi voto 1/2.
+ * Admin in disputa forza payout. Terzi → alert.
  */
 async function handleStartRefund(ctx: BotContext): Promise<void> {
   const deal = await requireGroupDeal(ctx);
@@ -1331,12 +1371,18 @@ async function handleStartRefund(ctx: BotContext): Promise<void> {
     await handlePayOrRefund(ctx, "refund");
     return;
   }
+  if (await rejectFrozenInDispute(ctx, deal)) return;
   // Solo buyer/seller avviano i voti; terzi → alert, nessuno stato.
   if (!isParty(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
+  // Nessun voto ancora → conferma clicker prima di aprire 1/2.
+  if (deal.refundVotes.length === 0) {
+    await beginSelfConfirm(ctx, deal, "refund", ctx.from.id);
+    return;
+  }
   await handlePayOrRefund(ctx, "refund", { asUserId: ctx.from.id });
 }
 
@@ -1383,19 +1429,52 @@ async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {
     }
     return;
   }
+  if (await rejectFrozenInDispute(ctx, deal)) return;
   if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.buyerOnlyPay(deal));
     return;
   }
   await answerCbOk(ctx);
-  // Avvisa seller; CTA buyer restano (replace sullo stesso slot).
+  // Avvisa seller + Disputa sotto Altre info (non accanto a Paga).
   await replaceActionReply(
     ctx.api,
     ctx.store,
     deal,
     it.askSellerMoreInfo(deal),
-    { parse_mode: "Markdown" },
+    {
+      parse_mode: "Markdown",
+      reply_markup: altreInfoKeyboard(),
+    },
   );
+}
+
+/** Percorso secondario: Disputa (fuori dal path paga / verifica deposito). */
+async function handleAltreInfo(ctx: BotContext): Promise<void> {
+  const deal = await requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
+    return;
+  }
+  if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
+    await rejectWrongRole(ctx, deal, it.notParty);
+    return;
+  }
+  if (deal.status === "disputed") {
+    await ctx.answerCallbackQuery({
+      text: plainAlert(it.disputeAlreadyOpen),
+      show_alert: true,
+    });
+    return;
+  }
+  await answerCbOk(ctx);
+  await replaceActionReply(ctx.api, ctx.store, deal, it.altreInfoMenu(deal), {
+    parse_mode: "Markdown",
+    reply_markup: altreInfoKeyboard(),
+  });
 }
 
 async function handleShowHash(ctx: BotContext): Promise<void> {
@@ -1448,9 +1527,140 @@ async function replyBlockchain(ctx: BotContext): Promise<void> {
   await ctx.reply(it.blockchainLink(deal, url), { parse_mode: "Markdown" });
 }
 
-export async function openDispute(
+/** Alert corto se lo stato è disputed — niente spam `Azione non disponibile`. */
+async function rejectFrozenInDispute(
   ctx: BotContext,
-  opts?: { ephemeral?: boolean; buyerOnly?: boolean },
+  deal: Deal,
+): Promise<boolean> {
+  if (deal.status !== "disputed") return false;
+  if (ctx.callbackQuery) {
+    try {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.frozenInDispute),
+        show_alert: true,
+      });
+    } catch {
+      // già risposto (es. answer OK prima del check)
+    }
+    return true;
+  }
+  await rejectWrongRole(ctx, deal, it.frozenInDispute);
+  return true;
+}
+
+/**
+ * Prompt «Sei sicuro…?» same-@ con Sì / ← Indietro.
+ * Non cancella i CTA di stage: Indietro ripristina chiudendo solo l'effimero.
+ */
+async function beginSelfConfirm(
+  ctx: BotContext,
+  deal: Deal,
+  kind: SelfConfirmKind,
+  userId: number,
+): Promise<void> {
+  await answerCbOk(ctx);
+  const updated =
+    ctx.store.update(deal.id, {
+      pendingSelfConfirm: { kind, userId },
+    }) ?? deal;
+  await replaceActionReply(
+    ctx.api,
+    ctx.store,
+    updated,
+    it.selfConfirmAsk(updated, kind, userId),
+    {
+      parse_mode: "Markdown",
+      reply_markup: selfConfirmKeyboard(),
+    },
+  );
+}
+
+async function clearPendingSelfConfirm(
+  ctx: BotContext,
+  deal: Deal,
+): Promise<Deal> {
+  let current = await clearEphemeralReplies(ctx.api, ctx.store, deal);
+  if (current.pendingSelfConfirm) {
+    current =
+      ctx.store.update(current.id, { pendingSelfConfirm: undefined }) ??
+      current;
+  }
+  return current;
+}
+
+async function handleSelfConfirmYes(ctx: BotContext): Promise<void> {
+  const deal = await requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    return;
+  }
+  const pending = deal.pendingSelfConfirm;
+  if (!pending) {
+    await ctx.answerCallbackQuery({ text: "Conferma scaduta" });
+    await clearEphemeralReplies(ctx.api, ctx.store, deal);
+    return;
+  }
+  if (ctx.from.id !== pending.userId) {
+    await ctx.answerCallbackQuery({
+      text: plainAlert(it.selfConfirmWrongUser(deal, pending.userId)),
+      show_alert: true,
+    });
+    return;
+  }
+  await answerCbOk(ctx);
+  const kind = pending.kind;
+  const userId = pending.userId;
+  const cleared = await clearPendingSelfConfirm(ctx, deal);
+
+  if (kind === "dispute_open") {
+    await executeDisputeOpen(ctx, cleared, userId, { ephemeral: true });
+    return;
+  }
+  if (kind === "dispute_cancel") {
+    await executeDisputeCancel(ctx, cleared, userId);
+    return;
+  }
+  if (kind === "release") {
+    await handlePayOrRefund(ctx, "release", {
+      asUserId: userId,
+      afterSelfConfirm: true,
+    });
+    return;
+  }
+  await handlePayOrRefund(ctx, "refund", {
+    asUserId: userId,
+    afterSelfConfirm: true,
+  });
+}
+
+async function handleSelfConfirmBack(ctx: BotContext): Promise<void> {
+  const deal = await requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    return;
+  }
+  const pending = deal.pendingSelfConfirm;
+  if (!pending) {
+    await answerCbOk(ctx);
+    await clearEphemeralReplies(ctx.api, ctx.store, deal);
+    return;
+  }
+  if (ctx.from.id !== pending.userId) {
+    await ctx.answerCallbackQuery({
+      text: plainAlert(it.selfConfirmWrongUser(deal, pending.userId)),
+      show_alert: true,
+    });
+    return;
+  }
+  await answerCbOk(ctx);
+  // Igiene: togli solo il prompt conferma; i CTA stage restano.
+  await clearPendingSelfConfirm(ctx, deal);
+}
+
+/** Click Disputa / /dispute → conferma same-@ prima di aprire. */
+async function requestDisputeOpen(
+  ctx: BotContext,
+  opts?: { ephemeral?: boolean },
 ): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
@@ -1461,16 +1671,36 @@ export async function openDispute(
     }
     return;
   }
-  if (opts?.buyerOnly) {
-    if (deal.buyerId !== ctx.from.id && !isAdminUser(ctx.from.id)) {
-      await rejectWrongRole(ctx, deal, it.buyerOnlyPay(deal));
-      return;
-    }
-  } else if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
+  if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
-
+  if (deal.status === "disputed") {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.disputeAlreadyOpen),
+        show_alert: true,
+      });
+    } else {
+      await ctx.reply(it.disputeAlreadyOpen);
+    }
+    return;
+  }
+  if (
+    deal.status === "released" ||
+    deal.status === "refunded" ||
+    deal.status === "cancelled"
+  ) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.wrongStatus(deal.status)),
+        show_alert: true,
+      });
+    } else {
+      await ctx.reply(it.wrongStatus(deal.status));
+    }
+    return;
+  }
   if (deal.groupChatId == null) {
     if (ctx.callbackQuery) {
       await ctx.answerCallbackQuery({ text: "Nessun deal" });
@@ -1479,32 +1709,90 @@ export async function openDispute(
     }
     return;
   }
+  void opts;
+  await beginSelfConfirm(ctx, deal, "dispute_open", ctx.from.id);
+}
 
-  await answerCbOk(ctx);
+/** Annulla disputa: solo opener, con conferma same-@. */
+async function requestDisputeCancel(ctx: BotContext): Promise<void> {
+  const deal = await requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    return;
+  }
+  if (deal.status !== "disputed") {
+    await ctx.answerCallbackQuery({
+      text: plainAlert(it.wrongStatus(deal.status)),
+      show_alert: true,
+    });
+    return;
+  }
+  // Solo opener (stesso @); mid-flight senza disputeOpenedBy → parte del deal.
+  if (deal.disputeOpenedBy != null) {
+    if (ctx.from.id !== deal.disputeOpenedBy) {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.disputeCancelOnlyOpener(deal)),
+        show_alert: true,
+      });
+      return;
+    }
+  } else if (!isParty(deal, ctx.from.id)) {
+    await rejectWrongRole(ctx, deal, it.notParty);
+    return;
+  }
+  await beginSelfConfirm(ctx, deal, "dispute_cancel", ctx.from.id);
+}
+
+async function executeDisputeOpen(
+  ctx: BotContext,
+  deal: Deal,
+  openerId: number,
+  opts?: { ephemeral?: boolean },
+): Promise<void> {
+  if (!ctx.from) return;
+  if (deal.groupChatId == null) return;
+  if (deal.status === "disputed") {
+    await replaceActionReply(ctx.api, ctx.store, deal, it.disputeAlreadyOpen);
+    return;
+  }
 
   let adminLink = deal.adminInviteLink;
   if (!adminLink) {
     adminLink = await createAdminInviteLink(ctx.api, deal.groupChatId, deal.id);
   }
 
-  const updated = ctx.store.update(deal.id, {
-    status: "disputed",
-    adminInviteLink: adminLink,
-  })!;
+  const before: DealStatus = deal.status;
+  let updated =
+    ctx.store.update(deal.id, {
+      status: "disputed",
+      adminInviteLink: adminLink,
+      disputeOpenedBy: openerId,
+      statusBeforeDispute: before,
+      pendingSelfConfirm: undefined,
+    }) ?? deal;
 
   ctx.dealLogs.appendEvent(
     updated.id,
-    `Disputa aperta da ${ctx.from.username ? `@${ctx.from.username}` : ctx.from.id}`,
+    `Disputa aperta da ${ctx.from.username ? `@${ctx.from.username}` : openerId}`,
   );
 
+  // Togli CTA soldi (Paga / Rimborsa / Consegnato / Verifica) — niente bottoni morti.
+  updated = await clearBotPrompts(ctx.api, ctx.store, updated);
+  updated = await clearRoleError(ctx.api, ctx.store, updated);
+
   const opened = it.disputeOpened(updated);
-  if (opts?.ephemeral) {
+  const disputedKb = groupActionsKeyboard(updated.status, updated);
+  if (opts?.ephemeral !== false) {
     await replaceActionReply(ctx.api, ctx.store, updated, opened, {
       parse_mode: "Markdown",
+      reply_markup: disputedKb,
     });
   } else {
     await clearEphemeralReplies(ctx.api, ctx.store, updated);
-    await ctx.reply(opened, { parse_mode: "Markdown" });
+    await ctx.reply(opened, {
+      parse_mode: "Markdown",
+      reply_markup: disputedKb,
+    });
   }
 
   const adminIds = config.adminTelegramIds;
@@ -1515,7 +1803,7 @@ export async function openDispute(
 
   const notifyBody = it.disputeAdminNotify(
     updated,
-    ctx.from.id,
+    openerId,
     ctx.from.username,
     adminLink,
   );
@@ -1533,6 +1821,129 @@ export async function openDispute(
       "Disputa aperta ma non riesco a scrivere all'admin in privato (deve aver avviato il bot).",
     );
   }
+}
+
+async function executeDisputeCancel(
+  ctx: BotContext,
+  deal: Deal,
+  userId: number,
+): Promise<void> {
+  if (deal.status !== "disputed") return;
+
+  if (deal.disputeOpenedBy != null && userId !== deal.disputeOpenedBy) {
+    await replaceActionReply(
+      ctx.api,
+      ctx.store,
+      deal,
+      it.disputeCancelOnlyOpener(deal),
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
+  const restoreStatus: DealStatus = deal.statusBeforeDispute ?? "funded";
+  let updated =
+    ctx.store.update(deal.id, {
+      status: restoreStatus,
+      disputeOpenedBy: undefined,
+      statusBeforeDispute: undefined,
+      pendingSelfConfirm: undefined,
+    }) ?? deal;
+
+  ctx.dealLogs.appendEvent(
+    updated.id,
+    `Disputa annullata da ${ctx.from?.username ? `@${ctx.from.username}` : userId}`,
+  );
+
+  updated = await clearEphemeralReplies(ctx.api, ctx.store, updated);
+  updated = await clearRoleError(ctx.api, ctx.store, updated);
+  updated = await clearBotPrompts(ctx.api, ctx.store, updated);
+
+  await ctx.reply(it.disputeCancelled(updated), { parse_mode: "Markdown" });
+  await restoreUiAfterDisputeCancel(ctx, updated);
+}
+
+/** Ripristina CTA stage dopo annulla disputa (es. awaiting pay). */
+async function restoreUiAfterDisputeCancel(
+  ctx: BotContext,
+  deal: Deal,
+): Promise<void> {
+  if (deal.status === "awaiting_deposit") {
+    await postDealActivated(ctx.api, ctx.store, deal);
+    return;
+  }
+  if (deal.status === "funded") {
+    if (deal.sellerShippedAt) {
+      await postBuyerAfterShip(ctx.api, ctx.store, deal);
+    } else {
+      await postShipAsk(ctx.api, ctx.store, deal);
+    }
+    return;
+  }
+  if (deal.status === "release_pending") {
+    const remaining = Math.max(0, 2 - deal.releaseVotes.length);
+    if (remaining > 0 && buyerHasReleaseVote(deal)) {
+      await sendTrackedPrompt(
+        ctx.api,
+        ctx.store,
+        deal,
+        it.releaseVote(deal, remaining),
+        {
+          parse_mode: "Markdown",
+          reply_markup: sellerConfirmPayKeyboard(),
+        },
+      );
+      return;
+    }
+    if (deal.sellerShippedAt) {
+      await postBuyerAfterShip(ctx.api, ctx.store, deal);
+    } else {
+      await postShipAsk(ctx.api, ctx.store, deal);
+    }
+    return;
+  }
+  if (deal.status === "refund_pending") {
+    const remaining = Math.max(0, 2 - deal.refundVotes.length);
+    if (remaining > 0 && deal.refundVotes.length > 0) {
+      await sendTrackedPrompt(
+        ctx.api,
+        ctx.store,
+        deal,
+        it.refundVote(deal, remaining),
+        {
+          parse_mode: "Markdown",
+          reply_markup: refundConfirmKeyboard(),
+        },
+      );
+      return;
+    }
+    if (deal.sellerShippedAt) {
+      await postBuyerAfterShip(ctx.api, ctx.store, deal);
+    } else {
+      await postShipAsk(ctx.api, ctx.store, deal);
+    }
+    return;
+  }
+  // Fallback: tastiera stato.
+  await replaceStatusMessage(
+    ctx.api,
+    ctx.store,
+    deal,
+    formatDealStatus(deal),
+    {
+      parse_mode: "Markdown",
+      reply_markup: groupActionsKeyboard(deal.status, deal),
+    },
+  );
+}
+
+/** @deprecated Preferire requestDisputeOpen; tenuto per import esterni. */
+export async function openDispute(
+  ctx: BotContext,
+  opts?: { ephemeral?: boolean; buyerOnly?: boolean },
+): Promise<void> {
+  void opts?.buyerOnly;
+  await requestDisputeOpen(ctx, { ephemeral: opts?.ephemeral });
 }
 
 async function adminRipristina(ctx: BotContext): Promise<void> {

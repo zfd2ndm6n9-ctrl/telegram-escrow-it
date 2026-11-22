@@ -103,6 +103,19 @@ export function amountConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo importo", `amtok:${dealId}`);
 }
 
+/**
+ * Conferma same-@ azioni sensibili: Sì + ← Indietro (niente «No»).
+ * Callback: `sc_yes` / `sc_back` (kind sul deal.pendingSelfConfirm).
+ */
+export function selfConfirmKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("Sì", "sc_yes").text("← Indietro", "sc_back");
+}
+
+/** Sotto Altre info: disputa (non accanto a Verifica deposito / Paga). */
+export function altreInfoKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("⚠️ Disputa", "dispute");
+}
+
 /** Post-deposito: seller segna consegna; rimborso mutuale sempre raggiungibile. */
 export function shipAskKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
@@ -111,7 +124,10 @@ export function shipAskKeyboard(): InlineKeyboard {
     .text("↩️ Rimborsa buyer", "refund_buyer");
 }
 
-/** Dopo consegna: CTA buyer (paga primario / rimborso / info / disputa). */
+/**
+ * Dopo consegna: CTA buyer (paga / rimborso / Altre info).
+ * Disputa sotto Altre info — non impulsiva accanto a Paga.
+ */
 export function buyerAfterShipKeyboard(deal: Deal): InlineKeyboard {
   const sellerLabel = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
   return new InlineKeyboard()
@@ -119,8 +135,7 @@ export function buyerAfterShipKeyboard(deal: Deal): InlineKeyboard {
     .row()
     .text("↩️ Rimborsa buyer", "refund_buyer")
     .row()
-    .text("ℹ️ Altre info", "buyer_info")
-    .text("⚠️ Disputa", "buyer_dispute");
+    .text("ℹ️ Altre info", "buyer_info");
 }
 
 /** Dual-confirm: seller conferma il rilascio avviato dal buyer. */
@@ -142,16 +157,23 @@ export function payoutHashKeyboard(): InlineKeyboard {
  * Tastiera azioni gruppo.
  * Niente «Paga seller» / pay_seller in UI: rilascio via flusso consegna→buyer.
  * «Rimborsa buyer» post-deposito (dual-confirm); in disputa admin usa comandi silenti.
+ * Disputa sotto Altre info (non accanto a Verifica deposito).
  */
 export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboard {
   const kb = new InlineKeyboard();
+
+  if (status === "disputed") {
+    kb.text("📫 Indirizzo escrow", "addr").row();
+    kb.text("📄 Stato", "stato").row();
+    kb.text("↩️ Annulla disputa", "dispute_cancel");
+    return kb;
+  }
 
   const depositReady =
     status === "awaiting_deposit" ||
     status === "funded" ||
     status === "release_pending" ||
     status === "refund_pending" ||
-    status === "disputed" ||
     status === "released" ||
     status === "refunded";
 
@@ -168,17 +190,12 @@ export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboar
     kb.text("✅ Consegnato", "shipped").row();
   }
 
-  if (status === "disputed") {
-    // In disputa: niente label /payseller; admin usa comandi silenti.
-    kb.text("📄 Stato", "stato");
-    return kb;
-  }
-
   // Mutual refund: solo post-deposito, finché non chiuso / in rilascio.
   if (status === "funded" || status === "refund_pending") {
     kb.text("↩️ Rimborsa buyer", "refund_buyer").row();
   }
 
-  kb.text("⚠️ Disputa", "dispute").text("📄 Stato", "stato");
+  // Disputa sotto Altre info — riga secondaria, non accanto a Verifica.
+  kb.text("ℹ️ Altre info", "altre_info").text("📄 Stato", "stato");
   return kb;
 }
