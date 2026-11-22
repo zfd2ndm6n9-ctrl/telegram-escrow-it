@@ -337,6 +337,14 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     await handleConfirmRefund(ctx);
   });
 
+  bot.callbackQuery("cancel_confirm_pay", async (ctx) => {
+    await handleCancelDualConfirm(ctx, "release");
+  });
+
+  bot.callbackQuery("cancel_confirm_refund", async (ctx) => {
+    await handleCancelDualConfirm(ctx, "refund");
+  });
+
   bot.callbackQuery("show_hash", async (ctx) => {
     const deal = await requireGroupDeal(ctx);
     if (!deal || !ctx.from) {
@@ -1440,6 +1448,69 @@ async function handleConfirmRefund(ctx: BotContext): Promise<void> {
   }
   await clearRoleError(ctx.api, ctx.store, deal);
   await handlePayOrRefund(ctx, "refund", { asUserId: expectedId });
+}
+
+/**
+ * Abort dual-confirm 1/2 (ultimo voto non ancora dato).
+ * Solo parti (o admin): azzera voti → funded; ripristina CTA; Disputa resta sotto Altre info.
+ */
+async function handleCancelDualConfirm(
+  ctx: BotContext,
+  kind: "release" | "refund",
+): Promise<void> {
+  const deal = await requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    } else {
+      await ctx.reply(it.noDealInGroup);
+    }
+    return;
+  }
+  if (await rejectFrozenInDispute(ctx, deal)) return;
+  if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
+    await rejectWrongRole(ctx, deal, it.notParty);
+    return;
+  }
+
+  const pendingStatus = kind === "release" ? "release_pending" : "refund_pending";
+  const voteKey = kind === "release" ? "releaseVotes" : "refundVotes";
+  const votes = deal[voteKey];
+
+  // Solo con conferma aperta (1/2): niente da abortire altrimenti.
+  if (deal.status !== pendingStatus || votes.length === 0) {
+    await answerCbOk(ctx);
+    return;
+  }
+  // 2/2 già chiuso / payout in corso: troppo tardi.
+  if (votes.length >= 2 || deal.payoutCompleted) {
+    await answerCbOk(ctx);
+    return;
+  }
+
+  await answerCbOk(ctx);
+
+  let updated =
+    ctx.store.update(deal.id, {
+      [voteKey]: [],
+      status: "funded",
+      pendingSelfConfirm: undefined,
+    }) ?? deal;
+
+  updated = await clearEphemeralReplies(ctx.api, ctx.store, updated);
+  updated = await clearRoleError(ctx.api, ctx.store, updated);
+  updated = await clearBotPrompts(ctx.api, ctx.store, updated);
+
+  await ctx.reply(it.dualConfirmCancelled(updated, kind), {
+    parse_mode: "Markdown",
+  });
+
+  // Stesso ripristino CTA di post-disputa su funded: ship ask o buyer after ship.
+  if (updated.sellerShippedAt) {
+    await postBuyerAfterShip(ctx.api, ctx.store, updated);
+  } else {
+    await postShipAsk(ctx.api, ctx.store, updated);
+  }
 }
 
 async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {

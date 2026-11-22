@@ -138,14 +138,18 @@ export function buyerAfterShipKeyboard(deal: Deal): InlineKeyboard {
     .text("ℹ️ Altre info", "buyer_info");
 }
 
-/** Dual-confirm: seller conferma il rilascio avviato dal buyer. */
+/** Dual-confirm 1/2: Confermo (2/2) + Annulla (abort → deal funded). */
 export function sellerConfirmPayKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("✅ Confermo", "seller_confirm_pay");
+  return new InlineKeyboard()
+    .text("✅ Confermo", "seller_confirm_pay")
+    .text("Annulla", "cancel_confirm_pay");
 }
 
-/** Dual-confirm refund: la parte in attesa preme Confermo. */
+/** Dual-confirm refund 1/2: Confermo (2/2) + Annulla (abort → deal funded). */
 export function refundConfirmKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("✅ Confermo", "confirm_refund");
+  return new InlineKeyboard()
+    .text("✅ Confermo", "confirm_refund")
+    .text("Annulla", "cancel_confirm_refund");
 }
 
 /** Sotto il messaggio di rilascio: mostra solo la signature. */

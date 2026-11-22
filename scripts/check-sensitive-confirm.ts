@@ -7,7 +7,9 @@ import {
   altreInfoKeyboard,
   buyerAfterShipKeyboard,
   groupActionsKeyboard,
+  refundConfirmKeyboard,
   selfConfirmKeyboard,
+  sellerConfirmPayKeyboard,
   shipAskKeyboard,
 } from "../src/keyboards/menus.js";
 import { it } from "../src/messages/it.js";
@@ -96,6 +98,33 @@ const baseDeal = {
   assert.match(ask.toLowerCase(), /disputa/);
   assert.equal(it.frozenInDispute, "In disputa.");
   assert.equal(it.wrongStatus("disputed"), "In disputa.");
+}
+
+// Dual-confirm 1/2: Confermo + Annulla (pay e refund)
+{
+  assert.deepEqual(labelsOf(sellerConfirmPayKeyboard()), ["✅ Confermo", "Annulla"]);
+  assert.deepEqual(callbacksOf(sellerConfirmPayKeyboard()), [
+    "seller_confirm_pay",
+    "cancel_confirm_pay",
+  ]);
+  assert.deepEqual(labelsOf(refundConfirmKeyboard()), ["✅ Confermo", "Annulla"]);
+  assert.deepEqual(callbacksOf(refundConfirmKeyboard()), [
+    "confirm_refund",
+    "cancel_confirm_refund",
+  ]);
+  const cancelPay = it.dualConfirmCancelled(baseDeal, "release");
+  assert.match(cancelPay, /annullata/i);
+  assert.match(cancelPay, /aperto/i);
+  const cancelRefund = it.dualConfirmCancelled(baseDeal, "refund");
+  assert.match(cancelRefund, /annullata/i);
+  assert.match(cancelRefund, /aperto/i);
+}
+
+// Post-ship: Altre info → Disputa resta raggiungibile dopo abort
+{
+  const cbs = callbacksOf(buyerAfterShipKeyboard(baseDeal));
+  assert.ok(cbs.includes("buyer_info"));
+  assert.deepEqual(callbacksOf(altreInfoKeyboard()), ["dispute"]);
 }
 
 console.log("check-sensitive-confirm: ok");

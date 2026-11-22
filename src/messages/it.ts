@@ -678,8 +678,14 @@ Scegli:`;
   /** Tentativo verso opposto mentre una conferma è aperta. */
   confirmConflict: (deal: Deal, open: "release" | "refund") =>
     open === "release"
-      ? `Conferma rilascio già aperta (#${deal.id}). Completatela o apri disputa.`
-      : `Conferma rimborso già aperta (#${deal.id}). Completatela o apri disputa.`,
+      ? `Conferma rilascio già aperta (#${deal.id}). Completa, Annulla, o disputa.`
+      : `Conferma rimborso già aperta (#${deal.id}). Completa, Annulla, o disputa.`,
+
+  /** Abort dual-confirm 1/2 (Paga / Rimborsa): deal resta funded. */
+  dualConfirmCancelled: (deal: Deal, kind: "release" | "refund") =>
+    kind === "release"
+      ? `Conferma rilascio annullata (#${deal.id}). Deal aperto.`
+      : `Conferma rimborso annullata (#${deal.id}). Deal aperto.`,
 
   depositCheckResult: (
     deal: Deal,
