@@ -483,11 +483,10 @@ export async function bindGroupToDeal(
     return { deal: updated, perms };
   }
 
-  try {
-    await api.setChatTitle(chatId, it.groupTitle(deal));
-  } catch {
-    // ok se manca can_change_info
-  }
+  // Non rinominare qui: un setChatTitle early (solo Escrow #id) race con il
+  // titolo umano e Telegram logga «X ha cambiato il nome…» come se l'utente
+  // annullasse il bot. Titolo completo (con importo) solo a ToS/amount lock
+  // via refreshGroupTitle.
 
   // Foto branding una sola volta (non a ogni rename / /avvia).
   // setChatPhoto su basic group spesso triggera migrazione → nuovo id.
@@ -822,7 +821,7 @@ export async function startDealInGroup(
     return { deal: bound, started: false, perms };
   }
 
-  // Dopo setChatTitle/Photo Telegram può migrare group→supergroup:
+  // Dopo setChatPhoto Telegram può migrare group→supergroup:
   // usa sempre l'id live (bound), non l'id dello update originale.
   const liveChatId = bound.groupChatId ?? chatId;
 

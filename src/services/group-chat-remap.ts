@@ -9,8 +9,9 @@ function isActiveDeal(deal: Deal): boolean {
 }
 
 /**
- * Dopo setChatTitle / setChatPhoto Telegram può migrare group → supergroup
- * cambiando l'id. `getChat(oldId)` restituisce spesso il chat con il nuovo id.
+ * Dopo setChatPhoto (e legacy setChatTitle) Telegram può migrare
+ * group → supergroup cambiando l'id. `getChat(oldId)` restituisce spesso
+ * il chat con il nuovo id.
  */
 export async function resolveLiveChatId(
   api: Api,

@@ -40,7 +40,10 @@ import {
   expectedReviewer,
   reviewsPending,
 } from "../services/reviews.js";
-import { healMigratedGroupDeal } from "../services/group-chat-remap.js";
+import {
+  healMigratedGroupDeal,
+  remapDealGroupChatId,
+} from "../services/group-chat-remap.js";
 import {
   checkDealDeposit,
   classifyPayoutError,
@@ -52,6 +55,25 @@ import {
   payoutDealSol,
 } from "../services/solana/index.js";
 import type { Deal } from "../types.js";
+
+/**
+ * grammY `bot.command("wallet")` confronta il nome in modo case-sensitive
+ * (`/Wallet` ≠ `wallet`). Telegram invece tratta i comandi case-insensitive:
+ * senza questo parser `/Wallet` non matcha → silenzio totale in gruppo.
+ */
+export function parseWalletCommand(text: string): {
+  matched: boolean;
+  address: string;
+} {
+  const m = text
+    .trim()
+    .match(/^\/wallet(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]+))?$/i);
+  if (!m) return { matched: false, address: "" };
+  return {
+    matched: true,
+    address: (m[1] ?? "").replace(/\s+/g, "").trim(),
+  };
+}
 
 /**
  * Conferma testuale corta consegna digitale.
@@ -174,9 +196,16 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     await verifyDeposit(ctx);
   });
 
-  bot.command("wallet", async (ctx) => {
-    await setWallet(ctx);
-  });
+  // Case-insensitive: /wallet /Wallet /WALLET (+ @bot). Mai silenzio.
+  bot.filter(
+    (ctx) => {
+      const text = ctx.message?.text ?? ctx.channelPost?.text;
+      return Boolean(text && parseWalletCommand(text).matched);
+    },
+    async (ctx) => {
+      await setWallet(ctx);
+    },
+  );
 
   bot.command("stato", async (ctx) => {
     const deal = await requireGroupDeal(ctx);
@@ -399,46 +428,72 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
 }
 
 async function setWallet(ctx: BotContext): Promise<void> {
-  const deal = await requireGroupDeal(ctx);
-  if (!deal || !ctx.from) {
-    await ctx.reply(it.noDealInGroup);
-    return;
-  }
-
-  // Turno wallet: /wallet da parte sbagliata o terzo → delete + remind.
-  if (
-    deal.status === "awaiting_seller_wallet" ||
-    deal.status === "awaiting_buyer_wallet"
-  ) {
-    const expected: "seller" | "buyer" =
-      deal.status === "awaiting_seller_wallet" ? "seller" : "buyer";
-    const expectedId = expected === "seller" ? deal.sellerId : deal.buyerId;
-    const isExpected =
-      expectedId != null &&
-      (ctx.from.id === expectedId || isAdminUser(ctx.from.id));
-    if (!isExpected) {
-      await rejectWrongRole(ctx, deal, it.walletWrongTurn(deal, expected));
+  try {
+    const deal = await requireGroupDeal(ctx);
+    if (!deal || !ctx.from) {
+      await ctx.reply(it.noDealInGroup);
       return;
     }
-  } else if (!isParty(deal, ctx.from.id)) {
-    await rejectWrongRole(ctx, deal, it.notParty);
-    return;
-  }
 
-  const text = ctx.message?.text ?? "";
-  const parts = text.trim().split(/\s+/);
-  const address = parts.length >= 2 ? parts.slice(1).join("").trim() : "";
-  if (!address || !isValidSolAddress(address)) {
-    await ctx.reply(
-      `Uso: \`/wallet\` seguito dall'indirizzo.\n${it.invalidWallet}`,
-      {
-        parse_mode: "Markdown",
-      },
+    // Heal live chat id se migrazione group→supergroup ha lasciato id stale.
+    if (
+      ctx.chat?.id != null &&
+      deal.groupChatId != null &&
+      ctx.chat.id !== deal.groupChatId
+    ) {
+      remapDealGroupChatId(ctx.store, deal.groupChatId, ctx.chat.id);
+    }
+    const fresh = ctx.store.get(deal.id) ?? deal;
+
+    // Turno wallet: /wallet da parte sbagliata o terzo → delete + remind.
+    if (
+      fresh.status === "awaiting_seller_wallet" ||
+      fresh.status === "awaiting_buyer_wallet"
+    ) {
+      const expected: "seller" | "buyer" =
+        fresh.status === "awaiting_seller_wallet" ? "seller" : "buyer";
+      const expectedId =
+        expected === "seller" ? fresh.sellerId : fresh.buyerId;
+      const isExpected =
+        expectedId != null &&
+        (ctx.from.id === expectedId || isAdminUser(ctx.from.id));
+      if (!isExpected) {
+        await rejectWrongRole(ctx, fresh, it.walletWrongTurn(fresh, expected));
+        return;
+      }
+    } else if (!isParty(fresh, ctx.from.id)) {
+      await rejectWrongRole(ctx, fresh, it.notParty);
+      return;
+    }
+
+    const text = ctx.message?.text ?? "";
+    const parsed = parseWalletCommand(text);
+    const address = parsed.address;
+    if (!address || !isValidSolAddress(address)) {
+      await ctx.reply(
+        `Uso: \`/wallet\` seguito dall'indirizzo.\n${it.invalidWallet}`,
+        {
+          parse_mode: "Markdown",
+        },
+      );
+      return;
+    }
+
+    await applyWallet(ctx, fresh, address);
+  } catch (err) {
+    console.error(
+      "setWallet failed:",
+      err instanceof Error ? err.message : err,
     );
-    return;
+    try {
+      await ctx.reply(
+        "Non sono riuscito a salvare il wallet. Riprova con `/wallet` seguito dall'indirizzo Solana.",
+        { parse_mode: "Markdown" },
+      );
+    } catch {
+      // chat morta / bot kickato
+    }
   }
-
-  await applyWallet(ctx, deal, address);
 }
 
 async function applyWallet(
@@ -471,17 +526,22 @@ async function applyWallet(
   const userMessageId = ctx.message?.message_id;
 
   /**
-   * Igiene wallet: clear prompt ask → delete risposta utente → next stage.
-   * Niente conferma flash (send+delete immediato = flicker).
+   * Igiene wallet: clear prompt ask → next stage → delete risposta utente.
+   * Posta il next step PRIMA di cancellare il messaggio utente: se send fallisce
+   * l'utente vede ancora /wallet e può ritentare (mai silenzio).
    */
-  const wipeWalletQa = async (current: Deal): Promise<Deal> => {
+  const wipeWalletPrompts = async (current: Deal): Promise<Deal> => {
     let next = await clearRoleError(ctx.api, ctx.store, current);
     next = await clearBotPrompts(ctx.api, ctx.store, next);
-    if (chatId != null && userMessageId != null) {
-      ctx.dealLogs.markDeletedByBot(current.id, userMessageId);
-      await deleteMessageSafe(ctx.api, chatId, userMessageId);
-    }
     return next;
+  };
+
+  const deleteUserWalletMsg = async (current: Deal): Promise<void> => {
+    const liveChatId = ctx.chat?.id ?? chatId;
+    if (liveChatId != null && userMessageId != null) {
+      ctx.dealLogs.markDeletedByBot(current.id, userMessageId);
+      await deleteMessageSafe(ctx.api, liveChatId, userMessageId);
+    }
   };
 
   // Dopo ToS: ordine fisso seller → buyer
@@ -495,8 +555,9 @@ async function applyWallet(
       status: "awaiting_buyer_wallet",
     })!;
     ctx.dealLogs.appendEvent(updated.id, "Seller: wallet salvato");
-    const cleaned = await wipeWalletQa(updated);
+    const cleaned = await wipeWalletPrompts(updated);
     await postAskBuyerWallet(ctx.api, ctx.store, cleaned);
+    await deleteUserWalletMsg(cleaned);
     return;
   }
 
@@ -510,8 +571,9 @@ async function applyWallet(
       status: "awaiting_deposit",
     })!;
     ctx.dealLogs.appendEvent(updated.id, "Buyer: wallet salvato");
-    const cleaned = await wipeWalletQa(updated);
+    const cleaned = await wipeWalletPrompts(updated);
     await postDealActivated(ctx.api, ctx.store, cleaned);
+    await deleteUserWalletMsg(cleaned);
     return;
   }
 
