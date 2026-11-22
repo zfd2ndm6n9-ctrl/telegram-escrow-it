@@ -34,6 +34,7 @@ import {
   postAskSellerWallet,
   refreshGroupSetupCard,
   refreshGroupTitle,
+  shouldSendAvviaAutoBindStatus,
   startDealInGroup,
   trackSeenGroupUser,
   type AutoBindFailure,
@@ -100,6 +101,7 @@ async function resumeAvviaAfterAdmin(
   chatId: number,
   runner: AvviaRunner,
 ): Promise<void> {
+  const priorSetupMessageId = deal.setupMessageId;
   const { deal: started, perms, autoBind } = await startDealInGroup(
     ctx.api,
     ctx.store,
@@ -120,14 +122,22 @@ async function resumeAvviaAfterAdmin(
   }
 
   if (autoBind) {
-    // Sempre un messaggio visibile (anche none / need_message): niente silenzio.
-    await sendTrackedPrompt(
-      ctx.api,
-      ctx.store,
-      started,
-      autoBindReply(autoBind, started),
-      { parse_mode: "Markdown" },
-    );
+    // Card appena postata = un solo prompt; ripetuto → un status (clear prior).
+    if (
+      shouldSendAvviaAutoBindStatus(
+        autoBind,
+        priorSetupMessageId,
+        started.setupMessageId,
+      )
+    ) {
+      await sendTrackedPrompt(
+        ctx.api,
+        ctx.store,
+        started,
+        autoBindReply(autoBind, started),
+        { parse_mode: "Markdown" },
+      );
+    }
     return;
   }
 
@@ -393,6 +403,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         runnerDisplayName: displayNameOf(ctx.from),
       };
 
+      // Prima di startDealInGroup: se la card non c'è ancora, il refresh
+      // in auto-bind miss è il prompt unico — non stackare «già avviato».
+      const priorSetupMessageId = deal.setupMessageId;
+
       const { deal: started, perms, autoBind } = await startDealInGroup(
         ctx.api,
         ctx.store,
@@ -414,15 +428,23 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       }
 
       if (autoBind) {
-        // Card + reply: /avvia ripetuto non deve mai andare in silenzio
-        // (es. deal già bound, titolo rinominato dall'utente, aspetta controparte).
-        await sendTrackedPrompt(
-          ctx.api,
-          ctx.store,
-          started,
-          autoBindReply(autoBind, started),
-          { parse_mode: "Markdown" },
-        );
+        // Primo /avvia: living card basta. Ripetuto: un solo status
+        // (sendTrackedPrompt cancella wait prompt precedenti).
+        if (
+          shouldSendAvviaAutoBindStatus(
+            autoBind,
+            priorSetupMessageId,
+            started.setupMessageId,
+          )
+        ) {
+          await sendTrackedPrompt(
+            ctx.api,
+            ctx.store,
+            started,
+            autoBindReply(autoBind, started),
+            { parse_mode: "Markdown" },
+          );
+        }
         return;
       }
 
