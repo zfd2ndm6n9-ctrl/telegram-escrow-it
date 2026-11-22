@@ -23,8 +23,10 @@ import {
 } from "./deal-logic.js";
 import { startTermsWizard } from "./dm-terms.js";
 import {
+  extractMigrateToChatId,
   remapDealGroupChatId,
   resolveLiveChatId,
+  syncDealLiveChatId,
 } from "./group-chat-remap.js";
 import {
   clearEphemeralReplies,
@@ -627,17 +629,27 @@ export async function postAskSellerWallet(
   });
 }
 
-/** Aggiorna titolo gruppo con importo (best-effort). */
+/**
+ * Aggiorna titolo gruppo con importo (best-effort).
+ * Dopo setChatTitle Telegram può migrare group→supergroup: sync `groupChatId`.
+ */
 export async function refreshGroupTitle(
   api: Api,
+  store: DealStore,
   deal: Deal,
-): Promise<void> {
-  if (deal.groupChatId == null) return;
+): Promise<Deal> {
+  if (deal.groupChatId == null) return deal;
+  const fromId = deal.groupChatId;
   try {
-    await api.setChatTitle(deal.groupChatId, it.groupTitle(deal));
-  } catch {
+    await api.setChatTitle(fromId, it.groupTitle(deal));
+  } catch (err) {
+    const toId = extractMigrateToChatId(err);
+    if (toId != null) {
+      return syncDealLiveChatId(api, store, deal, toId);
+    }
     // ok se manca can_change_info
   }
+  return syncDealLiveChatId(api, store, deal);
 }
 
 export async function postAskBuyerWallet(
