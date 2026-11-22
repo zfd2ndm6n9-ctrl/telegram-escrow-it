@@ -57,6 +57,19 @@ function amountLine(deal: Deal): string {
   return `• Crypto: *${deal.asset}*`;
 }
 
+/** Elenco Seller / Buyer su righe separate (card + stato). */
+function partyBullets(deal: Deal): string[] {
+  const seller = mentionUser(deal.sellerUsername, deal.sellerId, "—");
+  const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "—");
+  return [`• Seller: ${seller}`, `• Buyer: ${buyer}`];
+}
+
+/** Invito solo sulla card pinnata (mai ack in DM). */
+function inviteBullet(deal: Deal): string | null {
+  const code = deal.inviteCode?.trim();
+  return code ? `• Invito: *${escMd(code)}*` : null;
+}
+
 /** Buyer + importo + indirizzo escrow su riga propria in `code` (Copia su mobile). */
 function depositPrompt(deal: Deal): string {
   const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "Buyer");
@@ -135,9 +148,14 @@ Entra, poi *Ho entrato* o \`/start\`.`,
   askInviteOptional:
     "Codice invito? Invia il codice oppure tocca *Nessun codice*.",
 
+  /**
+   * @deprecated Apply invito è silenzioso in DM; il codice compare solo
+   * sulla card pinnata del gruppo. Tenuto per smoke/compat.
+   */
   inviteRedeemOk: (code: string) =>
     `✅ Codice *${escMd(code)}* applicato.`,
 
+  /** @deprecated Stesso motivo di inviteRedeemOk — non inviare in DM. */
   inviteRedeemAlready: (code: string) =>
     `Codice *${escMd(code)}* già attivo.`,
 
@@ -341,9 +359,11 @@ ${missingRole}: entra o scrivi un messaggio nel gruppo.`;
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
 
     const bullets = [
-      `• ${buyer} · ${seller}`,
+      ...partyBullets(deal),
       formatTosBullets(deal),
     ];
+    const invite = inviteBullet(deal);
+    if (invite) bullets.push(invite);
 
     const fundedLike =
       deal.status === "funded" ||
@@ -566,12 +586,12 @@ Poi: *Consegnato*`;
     return `Prima ${seller} deve segnare *Consegnato*.`;
   },
 
-  /** Buyer dopo «consegnato». */
+  /** Buyer dopo «consegnato»: parla al buyer della sua scelta. */
   buyerAfterShip: (deal: Deal) => {
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
-    return `${buyer} — seller ha consegnato.
+    return `${buyer}: il seller ha consegnato.
 
-Scegli:`;
+Scegli: *Paga* o *Chiedi il rimborso*.`;
   },
 
   buyerOnlyPay: (deal: Deal) => {
@@ -596,7 +616,7 @@ Scegli:`;
   /** Release buyer-first: seller/comando prima del voto buyer. */
   releaseNeedBuyerFirst: (deal: Deal) => {
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
-    return `Prima ${buyer} deve avviare il pagamento (*Paga seller*).`;
+    return `Prima ${buyer} deve avviare il pagamento (*Paga*).`;
   },
 
   askSellerMoreInfo: (deal: Deal) => {
@@ -633,9 +653,9 @@ Scegli:`;
       case "dispute_cancel":
         return `${who}: sei sicuro di annullare la disputa?`;
       case "release":
-        return `${who}: sei sicuro di pagare il seller?`;
+        return `${who}: sei sicuro di pagare?`;
       case "refund":
-        return `${who}: sei sicuro di rimborsare il buyer?`;
+        return `${who}: sei sicuro di chiedere il rimborso?`;
     }
   },
 
@@ -719,7 +739,7 @@ Scegli:`;
   /** Dual-confirm refund 1/2: tagga chi deve ancora confermare. */
   refundVote: (deal: Deal, remaining: number) =>
     remaining > 0
-      ? `${mentionPendingVoter(deal, deal.refundVotes)}: conferma *Rimborsa buyer* (1/2).`
+      ? `${mentionPendingVoter(deal, deal.refundVotes)}: conferma il *rimborso* (1/2).`
       : `↩️ Rimborso in corso (#${deal.id})…`,
 
   /** Post 2/2 pay-seller: rating breve del bot (seller poi buyer). */
@@ -1022,22 +1042,27 @@ export function statusLabel(status: Deal["status"]): string {
   return STATUS_LABELS[status];
 }
 
-/** /stato e callback: corto, professionale; niente indirizzo/invito clutter. */
+/**
+ * /stato e callback: elenco puntato italiano chiaro.
+ * Niente indirizzo escrow; invito solo sulla card pinnata (non qui).
+ * La reply Stato non deve portare tastiera azioni.
+ */
 export function formatDealStatus(deal: Deal): string {
-  const buyer = deal.buyerUsername
-    ? `@${deal.buyerUsername}`
-    : deal.buyerId
-      ? String(deal.buyerId)
-      : "—";
   const seller = deal.sellerUsername
     ? `@${deal.sellerUsername}`
     : deal.sellerId
       ? String(deal.sellerId)
       : "—";
+  const buyer = deal.buyerUsername
+    ? `@${deal.buyerUsername}`
+    : deal.buyerId
+      ? String(deal.buyerId)
+      : "—";
   const lines = [
     `*#${deal.id}* — ${STATUS_LABELS[deal.status]}`,
     amountLine(deal),
-    `• ${buyer} · ${seller}`,
+    `• Seller: ${seller}`,
+    `• Buyer: ${buyer}`,
   ];
   if (deal.status === "awaiting_deposit" || deal.status === "funded") {
     lines.push(

@@ -91,13 +91,28 @@ const baseDeal = {
   assert.ok(!cbs.includes("shipped"));
 }
 
-// funded ship ask: rimborsa + disputa
+// funded ship ask: rimborso azione + disputa (niente «Rimborsa buyer»)
 {
   const cbs = callbacksOf(shipAskKeyboard());
+  const labels = labelsOf(shipAskKeyboard());
   assert.ok(cbs.includes("shipped"));
   assert.ok(cbs.includes("refund_buyer"));
   assert.ok(cbs.includes("dispute"));
   assert.ok(cbs.includes("altre_info"));
+  assert.ok(labels.includes("↩️ Chiedi il rimborso"));
+  assert.ok(!labels.some((l) => /Rimborsa buyer/i.test(l)));
+}
+
+// Role-aware CTA: Paga / Chiedi il rimborso (non «Paga @seller»)
+{
+  const labels = labelsOf(buyerAfterShipKeyboard(baseDeal));
+  assert.ok(labels.includes("🔓 Paga"));
+  assert.ok(labels.includes("↩️ Chiedi il rimborso"));
+  assert.ok(!labels.some((l) => /Paga @/i.test(l)));
+  assert.ok(!labels.some((l) => /Rimborsa buyer/i.test(l)));
+  const fundedLabels = labelsOf(groupActionsKeyboard("funded", baseDeal));
+  assert.ok(fundedLabels.includes("↩️ Chiedi il rimborso"));
+  assert.ok(!fundedLabels.some((l) => /Rimborsa buyer/i.test(l)));
 }
 
 // Mentions: wallet prompt senza label Seller/Buyer prima della @
@@ -108,11 +123,12 @@ const baseDeal = {
   assert.match(buyerAsk, /@buyer\\_x/);
   assert.ok(!/\*Seller\*/.test(sellerAsk));
   assert.ok(!/\*Buyer\*/.test(buyerAsk));
-  // Eccezione: notifica sull'altra parte tiene la parola seller/buyer
+  // Parla al buyer della consegna seller + CTA azione
   assert.match(it.buyerAfterShip(baseDeal), /seller ha consegnato/i);
+  assert.match(it.buyerAfterShip(baseDeal), /Chiedi il rimborso/i);
 }
 
-// Stato: corto, senza indirizzo / Invito / «Escrow:»
+// Stato: Seller/Buyer su righe separate; niente indirizzo / Invito / «Escrow:»
 {
   const status = formatDealStatus({
     ...baseDeal,
@@ -121,13 +137,30 @@ const baseDeal = {
   });
   assert.match(status, /#deadbeef/);
   assert.match(status, /Importo/);
-  assert.match(status, /@buyer_x/);
-  assert.match(status, /@seller_y/); // plain text in status (no md escape)
+  assert.match(status, /• Seller: @seller_y/);
+  assert.match(status, /• Buyer: @buyer_x/);
+  assert.ok(!/@buyer_x · @seller_y/.test(status));
+  assert.ok(!/@seller_y · @buyer_x/.test(status));
   assert.ok(!status.includes(baseDeal.escrowAddress));
   assert.ok(!/Escrow:/.test(status));
+  // Invito solo sulla card pinnata, non su /stato
   assert.ok(!/Invito:/.test(status));
-  assert.ok(!/Buyer @/.test(status));
-  assert.ok(!/Seller @/.test(status));
+}
+
+// Card pinnata: Seller/Buyer bullets + Invito quando presente
+{
+  const card = it.groupSetupCard({
+    ...baseDeal,
+    status: "awaiting_tos",
+    inviteCode: "KEYTEST",
+    tosProduct: "Servizio test",
+    priceEur: "10",
+    tosConditions: "subito",
+  });
+  assert.match(card, /• Seller: @seller\\_y/);
+  assert.match(card, /• Buyer: @buyer\\_x/);
+  assert.match(card, /• Invito: \*KEYTEST\*/);
+  assert.ok(!/·/.test(card.split("\n").find((l) => l.includes("Seller") || l.includes("Buyer")) ?? ""));
 }
 
 // Copy conferma

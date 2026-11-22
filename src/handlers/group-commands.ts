@@ -249,9 +249,9 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.noDealInGroup);
       return;
     }
+    // Solo testo stato: niente Verifica/Disputa/Altre info sotto la reply.
     await replaceStatusMessage(ctx.api, ctx.store, deal, formatDealStatus(deal), {
       parse_mode: "Markdown",
-      reply_markup: groupActionsKeyboard(deal.status, deal),
     });
   });
 
@@ -424,9 +424,9 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       return;
     }
     await ctx.answerCallbackQuery();
+    // Solo testo stato: niente tastiera azioni sulla reply Stato.
     await replaceStatusMessage(ctx.api, ctx.store, deal, formatDealStatus(deal), {
       parse_mode: "Markdown",
-      reply_markup: groupActionsKeyboard(deal.status, deal),
     });
   });
 
@@ -2074,7 +2074,7 @@ async function restoreUiAfterDisputeCancel(
     }
     return;
   }
-  // Fallback: tastiera stato.
+  // Fallback: testo stato senza tastiera azioni (come bottone Stato).
   await replaceStatusMessage(
     ctx.api,
     ctx.store,
@@ -2082,7 +2082,6 @@ async function restoreUiAfterDisputeCancel(
     formatDealStatus(deal),
     {
       parse_mode: "Markdown",
-      reply_markup: groupActionsKeyboard(deal.status, deal),
     },
   );
 }

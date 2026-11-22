@@ -1,6 +1,5 @@
 import { InlineKeyboard, Keyboard } from "grammy";
 import type { Deal } from "../types.js";
-import { mentionUser } from "../services/deal-logic.js";
 
 export function mainMenuKeyboard(): Keyboard {
   return new Keyboard()
@@ -124,12 +123,15 @@ export function altreInfoKeyboard(): InlineKeyboard {
   return new InlineKeyboard();
 }
 
-/** Post-deposito: seller segna consegna; rimborso + disputa raggiungibili. */
+/**
+ * Post-deposito: CTA rivolte a chi agisce (non etichette third-person).
+ * Shared group keyboard → copy azione, non «Rimborsa buyer».
+ */
 export function shipAskKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("✅ Consegnato", "shipped")
     .row()
-    .text("↩️ Rimborsa buyer", "refund_buyer")
+    .text("↩️ Chiedi il rimborso", "refund_buyer")
     .row()
     .text("⚠️ Disputa", "dispute")
     .text("ℹ️ Altre info", "altre_info");
@@ -137,13 +139,14 @@ export function shipAskKeyboard(): InlineKeyboard {
 
 /**
  * Dopo consegna: CTA buyer (paga / rimborso / disputa / altre info).
+ * «Paga» parla a chi preme; niente «Paga @seller» sul bottone.
  */
-export function buyerAfterShipKeyboard(deal: Deal): InlineKeyboard {
-  const sellerLabel = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
+export function buyerAfterShipKeyboard(_deal: Deal): InlineKeyboard {
+  void _deal;
   return new InlineKeyboard()
-    .text(`🔓 Paga ${sellerLabel}`, "buyer_pay")
+    .text("🔓 Paga", "buyer_pay")
     .row()
-    .text("↩️ Rimborsa buyer", "refund_buyer")
+    .text("↩️ Chiedi il rimborso", "refund_buyer")
     .row()
     .text("⚠️ Disputa", "dispute")
     .text("ℹ️ Altre info", "buyer_info");
@@ -172,7 +175,9 @@ export function payoutHashKeyboard(): InlineKeyboard {
  * Tastiera azioni gruppo.
  * Niente «Paga seller» / pay_seller in UI: rilascio via flusso consegna→buyer.
  * Niente «Indirizzo escrow» in UI: indirizzo nel messaggio di pagamento / Verifica.
+ * Copy azione (Chiedi il rimborso), non etichette third-person.
  * Disputa + Stato in chiaro; Annulla disputa solo opener (gate nel handler).
+ * Nota: la reply di Stato non usa questa tastiera (solo testo).
  */
 export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboard {
   const kb = new InlineKeyboard();
@@ -194,7 +199,7 @@ export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboar
 
   // Mutual refund: solo post-deposito, finché non chiuso / in rilascio.
   if (status === "funded" || status === "refund_pending") {
-    kb.text("↩️ Rimborsa buyer", "refund_buyer").row();
+    kb.text("↩️ Chiedi il rimborso", "refund_buyer").row();
   }
 
   kb.text("⚠️ Disputa", "dispute").text("ℹ️ Altre info", "altre_info").row();
