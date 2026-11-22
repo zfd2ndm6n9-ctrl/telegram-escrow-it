@@ -135,24 +135,60 @@ export function canMarkShipped(deal: Deal, userId: number): boolean {
 
 /**
  * Solo il buyer avvia «Paga» / self-confirm release.
- * Admin-parte seller → no (mai avanzare); terzo admin ok se buyer noto.
+ * Party-only: niente proxy admin (A3 — force payout solo in `disputed`).
+ * Seller anche se admin → false.
  */
 export function canStartBuyerPay(deal: Deal, userId: number): boolean {
-  if (deal.buyerId != null && userId === deal.buyerId) return true;
-  if (!isAdminUser(userId)) return false;
-  if (deal.sellerId != null && userId === deal.sellerId) return false;
-  return deal.buyerId != null;
+  return deal.buyerId != null && userId === deal.buyerId;
 }
 
 /**
  * Solo il seller conferma il 2/2 rilascio («Confermo»).
- * Admin-parte buyer → no; terzo admin ok se seller noto.
+ * Party-only: buyer anche se admin → false (A3).
  */
 export function canConfirmSellerPay(deal: Deal, userId: number): boolean {
-  if (deal.sellerId != null && userId === deal.sellerId) return true;
-  if (!isAdminUser(userId)) return false;
-  if (deal.buyerId != null && userId === deal.buyerId) return false;
-  return deal.sellerId != null;
+  return deal.sellerId != null && userId === deal.sellerId;
+}
+
+/**
+ * Secondo voto dual-confirm (release o refund): solo la parte ancora in attesa.
+ * Mai admin proxy — evita che buyer-admin casti il voto seller (bug post-#62).
+ */
+export function canConfirmPendingVote(
+  deal: Deal,
+  votes: number[],
+  userId: number,
+): boolean {
+  const expected = pendingVoterId(deal, votes);
+  return expected != null && userId === expected;
+}
+
+/** Alias: 2° voto rimborso (`confirm_refund`). */
+export function canConfirmRefund(deal: Deal, userId: number): boolean {
+  return canConfirmPendingVote(deal, deal.refundVotes, userId);
+}
+
+/**
+ * Annulla 1/2 (`cancel_confirm_*`): entrambe le parti possono abortire.
+ * Terzi no. Admin terzo: sì (supporto; non è un voto).
+ */
+export function canCancelDualConfirm(deal: Deal, userId: number): boolean {
+  if (isParty(deal, userId)) return true;
+  return isAdminUser(userId);
+}
+
+/**
+ * Turno wallet seller/buyer: solo la parte attesa.
+ * Niente admin-as-other-party (allinea A3 sui path sensibili).
+ */
+export function canSetWalletNow(deal: Deal, userId: number): boolean {
+  if (deal.status === "awaiting_seller_wallet") {
+    return deal.sellerId != null && userId === deal.sellerId;
+  }
+  if (deal.status === "awaiting_buyer_wallet") {
+    return deal.buyerId != null && userId === deal.buyerId;
+  }
+  return false;
 }
 
 export function isAllowedHuman(deal: Deal, userId: number): boolean {
