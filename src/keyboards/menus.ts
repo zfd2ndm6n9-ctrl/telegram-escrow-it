@@ -116,11 +116,18 @@ export function selfConfirmKeyboard(): InlineKeyboard {
 }
 
 /**
- * Sotto Altre info (legacy). Disputa è sulla tastiera principale;
- * tenuto per callback mid-flight senza bottoni.
+ * Schermate aperte da click (Stato / Altre info / hash / …):
+ * ← Indietro chiude l'effimero; i CTA di stage restano.
+ */
+export function uiBackKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("← Indietro", "ui_back");
+}
+
+/**
+ * Sotto Altre info: solo Indietro (Disputa è sulla tastiera principale).
  */
 export function altreInfoKeyboard(): InlineKeyboard {
-  return new InlineKeyboard();
+  return uiBackKeyboard();
 }
 
 /**
@@ -174,10 +181,10 @@ export function payoutHashKeyboard(): InlineKeyboard {
 /**
  * Tastiera azioni gruppo.
  * Niente «Paga seller» / pay_seller in UI: rilascio via flusso consegna→buyer.
- * Niente «Indirizzo escrow» in UI: indirizzo nel messaggio di pagamento / Verifica.
+ * Niente «Indirizzo escrow» / «Verifica deposito» standalone: deposito in Stato.
  * Copy azione (Chiedi il rimborso), non etichette third-person.
  * Disputa + Stato in chiaro; Annulla disputa solo opener (gate nel handler).
- * Nota: la reply di Stato non usa questa tastiera (solo testo).
+ * Nota: la reply di Stato usa solo ← Indietro (niente tastiera azioni duplicate).
  */
 export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboard {
   const kb = new InlineKeyboard();
@@ -186,10 +193,6 @@ export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboar
     kb.text("📄 Stato", "stato").row();
     kb.text("↩️ Annulla disputa", "dispute_cancel");
     return kb;
-  }
-
-  if (status === "awaiting_deposit") {
-    kb.text("💰 Verifica deposito", "funded").row();
   }
 
   // Post-deposito: se non ancora consegnato, bottone consegna (CTA dedicate altrimenti).
