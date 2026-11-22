@@ -95,7 +95,7 @@ async function redeemInvite(
     }
     ctx.session.awaitingInviteCode = undefined;
     ctx.session.pendingInviteCode = undefined;
-    await ctx.reply(it.inviteRedeemAlready(code), { parse_mode: "Markdown" });
+    // Silenzioso: niente «Codice … già attivo» in DM.
     return true;
   }
 
@@ -123,15 +123,8 @@ async function redeemInvite(
   ctx.session.awaitingInviteCode = undefined;
   ctx.session.pendingInviteCode = undefined;
 
-  if (result.already) {
-    await ctx.reply(it.inviteRedeemAlready(result.invite.code), {
-      parse_mode: "Markdown",
-    });
-    return true;
-  }
-  await ctx.reply(it.inviteRedeemOk(result.invite.code), {
-    parse_mode: "Markdown",
-  });
+  // Silenzioso in DM: il codice compare sulla card pinnata del deal in gruppo.
+  void result.already;
   return true;
 }
 

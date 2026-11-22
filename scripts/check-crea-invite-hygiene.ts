@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { it } from "../src/messages/it.js";
+import type { Deal } from "../src/types.js";
 
 const root = resolve(import.meta.dirname, "..");
 const startSrc = readFileSync(resolve(root, "src/handlers/start.ts"), "utf8");
@@ -37,5 +38,43 @@ assert.match(creaSrc, /start=crea/);
 
 // Step invite sul creating session
 assert.match(creaSrc, /step: "invite"/);
+
+// Apply codice: silenzioso in DM (niente inviteRedeemOk reply)
+assert.doesNotMatch(creaSrc, /inviteRedeemOk\(/);
+assert.match(creaSrc, /Silenzioso in DM/);
+
+// /invito success anche silenzioso (niente ack «applicato» in DM)
+assert.doesNotMatch(startSrc, /inviteRedeemOk\(/);
+assert.doesNotMatch(startSrc, /inviteRedeemAlready\(/);
+
+// Card pinnata: Seller/Buyer + Invito; non side-by-side @ · @
+{
+  const deal = {
+    id: "abcd1234",
+    creatorId: 1,
+    creatorRole: "seller" as const,
+    buyerId: 10,
+    buyerUsername: "buyer_x",
+    sellerId: 20,
+    sellerUsername: "seller_y",
+    asset: "SOL" as const,
+    status: "awaiting_tos" as const,
+    escrowAddress: "Escrow1111111111111111111111111111111111111",
+    releaseVotes: [] as number[],
+    refundVotes: [] as number[],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    inviteCode: "KEYTEST",
+    tosProduct: "x",
+    priceEur: "1",
+    tosConditions: "y",
+  } satisfies Deal;
+  const card = it.groupSetupCard(deal);
+  assert.match(card, /• Seller: @seller\\_y/);
+  assert.match(card, /• Buyer: @buyer\\_x/);
+  assert.match(card, /• Invito: \*KEYTEST\*/);
+  assert.ok(!/@buyer\\_x · @seller\\_y/.test(card));
+  assert.ok(!/@seller\\_y · @buyer\\_x/.test(card));
+}
 
 console.log("check-crea-invite-hygiene: OK");

@@ -312,9 +312,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
           step: "role",
           ...looked.attribution,
         };
-        await ctx.reply(it.inviteRedeemOk(looked.attribution.inviteCode), {
-          parse_mode: "Markdown",
-        });
+        // Silenzioso in DM: il codice compare solo sulla card pinnata del gruppo.
         await proceedToRoleStep(ctx);
         return;
       }
