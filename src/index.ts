@@ -51,9 +51,10 @@ async function main(): Promise<void> {
   }
 
   const { bot, store, members, invites, dealLogs } = createBot(config.botToken);
+  const rawDataDir = process.env.DATA_DIR?.trim() || "(unset → data)";
   console.log(
-    `Persistenza deal: DATA_DIR=${store.dataDir} → ${store.path} (${store.size} deal). ` +
-      "Su Render serve Persistent Disk: senza volume i deal spariscono al redeploy.",
+    `Persistenza deal: DATA_DIR env=${rawDataDir} → resolved=${store.dataDir} → ${store.path} (${store.size} deal). ` +
+      "Su Render: Persistent Disk mount /var/data + DATA_DIR=/var/data (assoluto).",
   );
   console.log(
     `Persistenza iscritti: ${members.path} (${members.registeredCount} iscritti).`,

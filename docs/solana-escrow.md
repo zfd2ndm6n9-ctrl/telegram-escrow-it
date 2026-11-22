@@ -58,7 +58,7 @@ Sul **Web Service** (o Background Worker) che esegue il bot — Environment:
 | `ADMIN_TELEGRAM_IDS` | no | Lista admin csv (oltre al singolo) |
 | `PUBLIC_BASE_URL` | sì in prod | Host HTTPS → Mini App `/tos` (o `RENDER_EXTERNAL_URL`) |
 | `TOS_URL` | no | Override URL Mini App (default `${PUBLIC_BASE_URL}/tos`) |
-| `DATA_DIR` | sì in prod | Persistenza deal + iscritti + inviti + log (`deals.json`, `members.json`, `invites.json`, `deal-logs.json`). Su Render: `/var/data` |
+| `DATA_DIR` | sì in prod | Persistenza deal + iscritti + inviti + log (`deals.json`, `members.json`, `invites.json`, `deal-logs.json`). Render: path **assoluto** `/var/data` (non `var/data`) |
 | `VOUCH_CHANNEL_ID` | sì in prod | Canale vouch + gate `/crea` (id `-100…`). Bot **admin** Post + `getChatMember`. Fail post → log `[vouch] FAIL …` |
 | `VOUCH_INVITE_LINK` | no | Invite a `/start`. Default `https://t.me/+tww-HqO8htBiMzdk` (override Render) |
 | `PORT` | auto su Web | Per `/healthz` |
@@ -96,8 +96,9 @@ All’avvio i log Render stampano:
 Il bot salva i deal in `DATA_DIR/deals.json`. Su Render **free** il disco è ephemeral: un Manual Deploy azzera lo store e i gruppi rispondono «nessun deal collegato», mentre i fondi restano sull’indirizzo escrow derivato (`HMAC(master, dealId)`).
 
 1. Piano **starter+** con Persistent Disk montato (blueprint: `/var/data`)
-2. Env `DATA_DIR=/var/data`
-3. Non cambiare `SOLANA_PRIVATE_KEY` (stessa master → stessi indirizzi deal)
+2. Env **`DATA_DIR=/var/data`** (path assoluto con `/` iniziale — non `var/data`)
+3. Verifica boot log: `resolved=/var/data` e `ls /var/data` mostra `deals.json` / `members.json` / `invites.json`
+4. Non cambiare `SOLANA_PRIVATE_KEY` (stessa master → stessi indirizzi deal)
 
 ## Recovery escrow orfano (senza ricreare il deal Telegram)
 
