@@ -74,3 +74,18 @@ export function computeReleaseFeeSplit(
 export function feeBpsLabel(): string {
   return "5%";
 }
+
+/**
+ * SystemProgram.transfer verso un account inesistente richiede
+ * lamports ≥ rent-exempt (altrimenti tutta la tx atomica fallisce).
+ * Se l'account esiste già, anche dust è ok.
+ */
+export function cannotFundNewAccount(
+  accountExists: boolean,
+  lamports: bigint,
+  rentExemptMinimum: bigint,
+): boolean {
+  if (lamports <= 0n) return false;
+  if (accountExists) return false;
+  return lamports < rentExemptMinimum;
+}

@@ -1,4 +1,5 @@
 import type { Bot } from "grammy";
+import { PublicKey } from "@solana/web3.js";
 import type { BotContext } from "../context.js";
 import { isAdminUser } from "../services/deal-logic.js";
 import { it } from "../messages/it.js";
@@ -12,6 +13,8 @@ import {
 } from "../services/invite-step.js";
 import {
   getEscrowBalanceLamports,
+  getSolanaConnection,
+  isSolanaConfigured,
   isValidSolAddress,
   lamportsToSolString,
 } from "../services/solana/index.js";
@@ -463,9 +466,26 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       const who = collaboratorUsername
         ? `@${collaboratorUsername}`
         : String(collaboratorUserId);
-      await ctx.reply(it.codiceCreated(invite.code, invite.collaboratorWallet, who), {
-        parse_mode: "Markdown",
-      });
+      let warn = "";
+      try {
+        if (isSolanaConfigured()) {
+          const info = await getSolanaConnection().getAccountInfo(
+            new PublicKey(wallet),
+          );
+          if (info == null) {
+            warn =
+              "\n\n⚠️ Wallet collab *non attivo* on-chain (0 SOL). " +
+              "Finanzia con ≥ ~0.001 SOL prima di deal piccoli, " +
+              "altrimenti il 2.5% viene piegato sull'admin alla release.";
+          }
+        }
+      } catch {
+        // soft: creazione codice ok anche se RPC fallisce
+      }
+      await ctx.reply(
+        it.codiceCreated(invite.code, invite.collaboratorWallet, who) + warn,
+        { parse_mode: "Markdown" },
+      );
     } catch (err) {
       await ctx.reply(
         err instanceof Error ? err.message : "Creazione codice fallita.",

@@ -4,6 +4,7 @@ import {
   Transaction,
   sendAndConfirmTransaction,
   type Commitment,
+  type Connection,
   type TransactionInstruction,
 } from "@solana/web3.js";
 import { config } from "../../config.js";
@@ -13,7 +14,10 @@ import {
   getSolanaConnection,
 } from "./client.js";
 import { lamportsToSolString } from "./amounts.js";
-import { computeReleaseFeeSplit } from "./fees.js";
+import {
+  cannotFundNewAccount,
+  computeReleaseFeeSplit,
+} from "./fees.js";
 
 export type PayoutKind = "release" | "refund";
 
@@ -35,12 +39,16 @@ export type TransferResult =
       collaboratorFeeLamports?: bigint;
       feeWallet?: string;
       collaboratorWallet?: string;
+      /** 2.5% collab piegato su platform (wallet collab sotto rent / non creato). */
+      collaboratorFeeFoldedToPlatform?: boolean;
       alreadyDone?: boolean;
     }
   | { ok: false; error: string; errorCode?: string };
 
 const MAX_PAYOUT_ATTEMPTS = 3;
 const COMMITMENT: Commitment = "confirmed";
+/** Fallback se getMinimumBalanceForRentExemption fallisce (system account 0 byte). */
+const RENT_EXEMPT_FALLBACK = 890_880n;
 
 async function resolveFeeWalletPubkey(
   masterPubkey: PublicKey,
@@ -153,8 +161,22 @@ export async function payoutDealSol(
   let collaboratorFeeLamports: bigint | undefined;
   let feeWalletStr: string | undefined;
   let collabWalletStr: string | undefined;
+  let collaboratorFeeFoldedToPlatform = false;
 
   if (kind === "refund") {
+    const refundReceivable = await canReceiveSystemTransfer(
+      connection,
+      dest,
+      balance,
+    );
+    if (!refundReceivable.ok) {
+      return {
+        ok: false,
+        error:
+          "Wallet buyer non ancora attivo on-chain e importo sotto rent-exempt. Usa un wallet già finanziato o un importo maggiore, poi riprova.",
+        errorCode: "buyer_rent",
+      };
+    }
     instructions = [
       SystemProgram.transfer({
         fromPubkey: escrow.publicKey,
@@ -196,40 +218,99 @@ export async function payoutDealSol(
     feeWalletStr = feeDest.pubkey.toBase58();
     collabWalletStr = collabPk?.toBase58();
 
+    // Seller: se wallet nuovo e 95% < rent → fail chiaro (non pieghiamo il payout seller)
+    const sellerReceivable = await canReceiveSystemTransfer(
+      connection,
+      dest,
+      split.sellerLamports,
+    );
+    if (!sellerReceivable.ok) {
+      return {
+        ok: false,
+        error:
+          "Wallet seller non ancora attivo on-chain e importo sotto rent-exempt. Usa un wallet già finanziato o un importo maggiore, poi riprova.",
+        errorCode: "seller_rent",
+      };
+    }
+
+    if (collabPk && split.collaboratorLamports > 0n) {
+      const collabReceivable = await canReceiveSystemTransfer(
+        connection,
+        collabPk,
+        split.collaboratorLamports,
+      );
+      if (!collabReceivable.ok) {
+        // Soft-fail collab: piega 2.5% su platform così seller+fee escono
+        // (wallet collab mai finanziato / 2.5% < rent — caso KEYTEST)
+        console.warn(
+          `payoutDealSol #${dealId}: collab ${collabPk.toBase58()} non finanziabile ` +
+            `(${split.collaboratorLamports} < rent ${collabReceivable.rentExempt}); ` +
+            `piego 2.5% su platform ${feeDest.pubkey.toBase58()}`,
+        );
+        platformFeeLamports = split.feeTotalLamports;
+        collaboratorFeeLamports = 0n;
+        collaboratorFeeFoldedToPlatform = true;
+        collabPk = undefined;
+      }
+    }
+
+    let platformDestPk = feeDest.pubkey;
+    if (platformFeeLamports > 0n) {
+      const feeReceivable = await canReceiveSystemTransfer(
+        connection,
+        platformDestPk,
+        platformFeeLamports,
+      );
+      if (!feeReceivable.ok) {
+        if (!platformDestPk.equals(master.publicKey)) {
+          console.warn(
+            `payoutDealSol #${dealId}: FEE_WALLET sotto rent; fee → master ${master.publicKey.toBase58()}`,
+          );
+          platformDestPk = master.publicKey;
+          feeWalletStr = master.publicKey.toBase58();
+        } else {
+          return {
+            ok: false,
+            error:
+              "Wallet fee non finanziabile (sotto rent-exempt). Avvisa admin.",
+            errorCode: "fee_rent",
+          };
+        }
+      }
+    }
+
     instructions = [];
-    if (split.sellerLamports > 0n) {
+    if (sellerLamports > 0n) {
       instructions.push(
         SystemProgram.transfer({
           fromPubkey: escrow.publicKey,
           toPubkey: dest,
-          lamports: split.sellerLamports,
+          lamports: sellerLamports,
         }),
       );
     }
-    if (split.platformLamports > 0n) {
+    if (platformFeeLamports > 0n) {
       instructions.push(
         SystemProgram.transfer({
           fromPubkey: escrow.publicKey,
-          toPubkey: feeDest.pubkey,
-          lamports: split.platformLamports,
+          toPubkey: platformDestPk,
+          lamports: platformFeeLamports,
         }),
       );
     }
-    if (collabPk && split.collaboratorLamports > 0n) {
+    if (collabPk && collaboratorFeeLamports > 0n) {
       instructions.push(
         SystemProgram.transfer({
           fromPubkey: escrow.publicKey,
           toPubkey: collabPk,
-          lamports: split.collaboratorLamports,
+          lamports: collaboratorFeeLamports,
         }),
       );
     }
 
     // Safety: somma quote = balance (seller tiene il resto degli arrotondamenti)
     const accounted =
-      split.sellerLamports +
-      split.platformLamports +
-      split.collaboratorLamports;
+      sellerLamports + platformFeeLamports + collaboratorFeeLamports;
     if (accounted !== balance) {
       return {
         ok: false,
@@ -285,6 +366,8 @@ export async function payoutDealSol(
         collaboratorFeeLamports,
         feeWallet: feeWalletStr,
         collaboratorWallet: collabWalletStr,
+        collaboratorFeeFoldedToPlatform:
+          collaboratorFeeFoldedToPlatform || undefined,
       };
     } catch (err) {
       lastErr = err;
@@ -327,6 +410,43 @@ export async function getPlatformFeeWalletPubkey(): Promise<string | null> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * SystemProgram.transfer crea l'account destinazione solo se lamports ≥ rent-exempt.
+ * Account già esistenti accettano anche dust.
+ */
+async function canReceiveSystemTransfer(
+  connection: Connection,
+  pubkey: PublicKey,
+  lamports: bigint,
+): Promise<{ ok: true } | { ok: false; rentExempt: bigint }> {
+  if (lamports <= 0n) return { ok: true };
+  let rentExempt = RENT_EXEMPT_FALLBACK;
+  try {
+    rentExempt = BigInt(
+      await connection.getMinimumBalanceForRentExemption(0),
+    );
+  } catch (err) {
+    console.warn(
+      `getMinimumBalanceForRentExemption failed; using fallback ${RENT_EXEMPT_FALLBACK}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+  let exists = false;
+  try {
+    const info = await connection.getAccountInfo(pubkey, COMMITMENT);
+    exists = info != null;
+  } catch (err) {
+    console.warn(
+      `getAccountInfo(${pubkey.toBase58()}) failed; assuming missing:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+  if (cannotFundNewAccount(exists, lamports, rentExempt)) {
+    return { ok: false, rentExempt };
+  }
+  return { ok: true };
 }
 
 function errorBlob(err: unknown): string {
@@ -386,6 +506,18 @@ export function classifyPayoutError(err: unknown): {
       code: "expired",
       message:
         "Transazione scaduta prima della conferma. Riprova il rilascio.",
+    };
+  }
+  if (
+    lower.includes("insufficientfundsforrent") ||
+    lower.includes("insufficient funds for rent") ||
+    lower.includes("insufficient lamports for rent") ||
+    (lower.includes("rent") && lower.includes("exempt"))
+  ) {
+    return {
+      code: "rent",
+      message:
+        "Trasferimento sotto rent-exempt verso wallet non ancora attivo. Per inviti: finanzia il wallet collab (~0.001 SOL) o riprova dopo il fix fold-to-platform.",
     };
   }
   if (

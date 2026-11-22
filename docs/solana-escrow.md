@@ -137,7 +137,10 @@ Admin in Telegram (dopo deploy):
 |------|-------|
 | Release senza invito | 95% seller · **5%** → `FEE_WALLET_PUBKEY` |
 | Release con invito | 95% seller · **2.5%** → `FEE_WALLET_PUBKEY` · **2.5%** → wallet collaboratore |
+| Release + collab wallet **non attivo** / 2.5% **&lt; rent-exempt** | 95% seller · **5%** → `FEE_WALLET_PUBKEY` (2.5% collab *piegato* su admin; log + flag) |
 | Refund | 100% buyer · **0** fee servizio |
+
+**Rent gate:** `SystemProgram.transfer` verso un account inesistente richiede ≥ rent-exempt (~0.00065–0.00089 SOL). Deal piccoli con invito (es. KEYTEST) fallivano tutta la tx atomica; ora il collab soft-fail piega la quota su platform così il seller viene pagato.
 
 ### Creare un codice (admin)
 
