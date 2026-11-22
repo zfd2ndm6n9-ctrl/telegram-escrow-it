@@ -15,9 +15,14 @@ import {
 } from "../src/keyboards/menus.js";
 import { formatDealStatus, it } from "../src/messages/it.js";
 import {
+  canCancelDualConfirm,
+  canConfirmPendingVote,
+  canConfirmRefund,
   canConfirmSellerPay,
   canMarkShipped,
+  canSetWalletNow,
   canStartBuyerPay,
+  pendingVoterId,
 } from "../src/services/deal-logic.js";
 import type { Deal } from "../src/types.js";
 
@@ -187,14 +192,81 @@ const baseDeal = {
   assert.ok(!/2\.5%/.test(withCollab));
 }
 
-// Role gates: seller non avvia Paga; buyer non conferma rilascio
+// Role gates: seller non avvia Paga; buyer non conferma rilascio (party-only A3)
 {
   assert.equal(canStartBuyerPay(baseDeal, 10), true);
   assert.equal(canStartBuyerPay(baseDeal, 20), false);
+  assert.equal(canStartBuyerPay(baseDeal, 999), false); // terzo
   assert.equal(canConfirmSellerPay(baseDeal, 20), true);
   assert.equal(canConfirmSellerPay(baseDeal, 10), false);
+  assert.equal(canConfirmSellerPay(baseDeal, 999), false);
   assert.equal(canMarkShipped(baseDeal, 20), true);
   assert.equal(canMarkShipped(baseDeal, 10), false);
+}
+
+// Refund 1/2: buyer ha votato → solo seller conferma (bug Francesco / BET-88)
+{
+  const pendingRefund: Deal = {
+    ...baseDeal,
+    status: "refund_pending",
+    refundVotes: [10],
+  };
+  assert.equal(pendingVoterId(pendingRefund, pendingRefund.refundVotes), 20);
+  assert.equal(canConfirmRefund(pendingRefund, 20), true);
+  assert.equal(canConfirmRefund(pendingRefund, 10), false); // buyer NON conferma
+  assert.equal(canConfirmRefund(pendingRefund, 999), false);
+  assert.equal(
+    canConfirmPendingVote(pendingRefund, pendingRefund.refundVotes, 10),
+    false,
+  );
+}
+
+// Refund 1/2: seller ha avviato → solo buyer conferma
+{
+  const pendingRefund: Deal = {
+    ...baseDeal,
+    status: "refund_pending",
+    refundVotes: [20],
+  };
+  assert.equal(pendingVoterId(pendingRefund, pendingRefund.refundVotes), 10);
+  assert.equal(canConfirmRefund(pendingRefund, 10), true);
+  assert.equal(canConfirmRefund(pendingRefund, 20), false);
+}
+
+// Release 1/2: buyer votato → solo seller (mirror pay)
+{
+  const pendingRelease: Deal = {
+    ...baseDeal,
+    status: "release_pending",
+    releaseVotes: [10],
+  };
+  assert.equal(
+    canConfirmPendingVote(pendingRelease, pendingRelease.releaseVotes, 20),
+    true,
+  );
+  assert.equal(
+    canConfirmPendingVote(pendingRelease, pendingRelease.releaseVotes, 10),
+    false,
+  );
+  assert.equal(canConfirmSellerPay(pendingRelease, 10), false);
+  assert.equal(canConfirmSellerPay(pendingRelease, 20), true);
+}
+
+// Annulla 1/2: parti sì, terzo no
+{
+  assert.equal(canCancelDualConfirm(baseDeal, 10), true);
+  assert.equal(canCancelDualConfirm(baseDeal, 20), true);
+  assert.equal(canCancelDualConfirm(baseDeal, 999), false);
+}
+
+// Wallet turn: solo parte attesa
+{
+  const askSeller: Deal = { ...baseDeal, status: "awaiting_seller_wallet" };
+  assert.equal(canSetWalletNow(askSeller, 20), true);
+  assert.equal(canSetWalletNow(askSeller, 10), false);
+  const askBuyer: Deal = { ...baseDeal, status: "awaiting_buyer_wallet" };
+  assert.equal(canSetWalletNow(askBuyer, 10), true);
+  assert.equal(canSetWalletNow(askBuyer, 20), false);
 }
 
 // Card pinnata: Seller/Buyer bullets + Invito quando presente

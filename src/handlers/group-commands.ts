@@ -13,8 +13,12 @@ import {
 import {
   addUniqueVote,
   buyerHasReleaseVote,
+  canCancelDualConfirm,
+  canConfirmPendingVote,
+  canConfirmRefund,
   canConfirmSellerPay,
   canMarkShipped,
+  canSetWalletNow,
   canStartBuyerPay,
   isAdminUser,
   isParty,
@@ -477,18 +481,14 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     }
 
     // Wallet turn: qualunque testo da parte sbagliata / terzo → delete + remind.
+    // Party-only (no admin-as-other): allinea dual-confirm A3.
     if (
       deal.status === "awaiting_seller_wallet" ||
       deal.status === "awaiting_buyer_wallet"
     ) {
       const expected: "seller" | "buyer" =
         deal.status === "awaiting_seller_wallet" ? "seller" : "buyer";
-      const expectedId =
-        expected === "seller" ? deal.sellerId : deal.buyerId;
-      const isExpected =
-        expectedId != null &&
-        (ctx.from.id === expectedId || isAdminUser(ctx.from.id));
-      if (!isExpected) {
+      if (!canSetWalletNow(deal, ctx.from.id)) {
         await rejectWrongRole(ctx, deal, it.walletWrongTurn(deal, expected));
         return;
       }
@@ -540,12 +540,7 @@ async function setWallet(ctx: BotContext): Promise<void> {
     ) {
       const expected: "seller" | "buyer" =
         fresh.status === "awaiting_seller_wallet" ? "seller" : "buyer";
-      const expectedId =
-        expected === "seller" ? fresh.sellerId : fresh.buyerId;
-      const isExpected =
-        expectedId != null &&
-        (ctx.from.id === expectedId || isAdminUser(ctx.from.id));
-      if (!isExpected) {
+      if (!canSetWalletNow(fresh, ctx.from.id)) {
         await rejectWrongRole(ctx, fresh, it.walletWrongTurn(fresh, expected));
         return;
       }
@@ -1101,10 +1096,20 @@ async function handlePayOrRefund(
   }
   if (await rejectFrozenInDispute(ctx, deal)) return;
 
-  // Admin può proxy-are un voto di ruolo; il voto va attribuito alla parte, non all'admin.
+  // Fuori disputa: il clicker DEVE essere il voter (A3 — no admin proxy as other party).
   const voterId = opts?.asUserId ?? ctx.from.id;
+  if (voterId !== ctx.from.id) {
+    await rejectWrongRole(
+      ctx,
+      deal,
+      kind === "release"
+        ? it.onlyPendingConfirm(deal, "release")
+        : it.onlyPendingConfirm(deal, "refund"),
+    );
+    return;
+  }
 
-  if (!isParty(deal, voterId) && !isParty(deal, ctx.from.id)) {
+  if (!isParty(deal, voterId)) {
     await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
@@ -1245,9 +1250,9 @@ async function handlePayOrRefund(
     }
 
     // Secondo voto: solo la parte ancora in attesa (tag = chi può premere).
+    // Difesa in profondità: anche se il callback wrapper sbaglia.
     if (prevVotes.length === 1) {
-      const expectedId = pendingVoterId(latest, prevVotes);
-      if (expectedId != null && voterId !== expectedId) {
+      if (!canConfirmPendingVote(latest, prevVotes, voterId)) {
         await rejectWrongRole(ctx, latest, it.onlyPendingConfirm(latest, kind));
         return;
       }
@@ -1466,7 +1471,7 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
     }
     return;
   }
-  // Buyer-only (seller anche se admin → alert, mai avanzare).
+  // Buyer-only (seller anche se admin → alert, mai avanzare). Party-only A3.
   if (!canStartBuyerPay(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.buyerOnlyPay(deal));
     return;
@@ -1478,11 +1483,10 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
   await clearRoleError(ctx.api, ctx.store, deal);
   // Click accidentale non deve aprire il voto 1/2: prima conferma clicker.
   if (!buyerHasReleaseVote(deal)) {
-    await beginSelfConfirm(ctx, deal, "release", deal.buyerId);
+    await beginSelfConfirm(ctx, deal, "release", ctx.from.id);
     return;
   }
-  // Admin proxy (terzo): attribuisci il voto al buyer, non all'admin id.
-  await handlePayOrRefund(ctx, "release", { asUserId: deal.buyerId });
+  await handlePayOrRefund(ctx, "release", { asUserId: ctx.from.id });
 }
 
 /** Seller conferma il secondo voto di rilascio. */
@@ -1508,19 +1512,22 @@ async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
     await rejectWrongRole(ctx, deal, it.releaseNeedBuyerFirst(deal));
     return;
   }
-  // Seller-only (buyer anche se admin → alert).
+  // Seller-only (buyer anche se admin → alert). Party-only A3.
   if (!canConfirmSellerPay(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.onlyPendingConfirm(deal, "release"));
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
-  // Admin proxy (terzo): attribuisci il voto al seller.
-  await handlePayOrRefund(ctx, "release", { asUserId: deal.sellerId });
+  await handlePayOrRefund(ctx, "release", { asUserId: ctx.from.id });
 }
 
 /**
  * Avvio rimborso mutuale. Prima «Sei sicuro?» same-@, poi voto 1/2.
  * Admin in disputa forza payout. Terzi → alert.
+ *
+ * Happy: party → self-confirm → 1/2 → altra parte `confirm_refund`.
+ * Abuse: dopo 1/2, lo starter (anche admin) su Confermo → reject
+ * (`canConfirmRefund` / A3); niente `asUserId` dell'altra parte.
  */
 async function handleStartRefund(ctx: BotContext): Promise<void> {
   const deal = await requireGroupDeal(ctx);
@@ -1552,7 +1559,10 @@ async function handleStartRefund(ctx: BotContext): Promise<void> {
   await handlePayOrRefund(ctx, "refund", { asUserId: ctx.from.id });
 }
 
-/** Parte in attesa conferma il secondo voto di rimborso. */
+/**
+ * Parte in attesa conferma il secondo voto di rimborso.
+ * Party-only: buyer/seller-admin NON può castare il voto dell'altra parte (fix BET-88).
+ */
 async function handleConfirmRefund(ctx: BotContext): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
@@ -1563,10 +1573,11 @@ async function handleConfirmRefund(ctx: BotContext): Promise<void> {
     }
     return;
   }
+  if (await rejectFrozenInDispute(ctx, deal)) return;
   const expectedId = pendingVoterId(deal, deal.refundVotes);
   if (expectedId == null) {
-    await answerCbOk(ctx);
-    if (deal.refundVotes.includes(ctx.from.id) || isAdminUser(ctx.from.id)) {
+    if (deal.refundVotes.includes(ctx.from.id)) {
+      await answerCbOk(ctx);
       await replaceActionReply(
         ctx.api,
         ctx.store,
@@ -1574,20 +1585,23 @@ async function handleConfirmRefund(ctx: BotContext): Promise<void> {
         it.alreadyVoted(deal, "refund"),
         { parse_mode: "Markdown" },
       );
+      return;
     }
+    await rejectWrongRole(ctx, deal, it.onlyPendingConfirm(deal, "refund"));
     return;
   }
-  if (ctx.from.id !== expectedId && !isAdminUser(ctx.from.id)) {
+  // Critico: niente `isAdminUser` bypass — solo expectedId (canConfirmRefund).
+  if (!canConfirmRefund(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.onlyPendingConfirm(deal, "refund"));
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
-  await handlePayOrRefund(ctx, "refund", { asUserId: expectedId });
+  await handlePayOrRefund(ctx, "refund", { asUserId: ctx.from.id });
 }
 
 /**
  * Abort dual-confirm 1/2 (ultimo voto non ancora dato).
- * Solo parti (o admin): azzera voti → funded; ripristina CTA; Disputa resta sotto Altre info.
+ * Parti (o admin supporto): azzera voti → funded; ripristina CTA.
  */
 async function handleCancelDualConfirm(
   ctx: BotContext,
@@ -1603,7 +1617,7 @@ async function handleCancelDualConfirm(
     return;
   }
   if (await rejectFrozenInDispute(ctx, deal)) return;
-  if (!isParty(deal, ctx.from.id) && !isAdminUser(ctx.from.id)) {
+  if (!canCancelDualConfirm(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
