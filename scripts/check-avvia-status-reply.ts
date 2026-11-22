@@ -44,7 +44,7 @@ const direct = it.avviaAwaitingCounterpart(dealSeller);
 assert(direct.includes("2b5f532b"), "direct missing id");
 assert(direct.includes("Buyer"), "seller opener → ask Buyer");
 
-// Dedupe: first /avvia that just posted the living card → no second status.
+// Living card is the single identify-counterpart prompt — never stack status.
 assert(
   shouldSendAvviaAutoBindStatus("none", undefined, 42) === false,
   "first start with card must skip status",
@@ -53,19 +53,22 @@ assert(
   shouldSendAvviaAutoBindStatus("need_message", undefined, 99) === false,
   "need_message first start with card must skip status",
 );
-// Repeat /avvia (card already existed) → one status (clear prior wait prompt).
 assert(
-  shouldSendAvviaAutoBindStatus("none", 10, 10) === true,
-  "repeat /avvia must send status",
+  shouldSendAvviaAutoBindStatus("none", 10, 10) === false,
+  "repeat /avvia with living card must skip status",
 );
 assert(
-  shouldSendAvviaAutoBindStatus("need_message", 7, 7) === true,
-  "repeat need_message must send status",
+  shouldSendAvviaAutoBindStatus("need_message", 7, 7) === false,
+  "repeat need_message with living card must skip status",
 );
 // Card refresh failed → still send status (no silence).
 assert(
   shouldSendAvviaAutoBindStatus("none", undefined, undefined) === true,
   "missing card must send status",
+);
+assert(
+  shouldSendAvviaAutoBindStatus("need_message", 5, undefined) === true,
+  "lost card after prior id must send status",
 );
 // too_many always visible (different from card copy).
 assert(

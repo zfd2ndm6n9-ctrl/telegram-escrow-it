@@ -747,19 +747,21 @@ export function avviaAutoBindReply(
  * è già il prompt italiano «Buyer/Seller: entra…».
  *
  * - `too_many` → sempre inviare (messaggio diverso dalla card)
- * - primo avvio con card appena postata → skip (la card basta)
- * - /avvia ripetuto (card già presente) o card fallita → un solo status
- *   (sendTrackedPrompt cancella i wait prompt precedenti)
+ * - living card presente (primo o /avvia ripetuto) → skip status
+ * - card assente (post fallito) → un solo status (niente silenzio)
+ *
+ * `priorSetupMessageId` resta nel signature per smoke/call sites;
+ * la decisione dipende dalla card *dopo* startDealInGroup.
  */
 export function shouldSendAvviaAutoBindStatus(
   reason: AutoBindFailure,
-  priorSetupMessageId: number | undefined,
+  _priorSetupMessageId: number | undefined,
   afterSetupMessageId: number | undefined,
 ): boolean {
   if (reason === "too_many") return true;
-  const cardJustPosted =
-    priorSetupMessageId == null && afterSetupMessageId != null;
-  return !cardJustPosted;
+  // Card vivente = unico prompt «entra o scrivi»; non stackare «già avviato».
+  if (afterSetupMessageId != null) return false;
+  return true;
 }
 
 /**
@@ -859,9 +861,15 @@ export async function startDealInGroup(
       opts,
     );
     if (!bind.ok) {
-      const waiting =
+      let waiting =
         store.setStatus(bind.deal.id, "awaiting_counterpart") ?? bind.deal;
-      await refreshGroupSetupCard(api, store, waiting).catch(() => undefined);
+      // Deve propagare setupMessageId: altrimenti /avvia non vede la card
+      // e reinviava un secondo «entra o scrivi» (status reply).
+      try {
+        waiting = await refreshGroupSetupCard(api, store, waiting);
+      } catch {
+        waiting = store.get(waiting.id) ?? waiting;
+      }
       return {
         deal: waiting,
         started: false,

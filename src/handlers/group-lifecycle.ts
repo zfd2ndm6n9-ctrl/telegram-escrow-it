@@ -122,7 +122,7 @@ async function resumeAvviaAfterAdmin(
   }
 
   if (autoBind) {
-    // Card appena postata = un solo prompt; ripetuto → un status (clear prior).
+    // Card vivente = unico «entra o scrivi»; status solo se card manca / too_many.
     if (
       shouldSendAvviaAutoBindStatus(
         autoBind,
@@ -137,6 +137,9 @@ async function resumeAvviaAfterAdmin(
         autoBindReply(autoBind, started),
         { parse_mode: "Markdown" },
       );
+    } else {
+      // Togli eventuali status «già avviato» residui; lascia solo la card.
+      await clearBotPrompts(ctx.api, ctx.store, started);
     }
     return;
   }
@@ -428,8 +431,8 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       }
 
       if (autoBind) {
-        // Primo /avvia: living card basta. Ripetuto: un solo status
-        // (sendTrackedPrompt cancella wait prompt precedenti).
+        // Living card = unico identify-counterpart. Status solo se card
+        // assente o too_many (sendTrackedPrompt cancella wait precedenti).
         if (
           shouldSendAvviaAutoBindStatus(
             autoBind,
@@ -444,6 +447,9 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
             autoBindReply(autoBind, started),
             { parse_mode: "Markdown" },
           );
+        } else {
+          // Ripetuto / resume: niente secondo «entra o scrivi».
+          await clearBotPrompts(ctx.api, ctx.store, started);
         }
         return;
       }
