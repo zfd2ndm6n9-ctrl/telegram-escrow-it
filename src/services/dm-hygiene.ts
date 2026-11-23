@@ -39,9 +39,18 @@ export async function clearMieiUi(ctx: BotContext): Promise<void> {
   ctx.session.mieiListMessageId = undefined;
 }
 
+/** Cancella errori wizard termini DM tracciati in session. */
+export async function clearTermsErrorMessages(ctx: BotContext): Promise<void> {
+  if (!ctx.chat || ctx.chat.type !== "private") return;
+  for (const id of ctx.session.termsErrorMessageIds ?? []) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, id);
+  }
+  ctx.session.termsErrorMessageIds = undefined;
+}
+
 /**
  * Mid /crea (ruolo/crypto o wizard termini) prima del messaggio «aggiungi bot».
- * Dopo `dmGroupInstructionsMessageId` il deal è pronto: non cancellare.
+ * Dopo `dmGroupInstructionsMessageId` il deal è pronto: non cancellare (per /miei).
  */
 export function isMidCreaBeforeGroupBind(ctx: BotContext): boolean {
   if (ctx.session.creating) return true;
@@ -73,14 +82,72 @@ export async function cancelMidCreaBeforeGroupBind(
     }
   }
 
-  for (const id of ctx.session.termsErrorMessageIds ?? []) {
-    await deleteMessageSafe(ctx.api, ctx.chat.id, id);
-  }
-  ctx.session.termsErrorMessageIds = undefined;
-
+  await clearTermsErrorMessages(ctx);
   await dismissInviteStep(ctx);
   await clearCreatingEphemeral(ctx);
   ctx.session.creating = undefined;
   ctx.session.termsQa = undefined;
   return true;
+}
+
+/**
+ * Annulla una bozza unbound (niente groupChatId): termini + istruzioni DM.
+ */
+async function cancelUnboundDraft(
+  ctx: BotContext,
+  deal: NonNullable<ReturnType<BotContext["store"]["get"]>>,
+): Promise<void> {
+  if (!ctx.chat || ctx.chat.type !== "private") return;
+  if (deal.groupChatId != null) return;
+  if (deal.status === "cancelled" || deal.status === "released" || deal.status === "refunded") {
+    return;
+  }
+
+  if (deal.status === "awaiting_group" || deal.status === "awaiting_bot_admin") {
+    ctx.store.setStatus(deal.id, "cancelled");
+  }
+
+  await clearDmTermsUi(ctx.api, ctx.store, deal, ctx.chat.id);
+
+  const instructionsId = deal.dmGroupInstructionsMessageId;
+  if (instructionsId != null) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, instructionsId);
+    ctx.store.update(deal.id, {
+      dmGroupInstructionsMessageId: undefined,
+      awaitingGroupExpiresAt: undefined,
+    });
+  }
+}
+
+/**
+ * Nuovo /crea: pulisci /miei + qualsiasi bozza unbound del creator
+ * (mid-wizard *o* istruzioni «aggiungi bot» ancora senza gruppo).
+ * Evita stack e resume orfano via findOpenTermsDeal.
+ */
+export async function cancelLeftoverCreaForNewFlow(
+  ctx: BotContext,
+): Promise<void> {
+  if (ctx.chat?.type !== "private" || !ctx.from) return;
+
+  await clearMieiUi(ctx);
+  await cancelMidCreaBeforeGroupBind(ctx);
+
+  for (const deal of ctx.store.listForUser(ctx.from.id)) {
+    if (deal.creatorId !== ctx.from.id) continue;
+    if (deal.groupChatId != null) continue;
+    if (
+      deal.status !== "awaiting_group" &&
+      deal.status !== "awaiting_bot_admin"
+    ) {
+      continue;
+    }
+    await cancelUnboundDraft(ctx, deal);
+  }
+
+  await clearTermsErrorMessages(ctx);
+  await dismissInviteStep(ctx);
+  await clearCreatingEphemeral(ctx);
+  ctx.session.creating = undefined;
+  ctx.session.termsQa = undefined;
+  ctx.session.pendingCrea = undefined;
 }

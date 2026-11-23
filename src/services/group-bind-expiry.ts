@@ -2,6 +2,7 @@ import type { Api } from "grammy";
 import { mainMenuKeyboard } from "../keyboards/menus.js";
 import { it } from "../messages/it.js";
 import type { DealStore } from "../store/deals.js";
+import { clearDmTermsUi } from "./dm-terms.js";
 import { deleteMessageSafe } from "./prompt-cleanup.js";
 
 /** Tempo max tra istruzioni DM «aggiungi bot» e bind gruppo. */
@@ -30,6 +31,8 @@ export function startGroupBindExpiryWatcher(
     reason: string,
   ) => {
     const instructionsId = deal.dmGroupInstructionsMessageId;
+    // Cancella anche prompt/riepilogo termini DM (non solo istruzioni gruppo).
+    await clearDmTermsUi(api, store, deal, deal.creatorId);
     store.update(deal.id, {
       status: "cancelled",
       awaitingGroupExpiresAt: undefined,

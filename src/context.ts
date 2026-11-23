@@ -52,7 +52,7 @@ export interface SessionData {
   pendingInviteCode?: string;
   /** Deep-link `/start crea`: dopo iscrizione/vouch avvia /crea. */
   pendingCrea?: boolean;
-  /** Ultimo messaggio lista `/miei` (delete+repost, no stack). */
+  /** Ultimo messaggio lista `/miei` (edit-in-place; fallback delete+repost). */
   mieiListMessageId?: number;
   /** Echo utente `/miei` o «I miei deal» (cancellato al prossimo /miei). */
   mieiUserCommandMessageId?: number;
