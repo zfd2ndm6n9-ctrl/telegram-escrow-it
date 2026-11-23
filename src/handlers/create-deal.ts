@@ -36,8 +36,10 @@ import {
 } from "../services/solana/index.js";
 import { requireRegistered } from "../services/registration.js";
 import {
+  cancelLeftoverCreaForNewFlow,
+  cancelMidCreaBeforeGroupBind,
   clearCreatingEphemeral,
-  clearMieiUi,
+  clearTermsErrorMessages,
   trackCreatingEphemeral,
 } from "../services/dm-hygiene.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
@@ -51,7 +53,7 @@ import {
 } from "../services/invite-step.js";
 import type { Asset, Deal, PartyRole } from "../types.js";
 
-/** Pulsanti menu / wizard: non sono un codice invito. */
+/** Pulsanti menu / wizard: non sono un codice invito né risposta termini. */
 const MENU_TEXTS = new Set([
   "➕ Crea escrow",
   "📋 I miei deal",
@@ -62,6 +64,9 @@ const MENU_TEXTS = new Set([
   "ETH (presto)",
   "LTC (presto)",
 ]);
+
+/** Solo voci menu principali: lasciano passare i `hears` registrati dopo. */
+const MAIN_MENU_TEXTS = new Set(["➕ Crea escrow", "📋 I miei deal"]);
 
 function botCreatesGroupsEnabled(): boolean {
   return config.telegramBotCreatesGroups && groupCreatorReady();
@@ -105,16 +110,11 @@ export async function beginCreateDealFlow(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // Switching to crea: pulisci UI /miei + eventuali prompt invito stale
-  await dismissInviteStep(ctx);
-  await clearMieiUi(ctx);
-  await clearCreatingEphemeral(ctx);
+  // Switching to crea: /miei + bozze unbound + termini/istruzioni leftover
+  await cancelLeftoverCreaForNewFlow(ctx);
   if (ctx.message?.message_id != null) {
     await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
   }
-
-  ctx.session.termsQa = undefined;
-  ctx.session.pendingCrea = undefined;
 
   // Deep-link /start invito_CODE → applica silenzioso a questo deal, no re-ask
   const pending = ctx.session.pendingInviteCode;
@@ -204,29 +204,8 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
 
   bot.hears("❌ Annulla", async (ctx) => {
     if (ctx.chat?.type !== "private") return;
-    const termsQa = ctx.session.termsQa;
-    if (termsQa) {
-      const deal = ctx.store.get(termsQa.dealId);
-      if (deal && deal.status === "awaiting_group" && !deal.groupChatId) {
-        ctx.store.setStatus(deal.id, "cancelled");
-        await clearDmTermsUi(ctx.api, ctx.store, deal, ctx.chat.id);
-        if (deal.dmGroupInstructionsMessageId != null) {
-          await deleteMessageSafe(
-            ctx.api,
-            ctx.chat.id,
-            deal.dmGroupInstructionsMessageId,
-          );
-          ctx.store.update(deal.id, {
-            dmGroupInstructionsMessageId: undefined,
-            awaitingGroupExpiresAt: undefined,
-          });
-        }
-      }
-    }
-    await dismissInviteStep(ctx);
-    await clearCreatingEphemeral(ctx);
-    ctx.session.creating = undefined;
-    ctx.session.termsQa = undefined;
+    // Stesso cleanup di un nuovo /crea (bozza + termini + errori), poi menu.
+    await cancelLeftoverCreaForNewFlow(ctx);
     if (ctx.message?.message_id != null) {
       await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
     }
@@ -274,6 +253,18 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
+    // Menu principale: non mangiare come termini/ruolo — passa ai hears.
+    // (hears «Crea» è prima e di solito consuma; «I miei» è registrato dopo.)
+    if (MAIN_MENU_TEXTS.has(text)) {
+      if (text === "📋 I miei deal") {
+        await cancelMidCreaBeforeGroupBind(ctx);
+        ctx.session.creating = undefined;
+        await dismissInviteStep(ctx);
+      }
+      await next();
+      return;
+    }
+
     // Step invito di /crea: codice libero o menu → avanti / dismiss
     if (
       ctx.session.awaitingInviteCode &&
@@ -282,14 +273,8 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       ctx.members.isRegistered(ctx.from.id)
     ) {
       if (MENU_TEXTS.has(text)) {
-        // «Crea» di nuovo / «I miei» / ruolo: chiudi invito; lascia passare
+        // Annulla / ruolo / crypto: chiudi invito; lascia passare i hears
         await dismissInviteStep(ctx);
-        if (text === "➕ Crea escrow") {
-          // beginCreate via hears già in coda — reset creating
-          ctx.session.creating = undefined;
-        } else if (text === "📋 I miei deal") {
-          ctx.session.creating = undefined;
-        }
         await next();
         return;
       }
@@ -319,6 +304,12 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
 
       // Testo non-codice: cancella solo la risposta; tieni il prompt
       await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+      return;
+    }
+
+    // Wizard termini: non accettare etichette tastiera come «prodotto»
+    if (MENU_TEXTS.has(text) && (ctx.session.termsQa || ctx.session.creating)) {
+      await next();
       return;
     }
 
@@ -361,6 +352,9 @@ async function handlePrivateTermsReply(
   text: string,
 ): Promise<boolean> {
   if (!ctx.from || ctx.chat?.type !== "private") return false;
+
+  // Mid invite/role/asset: non riagganciare un deal termini orfano.
+  if (ctx.session.creating && !ctx.session.termsQa) return false;
 
   let dealId = ctx.session.termsQa?.dealId;
   let step = ctx.session.termsQa?.step;
@@ -436,10 +430,7 @@ async function handlePrivateTermsReply(
   }
 
   // Step valido: togli errori prezzo/corto precedenti.
-  for (const id of ctx.session.termsErrorMessageIds ?? []) {
-    await deleteMessageSafe(ctx.api, ctx.chat.id, id);
-  }
-  ctx.session.termsErrorMessageIds = undefined;
+  await clearTermsErrorMessages(ctx);
 
   if (!result.done && result.nextStep) {
     ctx.session.termsQa = { dealId, step: result.nextStep };
@@ -471,20 +462,14 @@ async function handlePrivateTermsReply(
 async function pickRole(ctx: BotContext, role: PartyRole): Promise<void> {
   if (ctx.chat?.type !== "private" || !ctx.from) return;
   const prev = ctx.session.creating;
-  if (!prev || prev.step !== "role") {
-    ctx.session.creating = {
-      step: "role",
-      inviteCode: prev?.inviteCode,
-      collaboratorUserId: prev?.collaboratorUserId,
-      collaboratorWallet: prev?.collaboratorWallet,
-    };
-  }
+  // Solo sul passo ruolo (niente skip invito / stale tap mid-termini).
+  if (!prev || prev.step !== "role") return;
   ctx.session.creating = {
     step: "asset",
     role,
-    inviteCode: ctx.session.creating?.inviteCode,
-    collaboratorUserId: ctx.session.creating?.collaboratorUserId,
-    collaboratorWallet: ctx.session.creating?.collaboratorWallet,
+    inviteCode: prev.inviteCode,
+    collaboratorUserId: prev.collaboratorUserId,
+    collaboratorWallet: prev.collaboratorWallet,
   };
   await replaceCreatingPrompt(ctx, () =>
     ctx.reply(it.askAsset, { reply_markup: assetKeyboard() }),

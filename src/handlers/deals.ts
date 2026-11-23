@@ -34,20 +34,15 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
     // Mid /crea prima di «aggiungi bot»: cancella sequenza e mostra /miei.
     await cancelMidCreaBeforeGroupBind(ctx);
 
-    // No stack: elimina echo /miei precedente + risposta bot precedente.
+    // Echo utente: cancella precedente + corrente (il bot list si edita in place).
     const prevUserId = ctx.session.mieiUserCommandMessageId;
     const prevBotId = ctx.session.mieiListMessageId;
     const thisUserId = ctx.message?.message_id;
     ctx.session.mieiUserCommandMessageId = undefined;
-    ctx.session.mieiListMessageId = undefined;
 
     if (prevUserId != null && prevUserId !== thisUserId) {
       await deleteMessageSafe(ctx.api, ctx.chat.id, prevUserId);
     }
-    if (prevBotId != null) {
-      await deleteMessageSafe(ctx.api, ctx.chat.id, prevBotId);
-    }
-    // Echo corrente (/miei o tastiera): cancella se possibile (come /crea).
     if (thisUserId != null) {
       await deleteMessageSafe(ctx.api, ctx.chat.id, thisUserId);
       // Se delete fallisce, il prossimo /miei ritenta via session.
@@ -57,9 +52,25 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
     // Solo conclusi (released / refunded): i deal aperti vivono nel gruppo.
     const deals = ctx.store.listConcludedForUser(ctx.from.id);
     const { text, parseMarkdown } = concludedListBody(deals);
+    const parse_mode = parseMarkdown ? ("Markdown" as const) : undefined;
+
+    // Edit-in-place: un comando → un messaggio (no stack).
+    if (prevBotId != null) {
+      try {
+        await ctx.api.editMessageText(ctx.chat.id, prevBotId, text, {
+          parse_mode,
+        });
+        ctx.session.mieiListMessageId = prevBotId;
+        return;
+      } catch {
+        // Messaggio assente / non editabile → elimina e ripubblica.
+        await deleteMessageSafe(ctx.api, ctx.chat.id, prevBotId);
+        ctx.session.mieiListMessageId = undefined;
+      }
+    }
 
     const msg = await ctx.reply(text, {
-      parse_mode: parseMarkdown ? "Markdown" : undefined,
+      parse_mode,
       reply_markup: mainMenuKeyboard(),
     });
     ctx.session.mieiListMessageId = msg.message_id;
