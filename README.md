@@ -98,14 +98,14 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 10. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; in disputa admin forza release/refund con `/payseller` o `/refundbuyer` (salta dual-confirm e review)
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato, solo deal *conclusi* `released`/`refunded`), `/invito CODICE`.  
-Admin: `/deal <id>` (DM: stato + ultimi log), `/log #dealId` (DM transcript completo), `/iscritti`, `/codice`, `/codici`, `/fee`, `/admin_wipe_deals` (DM: svuota `deals.json` + `deal-logs.json`; con saldi escrow richiede `FORCE`).
+Admin: `/deal <id>` (DM: fatti card + chat completa), `/log #dealId` (DM transcript), `/iscritti`, `/codice`, `/codici`, `/fee`, `/admin_wipe_deals` (DM: svuota `deals.json` + `deal-logs.json`; con saldi escrow richiede `FORCE`).
 
 ### Admin force + log dispute
 
 - **Force payout** (solo `ADMIN_TELEGRAM_IDS`, solo in `disputed`): `/payseller` / `/pay_seller` / `/release` → paga seller; `/refundbuyer` / `/refund_buyer` → rimborsa buyer. Salta dual-confirm e review. Fuori disputa: rifiuto corto (le parti usano i bottoni). Non-admin che digita comando o parola (`payseller` / `refundbuyer`) → messaggio cancellato, nessun effetto.
-- Mentre un deal è attivo, il bot **trattiene** ogni testo delle parti nel gruppo + eventi chiave (wallet, consegnato, disputa, payout, force). **Non** i prompt effimeri del bot. Persistenza in `DATA_DIR/deal-logs.json` *prima* delle delete igiene.
+- Mentre un deal è attivo, il bot **trattiene** ogni testo umano nel gruppo deal (chat libera buyer↔seller, non solo reply al bot) + eventi chiave (wallet, consegnato, disputa, payout, force). **Non** i prompt effimeri del bot. Persistenza in `DATA_DIR/deal-logs.json` *prima* delle delete igiene.
 - Quando l’igiene cancella un messaggio utente, resta la copia locale (`[del]` nel transcript).
-- **Solo admin** (DM): `/deal 250538a0` (stato + ultimi ~40 log) · `/log #250538a0` (transcript completo).
+- **Solo admin** (DM): `/deal 250538a0` (fatti card: prodotto/prezzo/condizioni/parti/SOL/invito/ToS + dump chat) · `/log #250538a0` (solo transcript).
 - Cap: max **200** voci/deal; retention **30 giorni** dall’ultimo aggiornamento del bucket.
 - Scopo: supporto dispute. Non è archivio completo né sostituto di processo legale. Niente UI `/admin` completa (fase 2).
 

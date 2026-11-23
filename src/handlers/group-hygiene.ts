@@ -3,6 +3,7 @@ import type { BotContext } from "../context.js";
 import { it } from "../messages/it.js";
 import {
   detectIdentityChange,
+  isAdminUser,
   isParty,
 } from "../services/deal-logic.js";
 import { findDealForGroupChat } from "../services/group-chat-remap.js";
@@ -81,7 +82,7 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
     await next();
   });
 
-  // Cambio identità + log testi parte (dispute / deleted-msg retention).
+  // Cambio identità + log testi umani (dispute / deleted-msg retention).
   bot.on("message:text", async (ctx, next) => {
     if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
       await next();
@@ -97,13 +98,10 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
       await next();
       return;
     }
-    if (!isParty(deal, ctx.from.id)) {
-      await next();
-      return;
-    }
 
-    // Retention: ogni testo parte (anche comandi) prima che igiene/handler
-    // cancellino — admin /deal e /log per giudicare dispute. Cap in store.
+    // Retention: ogni testo umano nel gruppo deal (chat libera buyer↔seller,
+    // comandi, non solo reply al bot) — prima che igiene/handler cancellino.
+    // Admin /deal e /log per giudicare dispute. Cap in store.
     if (
       deal.status !== "released" &&
       deal.status !== "refunded" &&
@@ -116,7 +114,9 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
             ? "buyer"
             : deal.sellerId === ctx.from.id
               ? "seller"
-              : "other";
+              : isAdminUser(ctx.from.id)
+                ? "admin"
+                : "other";
         ctx.dealLogs.appendUserMessage(deal.id, {
           text,
           fromId: ctx.from.id,
@@ -125,6 +125,12 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
           messageId: ctx.message?.message_id,
         });
       }
+    }
+
+    // Identity alerts solo per le parti assegnate.
+    if (!isParty(deal, ctx.from.id)) {
+      await next();
+      return;
     }
 
     const detected = detectIdentityChange(

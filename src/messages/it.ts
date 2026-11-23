@@ -849,16 +849,20 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     `Log deal #${dealId} (${n} voci)\n` +
     `_Messaggi parte + eventi. Cap dimensione/età. Solo supporto dispute._`,
 
-  /** Admin DM `/deal <id>`: stato + ultimi messaggi (anche [del]). */
+  /** Admin DM `/deal <id>`: fatti card + transcript chat (anche [del]). */
   dealAdminUsage:
     "Uso: `/deal 250538a0` (solo admin, in privato).",
 
   dealAdminUnknown: (dealId: string) =>
     `Deal #${dealId} non trovato nello store.`,
 
-  dealAdminHeader: (dealId: string, logN: number, shown: number) =>
-    `Deal #${dealId} — ultimi ${shown}/${logN} log` +
-    (logN > shown ? ` (completo: \`/log ${dealId}\`)` : ""),
+  dealAdminHeader: (dealId: string, logN: number) =>
+    `Deal #${dealId} — chat + eventi (${logN} voci)` +
+    (logN > 0 ? ` · anche \`/log ${dealId}\`` : ""),
+
+  dealAdminFactsTitle: "— Fatti deal (card) —",
+
+  dealAdminChatTitle: "— Chat parti + eventi —",
 
   /** Admin digita /payseller fuori disputa. */
   adminForceOnlyDisputed:
@@ -1083,7 +1087,7 @@ Gruppo: ${deal.groupChatId ?? "n/d"}
 ${link ? `Link one-time admin:\n${link}` : "Nessun link (bot senza permesso invita)."}
 
 In gruppo (disputa): \`/payseller\` o \`/refundbuyer\` → force on-chain.
-DM: \`/deal ${deal.id}\` stato + log (anche messaggi cancellati).`,
+DM: \`/deal ${deal.id}\` fatti card + chat (anche messaggi cancellati).`,
 
   /**
    * DM admin fallita: niente vicolo cieco — invite gruppo + deep-link /deal.
@@ -1173,5 +1177,64 @@ export function formatDealStatus(
   if (deal.payoutTxSig) {
     lines.push("• Hash: disponibile (bottone)");
   }
+  return lines.join("\n");
+}
+
+/**
+ * Admin `/deal` evidence pack: stessi fatti della card pinnata + stato ToS.
+ * Separato da `/stato` (che resta corto per le parti).
+ */
+export function formatDealEvidenceFacts(deal: Deal): string {
+  const seller = deal.sellerUsername
+    ? `@${deal.sellerUsername}`
+    : deal.sellerId
+      ? String(deal.sellerId)
+      : "—";
+  const buyer = deal.buyerUsername
+    ? `@${deal.buyerUsername}`
+    : deal.buyerId
+      ? String(deal.buyerId)
+      : "—";
+
+  const lines: string[] = [
+    `*#${deal.id}* — ${STATUS_LABELS[deal.status]}`,
+    `• Seller: ${seller}`,
+    `• Buyer: ${buyer}`,
+    formatTosBullets(deal),
+  ];
+
+  if (amountConfirmed(deal) || deal.amount) {
+    lines.push(`• Importo SOL: *${deal.amount} ${deal.asset}*`);
+  } else {
+    lines.push(`• Importo SOL: *—* (${deal.asset})`);
+  }
+
+  const invite = inviteBullet(deal);
+  if (invite) lines.push(invite);
+
+  if (tosAccepted(deal) && deal.tosAcceptedAt) {
+    const when = deal.tosAcceptedAt.slice(0, 19).replace("T", " ");
+    lines.push(`• ToS: *accettati* (${when} UTC)`);
+  } else if (deal.tosText || termsReadyForConfirm(deal)) {
+    lines.push("• ToS: *proposti, in attesa di accettazione*");
+  } else if (
+    deal.status === "awaiting_tos" ||
+    deal.status === "awaiting_tos_confirm"
+  ) {
+    lines.push("• ToS: *in compilazione*");
+  } else {
+    lines.push("• ToS: *non impostati*");
+  }
+
+  if (deal.sellerShippedAt) {
+    lines.push("• Consegna: segnata");
+  }
+  if (deal.status === "disputed") {
+    lines.push("• Disputa aperta");
+  }
+  if (deal.payoutTxSig) {
+    lines.push("• Hash: disponibile");
+  }
+
   return lines.join("\n");
 }
