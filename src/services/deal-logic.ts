@@ -121,6 +121,15 @@ export function isAdminUser(userId: number): boolean {
 }
 
 /**
+ * Force payout admin (`/payseller` / `/refundbuyer`): solo `ADMIN_TELEGRAM_IDS`
+ * e solo se il deal è in `disputed` (audit: force OK in disputa; dual-confirm
+ * resta il path normale fuori disputa).
+ */
+export function canAdminForcePayout(deal: Deal, userId: number): boolean {
+  return deal.status === "disputed" && isAdminUser(userId);
+}
+
+/**
  * Solo il seller può segnare «Consegnato».
  * Admin di supporto (terzo) sì; buyer anche se admin → no (mai avanzare).
  */

@@ -13,6 +13,7 @@ import {
 import {
   addUniqueVote,
   buyerHasReleaseVote,
+  canAdminForcePayout,
   canCancelDualConfirm,
   canConfirmPendingVote,
   canConfirmRefund,
@@ -85,6 +86,36 @@ export function parseWalletCommand(text: string): {
     matched: true,
     address: (m[1] ?? "").replace(/\s+/g, "").trim(),
   };
+}
+
+/**
+ * Comandi / parole admin force payout (solo `ADMIN_TELEGRAM_IDS`, in disputa).
+ * Slash: `/payseller` `/pay_seller` `/release` `/refundbuyer` `/refund_buyer`
+ * (+ `@bot`). Parole nude: `payseller` / `refundbuyer` (e underscore).
+ * Non matcha «release» nuda (troppo ambigua in chat).
+ */
+export function parseAdminForcePayoutText(
+  text: string,
+): { kind: "release" | "refund" } | null {
+  const t = text.trim();
+  const slash = t.match(
+    /^\/(pay_seller|payseller|release|refund_buyer|refundbuyer)(?:@[A-Za-z0-9_]+)?(?:\s|$)/i,
+  );
+  if (slash) {
+    const cmd = (slash[1] ?? "").toLowerCase();
+    if (cmd === "refund_buyer" || cmd === "refundbuyer") {
+      return { kind: "refund" };
+    }
+    return { kind: "release" };
+  }
+  const bare = t.toLowerCase().replace(/[!!.]+$/g, "");
+  if (bare === "payseller" || bare === "pay_seller") {
+    return { kind: "release" };
+  }
+  if (bare === "refundbuyer" || bare === "refund_buyer") {
+    return { kind: "refund" };
+  }
+  return null;
 }
 
 /**
@@ -260,13 +291,34 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     await showDealStatus(ctx, deal);
   });
 
-  // Alias silenti: non in UI; restano per admin/compat.
+  // Force payout admin-only (disputa). Non-admin → delete silenzioso.
+  // Dual-confirm resta su bottoni UI (buyer Paga / seller Confermo / Rimborsa).
   bot.command(["pay_seller", "payseller", "release"], async (ctx) => {
-    await handlePayOrRefund(ctx, "release");
+    await handleAdminForcePayout(ctx, "release");
   });
 
   bot.command(["refund_buyer", "refundbuyer"], async (ctx) => {
-    await handlePayOrRefund(ctx, "refund");
+    await handleAdminForcePayout(ctx, "refund");
+  });
+
+  // Parole nude (no slash): stesso gate admin; non-admin → delete, no effect.
+  bot.on("message:text", async (ctx, next) => {
+    if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
+      await next();
+      return;
+    }
+    const raw = ctx.message?.text?.trim() ?? "";
+    // Slash già gestiti da bot.command; qui solo parole nude.
+    if (raw.startsWith("/")) {
+      await next();
+      return;
+    }
+    const parsed = parseAdminForcePayoutText(raw);
+    if (!parsed) {
+      await next();
+      return;
+    }
+    await handleAdminForcePayout(ctx, parsed.kind);
   });
 
   bot.command("dispute", async (ctx) => {
@@ -1076,6 +1128,56 @@ async function runPayout(
   }
 }
 
+/**
+ * `/payseller` `/refundbuyer` (+ parole nude): solo ADMIN_TELEGRAM_IDS.
+ * In disputa → force on-chain (salta dual-confirm e review).
+ * Non-admin → cancella messaggio, nessun effetto / reply.
+ * Fuori disputa → admin riceve rifiuto corto (usa i bottoni dual-confirm).
+ */
+async function handleAdminForcePayout(
+  ctx: BotContext,
+  kind: "release" | "refund",
+): Promise<void> {
+  const deal = await requireGroupDeal(ctx);
+  if (!deal || !ctx.from) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: "Nessun deal" });
+    }
+    return;
+  }
+
+  const chatId = deal.groupChatId ?? ctx.chat?.id;
+  const msgId = ctx.message?.message_id;
+
+  if (!isAdminUser(ctx.from.id)) {
+    // Hygiene (prima in catena) già logga testi parte; qui marca [del] + delete.
+    if (chatId != null && msgId != null) {
+      ctx.dealLogs.markDeletedByBot(deal.id, msgId);
+      await deleteMessageSafe(ctx.api, chatId, msgId);
+    }
+    return;
+  }
+
+  // Admin: cancella il comando (igiene), poi force o rifiuto.
+  if (chatId != null && msgId != null) {
+    ctx.dealLogs.markDeletedByBot(deal.id, msgId);
+    await deleteMessageSafe(ctx.api, chatId, msgId);
+  }
+
+  if (!canAdminForcePayout(deal, ctx.from.id)) {
+    await replaceActionReply(ctx.api, ctx.store, deal, it.adminForceOnlyDisputed, {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  ctx.dealLogs.appendEvent(
+    deal.id,
+    `Admin force ${kind === "release" ? "payseller" : "refundbuyer"}`,
+  );
+  await runPayout(ctx, deal, kind);
+}
+
 async function handlePayOrRefund(
   ctx: BotContext,
   kind: "release" | "refund",
@@ -1091,6 +1193,8 @@ async function handlePayOrRefund(
     return;
   }
 
+  // Path legacy (callback / internal): admin in disputa → force.
+  // I comandi testo passano da handleAdminForcePayout (gate esplicito).
   if (deal.status === "disputed" && isAdminUser(ctx.from.id)) {
     await answerCbOk(ctx);
     await runPayout(ctx, deal, kind);

@@ -145,6 +145,8 @@ export class DealLogStore {
       username?: string;
       role?: DealLogEntry["role"];
       messageId?: number;
+      /** true se già cancellato (es. comando force non-admin). */
+      deletedByBot?: boolean;
     },
   ): void {
     const text = clampText(opts.text);
@@ -157,6 +159,7 @@ export class DealLogStore {
       username: opts.username,
       role: opts.role,
       messageId: opts.messageId,
+      deletedByBot: opts.deletedByBot === true ? true : undefined,
     });
   }
 
@@ -190,17 +193,25 @@ export class DealLogStore {
     }
   }
 
-  getEntries(dealId: string): DealLogEntry[] {
-    return [...(this.buckets.get(dealId)?.entries ?? [])];
+  getEntries(dealId: string, opts?: { limit?: number }): DealLogEntry[] {
+    const all = [...(this.buckets.get(dealId)?.entries ?? [])];
+    if (opts?.limit != null && opts.limit > 0 && all.length > opts.limit) {
+      return all.slice(-opts.limit);
+    }
+    return all;
   }
 
   /**
-   * Transcript per admin `/log`: messaggi parte + eventi chiave in ordine.
+   * Transcript per admin `/log` / `/deal`: messaggi parte + eventi chiave.
    * `[del]` = cancellato dal bot (igiene). Bot API non vede delete utente:
    * tratteniamo la copia locale al receive.
+   * `limit` → solo le ultime N voci (utile in `/deal`).
    */
-  formatTranscript(dealId: string): string | null {
-    const entries = this.getEntries(dealId);
+  formatTranscript(
+    dealId: string,
+    opts?: { limit?: number },
+  ): string | null {
+    const entries = this.getEntries(dealId, opts);
     if (entries.length === 0) return null;
 
     const lines: string[] = [];

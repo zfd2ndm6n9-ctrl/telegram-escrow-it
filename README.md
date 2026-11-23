@@ -93,20 +93,21 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 5. *ToS*: card con *Accetta* o *Proponi i ToS* (la controparte). Proponi → stesse 3 domande *nel gruppo* (igiene Q+A); si scambiano finché uno Accetta (lock €→SOL)
 6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
-8. Rilevamento automatico → seller *Consegnato* → buyer *Paga* (dual-confirm; alias silenti `/payseller` per admin). In parallelo: *Rimborsa buyer* (dual-confirm buyer+seller; anche pre-consegna da stato / ship ask)
+8. Rilevamento automatico → seller *Consegnato* → buyer *Paga* (dual-confirm). In parallelo: *Rimborsa buyer* (dual-confirm buyer+seller; anche pre-consegna da stato / ship ask)
 9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (solo Prezzo + review @; niente prodotto/condizioni) → «Grazie per la vostra valutazione.» → release on-chain (seller 95% + fee 5%) + Hash. Refund 2/2: payout immediato 100% → buyer (0 fee servizio), senza review; stato `refunded` / «rimborsato» in `/miei`. ~30 min dopo closed: tentativo `deleteChat` (se creator/admin con diritti), altrimenti leave + avviso corto (soft-fail).
-10. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; admin forza release/refund on-chain (salta review)
+10. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; in disputa admin forza release/refund con `/payseller` o `/refundbuyer` (salta dual-confirm e review)
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato, solo deal *conclusi* `released`/`refunded`), `/invito CODICE`.  
-Admin: `/log #dealId` (DM), `/iscritti`, `/codice`, `/codici`, `/fee`, `/admin_wipe_deals` (DM: svuota `deals.json` + `deal-logs.json`; con saldi escrow richiede `FORCE`).
+Admin: `/deal <id>` (DM: stato + ultimi log), `/log #dealId` (DM transcript completo), `/iscritti`, `/codice`, `/codici`, `/fee`, `/admin_wipe_deals` (DM: svuota `deals.json` + `deal-logs.json`; con saldi escrow richiede `FORCE`).
 
-### Log dispute (`/log`) — privacy
+### Admin force + log dispute
 
-- Mentre un deal è attivo, il bot **trattiene** i testi delle parti nel gruppo (user-to-user) + eventi chiave (wallet, consegnato, disputa, payout). **Non** i prompt effimeri del bot.
+- **Force payout** (solo `ADMIN_TELEGRAM_IDS`, solo in `disputed`): `/payseller` / `/pay_seller` / `/release` → paga seller; `/refundbuyer` / `/refund_buyer` → rimborsa buyer. Salta dual-confirm e review. Fuori disputa: rifiuto corto (le parti usano i bottoni). Non-admin che digita comando o parola (`payseller` / `refundbuyer`) → messaggio cancellato, nessun effetto.
+- Mentre un deal è attivo, il bot **trattiene** ogni testo delle parti nel gruppo + eventi chiave (wallet, consegnato, disputa, payout, force). **Non** i prompt effimeri del bot. Persistenza in `DATA_DIR/deal-logs.json` *prima* delle delete igiene.
 - Quando l’igiene cancella un messaggio utente, resta la copia locale (`[del]` nel transcript).
-- **Solo admin** (DM): `/log #250538a0` o `/log 250538a0`.
-- Cap: max **200** voci/deal; retention **30 giorni** dall’ultimo aggiornamento del bucket (`deal-logs.json` in `DATA_DIR`).
-- Scopo: supporto dispute se qualcuno cancella messaggi in chat. Non è archivio completo né sostituto di processo legale.
+- **Solo admin** (DM): `/deal 250538a0` (stato + ultimi ~40 log) · `/log #250538a0` (transcript completo).
+- Cap: max **200** voci/deal; retention **30 giorni** dall’ultimo aggiornamento del bucket.
+- Scopo: supporto dispute. Non è archivio completo né sostituto di processo legale. Niente UI `/admin` completa (fase 2).
 
 ### Branding gruppi
 
