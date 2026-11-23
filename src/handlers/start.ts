@@ -51,6 +51,15 @@ function parseStartCreaPayload(text: string | undefined): boolean {
   return payload === "crea" || payload === "create";
 }
 
+/** Payload `/start deal_HEX` — deep-link admin dopo disputa (DM fallita). */
+function parseStartDealPayload(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const parts = text.trim().split(/\s+/);
+  const payload = (parts[1] ?? "").trim();
+  const m = payload.match(/^deal[_-]?([a-fA-F0-9]{8})$/i);
+  return m ? m[1]!.toLowerCase() : undefined;
+}
+
 /** Payload `/start invito_CODE` o `invito CODE`. */
 function parseStartInvitePayload(text: string | undefined): string | undefined {
   if (!text) return undefined;
@@ -209,6 +218,47 @@ async function completeStart(ctx: BotContext): Promise<void> {
   );
 }
 
+/** DM admin: stato + ultimi log (condiviso da `/deal` e `/start deal_HEX`). */
+async function replyAdminDealDm(
+  ctx: BotContext,
+  dealId: string,
+): Promise<void> {
+  const deal = ctx.store.get(dealId);
+  if (!deal) {
+    await ctx.reply(it.dealAdminUnknown(dealId), { parse_mode: "Markdown" });
+    return;
+  }
+  ctx.dealLogs.pruneExpired();
+  const RECENT = 40;
+  const all = ctx.dealLogs.getEntries(dealId);
+  const recent = ctx.dealLogs.getEntries(dealId, { limit: RECENT });
+  const status = formatDealStatus(deal);
+  const header = it.dealAdminHeader(dealId, all.length, recent.length);
+  const transcript = ctx.dealLogs.formatTranscript(dealId, {
+    limit: RECENT,
+  });
+  const parts = [status, "", header];
+  if (transcript) {
+    parts.push("", transcript);
+  } else {
+    parts.push("", it.logEmpty(dealId));
+  }
+  const full = parts.join("\n");
+  if (full.length <= 3900) {
+    await ctx.reply(full, { parse_mode: "Markdown" });
+    return;
+  }
+  await ctx.reply(status, { parse_mode: "Markdown" });
+  await ctx.reply(header, { parse_mode: "Markdown" });
+  if (transcript) {
+    for (let i = 0; i < transcript.length; i += 3500) {
+      await ctx.reply(transcript.slice(i, i + 3500));
+    }
+  } else {
+    await ctx.reply(it.logEmpty(dealId), { parse_mode: "Markdown" });
+  }
+}
+
 export function registerStartHandlers(bot: Bot<BotContext>): void {
   bot.command("start", async (ctx) => {
     // /start in gruppo arriva spesso da startgroup=payload
@@ -217,6 +267,13 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     }
 
     if (!ctx.from) return;
+
+    // Deep-link disputa: admin apre chat col bot → stato deal subito.
+    const dealFromStart = parseStartDealPayload(ctx.message?.text);
+    if (dealFromStart && isAdminUser(ctx.from.id)) {
+      await replyAdminDealDm(ctx, dealFromStart);
+      return;
+    }
 
     if (parseStartCreaPayload(ctx.message?.text)) {
       ctx.session.pendingCrea = true;
@@ -337,7 +394,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
 
   /**
    * Admin DM fase 1: stato deal + ultimi log (anche [del]).
-   * Uso: /deal 250538a0 | /deal #250538a0
+   * Uso: /deal 250538a0 | /deal #250538a0 | deep-link /start deal_HEX
    * Niente centro /admin completo (fase 2).
    */
   bot.command("deal", async (ctx) => {
@@ -358,40 +415,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       await ctx.reply(it.dealAdminUsage, { parse_mode: "Markdown" });
       return;
     }
-    const deal = ctx.store.get(dealId);
-    if (!deal) {
-      await ctx.reply(it.dealAdminUnknown(dealId), { parse_mode: "Markdown" });
-      return;
-    }
-    ctx.dealLogs.pruneExpired();
-    const RECENT = 40;
-    const all = ctx.dealLogs.getEntries(dealId);
-    const recent = ctx.dealLogs.getEntries(dealId, { limit: RECENT });
-    const status = formatDealStatus(deal);
-    const header = it.dealAdminHeader(dealId, all.length, recent.length);
-    const transcript = ctx.dealLogs.formatTranscript(dealId, {
-      limit: RECENT,
-    });
-    const parts = [status, "", header];
-    if (transcript) {
-      parts.push("", transcript);
-    } else {
-      parts.push("", it.logEmpty(dealId));
-    }
-    const full = parts.join("\n");
-    if (full.length <= 3900) {
-      await ctx.reply(full, { parse_mode: "Markdown" });
-      return;
-    }
-    await ctx.reply(status, { parse_mode: "Markdown" });
-    await ctx.reply(header, { parse_mode: "Markdown" });
-    if (transcript) {
-      for (let i = 0; i < transcript.length; i += 3500) {
-        await ctx.reply(transcript.slice(i, i + 3500));
-      }
-    } else {
-      await ctx.reply(it.logEmpty(dealId), { parse_mode: "Markdown" });
-    }
+    await replyAdminDealDm(ctx, dealId);
   });
 
   /**

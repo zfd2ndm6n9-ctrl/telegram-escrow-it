@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
   altreInfoKeyboard,
   buyerAfterShipKeyboard,
+  disputeAdminFallbackKeyboard,
   groupActionsKeyboard,
   refundConfirmKeyboard,
   selfConfirmKeyboard,
@@ -174,14 +175,39 @@ const baseDeal = {
   assert.ok(!/Fee:/i.test(status), "fee solo in Altre info");
 }
 
-// Stato + riga deposito inclusa
+// Stato + riga deposito: In attesa (0) → Rilevato → Confermato
 {
+  assert.match(
+    it.depositStatusBullets("0", "0.1", false),
+    /• Deposito: \*In attesa\* — \*0\* \/ \*0\.1 SOL\*/,
+  );
+  assert.match(
+    it.depositStatusBullets("0.01", "0.1", false),
+    /• Deposito: \*Rilevato\* — \*0\.01\* \/ \*0\.1 SOL\*/,
+  );
+  assert.match(
+    it.depositStatusBullets("0.1", "0.1", true),
+    /• Deposito: \*Confermato\* \(\*0\.1 SOL\*\)/,
+  );
   const withDep = formatDealStatus(
     { ...baseDeal, status: "awaiting_deposit" },
-    { depositLine: it.depositStatusBullets("0.01", "0.1", false) },
+    {
+      depositLine: it.depositStatusBullets("0.01", "0.1", false),
+      depositPhase: "rilevato",
+    },
   );
-  assert.match(withDep, /• Deposito: \*0\.01\* \/ \*0\.1 SOL\*/);
+  assert.match(withDep, /— Rilevato/);
+  assert.ok(!/In attesa deposito/.test(withDep));
   assert.ok(!withDep.includes(baseDeal.escrowAddress));
+  const confirmed = formatDealStatus(
+    { ...baseDeal, status: "funded" },
+    {
+      depositLine: it.depositStatusBullets("0.1", "0.1", true),
+      depositPhase: "confermato",
+    },
+  );
+  assert.match(confirmed, /— Confermato/);
+  assert.ok(!/In attesa deposito/.test(confirmed));
 }
 
 // Altre info: include Stato (parti/importo/deposito) + fee 5%; niente split 2.5 / 95%
@@ -193,7 +219,7 @@ const baseDeal = {
   assert.match(info, /Fondato/);
   assert.match(info, /• Seller: @seller_y/);
   assert.match(info, /• Buyer: @buyer_x/);
-  assert.match(info, /• Deposito: ricevuto/);
+  assert.match(info, /• Deposito: \*Confermato\*/);
   assert.match(info, /• Fee: \*5%\*/);
   assert.match(info, /• Rimborso: senza fee/);
   assert.match(info, /• Supporto: \*Disputa\*/);
@@ -329,6 +355,24 @@ const baseDeal = {
   assert.match(ask.toLowerCase(), /disputa/);
   assert.equal(it.frozenInDispute, "In disputa.");
   assert.equal(it.wrongStatus("disputed"), "In disputa.");
+}
+
+// Admin DM fail: CTA invite + deep-link (niente vicolo cieco)
+{
+  const start = "https://t.me/ESCROWITAbot?start=deal_deadbeef";
+  const invite = "https://t.me/+invite";
+  const fail = it.disputeAdminDmFailed(baseDeal, invite, start);
+  assert.match(fail, /non riesco a scrivere/i);
+  assert.match(fail, /\/deal deadbeef/);
+  assert.ok(fail.includes(start));
+  assert.ok(fail.includes(invite));
+  const kb = disputeAdminFallbackKeyboard({
+    inviteLink: invite,
+    startLink: start,
+  });
+  const urls = kb.inline_keyboard.flat().map((b) => ("url" in b ? b.url : ""));
+  assert.ok(urls.includes(invite));
+  assert.ok(urls.includes(start));
 }
 
 // Dual-confirm 1/2: Confermo + Annulla (pay e refund)

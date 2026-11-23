@@ -80,6 +80,26 @@ function depositPrompt(deal: Deal): string {
 ⚠️ Controlla l'indirizzo *solo* nei messaggi di Escrowita in questo gruppo.`;
 }
 
+/** Fase deposito mostrata solo in Stato pre-deposito (non lo status store). */
+export type DepositPhase = "in_attesa" | "rilevato" | "confermato";
+
+const DEPOSIT_PHASE_LABELS: Record<DepositPhase, string> = {
+  in_attesa: "In attesa",
+  rilevato: "Rilevato",
+  confermato: "Confermato",
+};
+
+/** Deriva In attesa / Rilevato / Confermato da saldo vs target. */
+export function depositPhaseFromBalance(
+  balanceSol: string,
+  funded: boolean,
+): DepositPhase {
+  if (funded) return "confermato";
+  const bal = Number(balanceSol);
+  if (!Number.isFinite(bal) || bal <= 0) return "in_attesa";
+  return "rilevato";
+}
+
 export const it = {
   /** /start: iscrizione senza forzare @. */
   welcomeAskHandle:
@@ -728,15 +748,24 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
       ? `✅ #${deal.id} fondato: *${balanceSol} SOL*.`
       : `⏳ #${deal.id}: *${balanceSol}* / *${deal.amount} SOL* (target lockato)\n\`${deal.escrowAddress}\``,
 
-  /** Riga deposito per reply Stato (elenco puntato, senza tastiera Verifica). */
+  /**
+   * Riga deposito per reply Stato (pre-deposito):
+   * In attesa (0/amount) → Rilevato (parziale) → Confermato (matched).
+   */
   depositStatusBullets: (
     balanceSol: string,
     expectedSol: string,
     funded: boolean,
-  ) =>
-    funded
-      ? `• Deposito: ricevuto (*${balanceSol} SOL*)`
-      : `• Deposito: *${balanceSol}* / *${expectedSol} SOL*`,
+  ) => {
+    const phase = depositPhaseFromBalance(balanceSol, funded);
+    if (phase === "confermato") {
+      return `• Deposito: *Confermato* (*${balanceSol} SOL*)`;
+    }
+    if (phase === "in_attesa") {
+      return `• Deposito: *In attesa* — *0* / *${expectedSol} SOL*`;
+    }
+    return `• Deposito: *Rilevato* — *${balanceSol}* / *${expectedSol} SOL*`;
+  },
 
   markFundedAdmin: (deal: Deal) =>
     `💰 Admin: #${deal.id} forzato a *funded*.`,
@@ -1056,6 +1085,30 @@ ${link ? `Link one-time admin:\n${link}` : "Nessun link (bot senza permesso invi
 In gruppo (disputa): \`/payseller\` o \`/refundbuyer\` → force on-chain.
 DM: \`/deal ${deal.id}\` stato + log (anche messaggi cancellati).`,
 
+  /**
+   * DM admin fallita: niente vicolo cieco — invite gruppo + deep-link /deal.
+   */
+  disputeAdminDmFailed: (
+    deal: Deal,
+    inviteLink?: string,
+    startLink?: string,
+  ) => {
+    const lines = [
+      `Disputa aperta (#${deal.id}) ma non riesco a scrivere all'admin in privato.`,
+      "",
+      startLink
+        ? `Admin: apri il bot → ${startLink}`
+        : `Admin: apri il bot in privato, poi \`/deal ${deal.id}\`.`,
+      `Poi in DM: \`/deal ${deal.id}\`.`,
+    ];
+    if (inviteLink) {
+      lines.push(`Entra nel gruppo: ${inviteLink}`);
+    } else {
+      lines.push("Entra nel gruppo del deal (invite admin) e risolvi lì.");
+    }
+    return lines.join("\n");
+  },
+
   adminMissing:
     "Disputa registrata, ma nessun admin configurato (`ADMIN_TELEGRAM_ID` / `ADMIN_TELEGRAM_IDS`).",
 
@@ -1076,11 +1129,12 @@ export function statusLabel(status: Deal["status"]): string {
  * /stato e callback: elenco puntato italiano chiaro.
  * Niente fee (sta in Altre info), niente indirizzo escrow; invito solo sulla card.
  * Opzionale: riga deposito da verifica inclusa nella stessa reply.
+ * Pre-deposito: `depositPhase` sostituisce «In attesa deposito» con In attesa/Rilevato/Confermato.
  * La reply Stato porta solo ← Indietro (niente tastiera azioni).
  */
 export function formatDealStatus(
   deal: Deal,
-  opts?: { depositLine?: string },
+  opts?: { depositLine?: string; depositPhase?: DepositPhase },
 ): string {
   const seller = deal.sellerUsername
     ? `@${deal.sellerUsername}`
@@ -1092,8 +1146,17 @@ export function formatDealStatus(
     : deal.buyerId
       ? String(deal.buyerId)
       : "—";
+  // Dopo funded non riusare mai la fase «In attesa» (evita Stato stantio).
+  const phase =
+    opts?.depositPhase &&
+    (deal.status === "awaiting_deposit" || opts.depositPhase === "confermato")
+      ? opts.depositPhase
+      : undefined;
+  const statusText = phase
+    ? DEPOSIT_PHASE_LABELS[phase]
+    : STATUS_LABELS[deal.status];
   const lines = [
-    `*#${deal.id}* — ${STATUS_LABELS[deal.status]}`,
+    `*#${deal.id}* — ${statusText}`,
     amountLine(deal),
     `• Seller: ${seller}`,
     `• Buyer: ${buyer}`,
