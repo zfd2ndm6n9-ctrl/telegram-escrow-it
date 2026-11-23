@@ -22,6 +22,7 @@ import {
   canMarkShipped,
   canSetWalletNow,
   canStartBuyerPay,
+  canStartRefund,
   pendingVoterId,
 } from "../src/services/deal-logic.js";
 import type { Deal } from "../src/types.js";
@@ -68,14 +69,16 @@ const baseDeal = {
   assert.deepEqual(callbacksOf(altreInfoKeyboard()), ["ui_back"]);
 }
 
-// Buyer after ship: Disputa + Altre info sulla CTA primaria
+// Buyer after ship: Paga / rimborso / Disputa / Altre info (altre_info = stato+fee)
 {
   const cbs = callbacksOf(buyerAfterShipKeyboard(baseDeal));
   assert.ok(cbs.includes("buyer_pay"));
   assert.ok(cbs.includes("refund_buyer"));
-  assert.ok(cbs.includes("buyer_info"));
+  assert.ok(cbs.includes("altre_info"));
   assert.ok(cbs.includes("dispute"));
+  assert.ok(!cbs.includes("buyer_info"), "buyer_info legacy; UI usa altre_info");
   assert.ok(!cbs.includes("buyer_dispute"));
+  assert.ok(!cbs.includes("stato"), "post-consegna: Stato in Altre info");
 }
 
 // awaiting_deposit: Disputa + Altre info + Stato; niente Verifica / Indirizzo
@@ -93,6 +96,15 @@ const baseDeal = {
   assert.ok(labels.includes("ℹ️ Altre info"));
   assert.ok(labels.includes("📄 Stato"));
   assert.ok(!labels.includes("📫 Indirizzo escrow"));
+}
+
+// funded: rimborso + Altre info; niente Stato standalone (contenuto in Altre info)
+{
+  const cbs = callbacksOf(groupActionsKeyboard("funded", baseDeal));
+  assert.ok(cbs.includes("refund_buyer"));
+  assert.ok(cbs.includes("altre_info"));
+  assert.ok(cbs.includes("dispute"));
+  assert.ok(!cbs.includes("stato"), "post-deposito: Stato assorbito in Altre info");
 }
 
 // disputed: stato + annulla — niente addr/paga/rimborsa/verifica/consegnato
@@ -172,17 +184,22 @@ const baseDeal = {
   assert.ok(!withDep.includes(baseDeal.escrowAddress));
 }
 
-// Altre info: fee 5% puntato, niente split 2.5 / seller 95%, niente status
+// Altre info: include Stato (parti/importo/deposito) + fee 5%; niente split 2.5 / 95%
 {
-  const info = it.altreInfoMenu(baseDeal);
+  const info = it.altreInfoMenu(baseDeal, {
+    depositLine: it.depositStatusBullets("0.1", "0.1", true),
+  });
+  assert.match(info, /#deadbeef/);
+  assert.match(info, /Fondato/);
+  assert.match(info, /• Seller: @seller_y/);
+  assert.match(info, /• Buyer: @buyer_x/);
+  assert.match(info, /• Deposito: ricevuto/);
   assert.match(info, /• Fee: \*5%\*/);
   assert.match(info, /• Rimborso: senza fee/);
   assert.match(info, /• Supporto: \*Disputa\*/);
   assert.ok(!/2\.5%/.test(info));
   assert.ok(!/95%/.test(info));
-  assert.ok(!/Seller:/.test(info));
-  assert.ok(!/Buyer:/.test(info));
-  assert.ok(!/Fondato|deposito/i.test(info));
+  assert.ok(!info.includes(baseDeal.escrowAddress));
 
   const withCollab = it.altreInfoMenu({
     ...baseDeal,
@@ -192,19 +209,32 @@ const baseDeal = {
   assert.ok(!/2\.5%/.test(withCollab));
 }
 
-// Role gates: seller non avvia Paga; buyer non conferma rilascio (party-only A3)
+// Vouch gate copy: «Sono entrato» (bottone + body), mai «Ho entrato»
+{
+  assert.match(it.needVouchJoin("https://t.me/+x"), /Sono entrato/);
+  assert.match(it.vouchStillOut("https://t.me/+x"), /Sono entrato/);
+  assert.ok(!/Ho entrato/.test(it.needVouchJoin("https://t.me/+x")));
+  assert.ok(!/Ho entrato/.test(it.vouchStillOut("https://t.me/+x")));
+}
+
+// Role gates: seller non avvia Paga/rimborso; buyer non conferma rilascio (party-only A3)
 {
   assert.equal(canStartBuyerPay(baseDeal, 10), true);
   assert.equal(canStartBuyerPay(baseDeal, 20), false);
   assert.equal(canStartBuyerPay(baseDeal, 999), false); // terzo
+  assert.equal(canStartRefund(baseDeal, 10), true);
+  assert.equal(canStartRefund(baseDeal, 20), false); // seller NON avvia rimborso
+  assert.equal(canStartRefund(baseDeal, 999), false);
   assert.equal(canConfirmSellerPay(baseDeal, 20), true);
   assert.equal(canConfirmSellerPay(baseDeal, 10), false);
   assert.equal(canConfirmSellerPay(baseDeal, 999), false);
   assert.equal(canMarkShipped(baseDeal, 20), true);
   assert.equal(canMarkShipped(baseDeal, 10), false);
+  assert.match(it.buyerOnlyRefund(baseDeal), /Solo @buyer\\_x/);
+  assert.match(it.buyerOnlyRefund(baseDeal), /Disputa|Altre info/);
 }
 
-// Refund 1/2: buyer ha votato → solo seller conferma (bug Francesco / BET-88)
+// Refund 1/2: buyer ha votato → solo seller conferma (2° voto OK)
 {
   const pendingRefund: Deal = {
     ...baseDeal,
@@ -221,8 +251,9 @@ const baseDeal = {
   );
 }
 
-// Refund 1/2: seller ha avviato → solo buyer conferma
+// Abuse: seller non può essere first voter (canStartRefund false); se legacy vote seller → buyer conferma
 {
+  assert.equal(canStartRefund(baseDeal, 20), false);
   const pendingRefund: Deal = {
     ...baseDeal,
     status: "refund_pending",

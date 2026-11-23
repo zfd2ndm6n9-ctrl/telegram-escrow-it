@@ -23,8 +23,8 @@
 1. `SOLANA_PRIVATE_KEY` = master hot wallet (base58 o JSON array)
 2. Per deal `id`: `HMAC-SHA256(masterSecret, "telegram-escrow-it:deal:"+id)` → 32 byte seed → keypair
 3. Buyer invia SOL a quell’indirizzo
-4. Watcher (~20s) o `/depositato` / «Stato» (verifica inclusa) → `funded` se saldo ≥ **importo SOL lockato** (mai FX live)
-5. Dual-confirm paga-seller (UX buyer-first; alias silenti `/pay_seller` / `/payseller`) / **Rimborsa buyer** in UI (dual-confirm; alias `/refund_buyer`; o admin in disputa)
+4. Watcher (~20s) o `/depositato` / «Stato» o «Altre info» (verifica deposito inclusa) → `funded` se saldo ≥ **importo SOL lockato** (mai FX live). Post-deposito: «Altre info» unisce stato + fee (niente Stato standalone).
+5. Dual-confirm paga-seller (UX buyer-first; alias silenti `/pay_seller` / `/payseller`) / **Chiedi il rimborso** solo buyer (dual-confirm; seller conferma 2° voto; alias `/refund_buyer`; o admin in disputa)
 6. Dopo 2/2 **release** (non refund): review breve seller → buyer → post su `VOUCH_CHANNEL_ID` (solo Prezzo + review; no prodotto/condizioni) → «Grazie per la vostra valutazione.» → payout + Hash. Admin in disputa / refund saltano le review. ~30 min dopo closed: cleanup gruppo (deleteChat se permesso, altrimenti leave)
 7. **Release:** una tx atomica — **95%** → seller, **5%** fee piattaforma. Se il deal ha invito collaboratore: **2.5%** → master/`FEE_WALLET_PUBKEY`, **2.5%** → wallet collaboratore. **Refund:** 100% → buyer (nessuna fee servizio, nessuna review)
 8. **Fee di rete** pagate dalla **master** (`feePayer`): ricarica la master con poco SOL (es. 0.05)
