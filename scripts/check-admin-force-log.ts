@@ -1,16 +1,17 @@
 /**
- * Smoke: admin force payout gates + deal-log retention + /deal parsers.
+ * Smoke: admin force payout gates + deal-log retention + /deal evidence pack.
  * npm exec tsx scripts/check-admin-force-log.ts
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { parseAdminForcePayoutText } from "../src/handlers/group-commands.js";
 import {
   canAdminForcePayout,
   isAdminUser,
 } from "../src/services/deal-logic.js";
+import { formatDealEvidenceFacts } from "../src/messages/it.js";
 import { DealLogStore } from "../src/store/deal-logs.js";
 import type { Deal } from "../src/types.js";
 
@@ -133,9 +134,99 @@ const base: Deal = {
     assert.ok(body);
     assert.match(body!, /\[del\]/);
     assert.match(body!, /Admin force/);
+
+    // Free chat (non-command) is retained like commands — evidence for /deal dump.
+    logs.appendUserMessage(id, {
+      text: "ok ti mando il file stasera",
+      fromId: SELLER,
+      username: "seller_y",
+      role: "seller",
+      messageId: 103,
+    });
+    const full = logs.formatTranscript(id);
+    assert.match(full!, /ok ti mando il file stasera/);
+    assert.match(full!, /ciao seller/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// ——— formatDealEvidenceFacts: card fields + ToS state ———
+{
+  const withTos: Deal = {
+    ...base,
+    tosProduct: "Account Netflix 1 mese",
+    priceEur: "12,50",
+    tosConditions: "Consegna entro 1h via DM",
+    tosText: "• Prodotto/servizio: Account Netflix 1 mese\n• Prezzo: 12,50 €\n• Condizioni: Consegna entro 1h via DM",
+    tosAcceptedAt: "2026-11-23T15:00:00.000Z",
+    amountConfirmedAt: "2026-11-23T15:00:01.000Z",
+    inviteCode: "SOFT1",
+    status: "disputed",
+  };
+  const facts = formatDealEvidenceFacts(withTos);
+  assert.match(facts, /Account Netflix/);
+  assert.match(facts, /12,50/);
+  assert.match(facts, /Consegna entro 1h/);
+  assert.match(facts, /Importo SOL: \*0\.1 SOL\*/);
+  assert.match(facts, /Invito: \*SOFT1\*/);
+  assert.match(facts, /ToS: \*accettati\*/);
+  assert.match(facts, /Disputa aperta/);
+
+  const pending: Deal = {
+    ...base,
+    tosProduct: "X",
+    priceEur: "5",
+    tosConditions: "Y",
+    tosText: "t",
+    status: "awaiting_tos_confirm",
+    amount: "",
+  };
+  const pendingFacts = formatDealEvidenceFacts(pending);
+  assert.match(pendingFacts, /ToS: \*proposti, in attesa/);
+  assert.match(pendingFacts, /Importo SOL: \*—\*/);
+}
+
+// ——— /deal dumps full chat (no 40-cap) + hygiene logs all humans ———
+{
+  const root = resolve(import.meta.dirname, "..");
+  const startSrc = readFileSync(resolve(root, "src/handlers/start.ts"), "utf8");
+  assert.match(
+    startSrc,
+    /formatDealEvidenceFacts/,
+    "/deal uses evidence facts",
+  );
+  assert.doesNotMatch(
+    startSrc,
+    /limit:\s*RECENT|const RECENT\s*=\s*40/,
+    "/deal no longer caps transcript at 40",
+  );
+  assert.match(
+    startSrc,
+    /formatTranscript\(dealId\)/,
+    "/deal dumps full transcript",
+  );
+
+  const hygieneSrc = readFileSync(
+    resolve(root, "src/handlers/group-hygiene.ts"),
+    "utf8",
+  );
+  assert.match(
+    hygieneSrc,
+    /appendUserMessage/,
+    "hygiene retains human texts",
+  );
+  // Must not gate logging on isParty — free chat + pre-assign humans count.
+  const logBlock = hygieneSrc.slice(
+    hygieneSrc.indexOf("Retention:"),
+    hygieneSrc.indexOf("Identity alerts"),
+  );
+  assert.doesNotMatch(
+    logBlock,
+    /isParty\(deal/,
+    "logging not gated on isParty",
+  );
+  assert.match(logBlock, /isAdminUser/, "admin texts get admin role");
 }
 
 console.log("check-admin-force-log: ok");

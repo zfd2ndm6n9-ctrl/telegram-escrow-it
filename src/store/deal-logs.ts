@@ -202,10 +202,11 @@ export class DealLogStore {
   }
 
   /**
-   * Transcript per admin `/log` / `/deal`: messaggi parte + eventi chiave.
+   * Transcript per admin `/log` / `/deal`: messaggi umani + eventi chiave.
+   * Include chat libera buyer↔seller (non solo reply al bot).
    * `[del]` = cancellato dal bot (igiene). Bot API non vede delete utente:
    * tratteniamo la copia locale al receive.
-   * `limit` → solo le ultime N voci (utile in `/deal`).
+   * `limit` → solo le ultime N voci.
    */
   formatTranscript(
     dealId: string,

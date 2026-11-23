@@ -2,7 +2,7 @@ import type { Bot } from "grammy";
 import { PublicKey } from "@solana/web3.js";
 import type { BotContext } from "../context.js";
 import { isAdminUser } from "../services/deal-logic.js";
-import { formatDealStatus, it } from "../messages/it.js";
+import { formatDealEvidenceFacts, it } from "../messages/it.js";
 import { mainMenuKeyboard } from "../keyboards/menus.js";
 import { publishIscrittiCount } from "../services/public-count.js";
 import { registerHandleFromMessage } from "../services/registration.js";
@@ -218,7 +218,7 @@ async function completeStart(ctx: BotContext): Promise<void> {
   );
 }
 
-/** DM admin: stato + ultimi log (condiviso da `/deal` e `/start deal_HEX`). */
+/** DM admin: fatti card + transcript completo (condiviso da `/deal` e `/start deal_HEX`). */
 async function replyAdminDealDm(
   ctx: BotContext,
   dealId: string,
@@ -229,28 +229,22 @@ async function replyAdminDealDm(
     return;
   }
   ctx.dealLogs.pruneExpired();
-  const RECENT = 40;
   const all = ctx.dealLogs.getEntries(dealId);
-  const recent = ctx.dealLogs.getEntries(dealId, { limit: RECENT });
-  const status = formatDealStatus(deal);
-  const header = it.dealAdminHeader(dealId, all.length, recent.length);
-  const transcript = ctx.dealLogs.formatTranscript(dealId, {
-    limit: RECENT,
-  });
-  const parts = [status, "", header];
-  if (transcript) {
-    parts.push("", transcript);
-  } else {
-    parts.push("", it.logEmpty(dealId));
-  }
-  const full = parts.join("\n");
+  const facts = formatDealEvidenceFacts(deal);
+  const header = it.dealAdminHeader(dealId, all.length);
+  const transcript = ctx.dealLogs.formatTranscript(dealId);
+  const chatBlock = transcript
+    ? `${it.dealAdminChatTitle}\n${transcript}`
+    : it.logEmpty(dealId);
+  const head = `${it.dealAdminFactsTitle}\n${facts}\n\n${header}`;
+  const full = `${head}\n\n${chatBlock}`;
   if (full.length <= 3900) {
     await ctx.reply(full, { parse_mode: "Markdown" });
     return;
   }
-  await ctx.reply(status, { parse_mode: "Markdown" });
-  await ctx.reply(header, { parse_mode: "Markdown" });
+  await ctx.reply(head, { parse_mode: "Markdown" });
   if (transcript) {
+    await ctx.reply(it.dealAdminChatTitle, { parse_mode: "Markdown" });
     for (let i = 0; i < transcript.length; i += 3500) {
       await ctx.reply(transcript.slice(i, i + 3500));
     }
@@ -393,7 +387,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
   });
 
   /**
-   * Admin DM fase 1: stato deal + ultimi log (anche [del]).
+   * Admin DM: evidence pack — fatti card (ToS/parti/SOL/invito) + chat completa.
    * Uso: /deal 250538a0 | /deal #250538a0 | deep-link /start deal_HEX
    * Niente centro /admin completo (fase 2).
    */
