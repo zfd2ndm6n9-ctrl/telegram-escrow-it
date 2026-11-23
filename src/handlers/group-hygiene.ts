@@ -102,15 +102,15 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Retention: testi user-to-user mentre il deal non è chiuso.
-    // Skip comandi bot; cap in DealLogStore. Prompt effimeri bot non qui.
+    // Retention: ogni testo parte (anche comandi) prima che igiene/handler
+    // cancellino — admin /deal e /log per giudicare dispute. Cap in store.
     if (
       deal.status !== "released" &&
       deal.status !== "refunded" &&
       deal.status !== "cancelled"
     ) {
       const text = ctx.message?.text?.trim() ?? "";
-      if (text && !text.startsWith("/")) {
+      if (text) {
         const role =
           deal.buyerId === ctx.from.id
             ? "buyer"

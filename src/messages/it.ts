@@ -817,8 +817,23 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     `Nessun log trattenuto per #${dealId}.`,
 
   logHeader: (dealId: string, n: number) =>
-    `📋 Log deal #${dealId} (${n} voci)\n` +
-    `_Messaggi parte + eventi chiave. Cap dimensione/età. Solo supporto dispute._`,
+    `Log deal #${dealId} (${n} voci)\n` +
+    `_Messaggi parte + eventi. Cap dimensione/età. Solo supporto dispute._`,
+
+  /** Admin DM `/deal <id>`: stato + ultimi messaggi (anche [del]). */
+  dealAdminUsage:
+    "Uso: `/deal 250538a0` (solo admin, in privato).",
+
+  dealAdminUnknown: (dealId: string) =>
+    `Deal #${dealId} non trovato nello store.`,
+
+  dealAdminHeader: (dealId: string, logN: number, shown: number) =>
+    `Deal #${dealId} — ultimi ${shown}/${logN} log` +
+    (logN > shown ? ` (completo: \`/log ${dealId}\`)` : ""),
+
+  /** Admin digita /payseller fuori disputa. */
+  adminForceOnlyDisputed:
+    "Force payout solo in *disputa*. Fuori: dual-confirm delle parti.",
 
   /**
    * Rilascio: importi in €, @handles, fee «admin», senza tx link.
@@ -1038,7 +1053,8 @@ Stato: ${deal.status}
 Gruppo: ${deal.groupChatId ?? "n/d"}
 ${link ? `Link one-time admin:\n${link}` : "Nessun link (bot senza permesso invita)."}
 
-In gruppo: comandi admin silenti di payout (potere admin in disputa).`,
+In gruppo (disputa): \`/payseller\` o \`/refundbuyer\` → force on-chain.
+DM: \`/deal ${deal.id}\` stato + log (anche messaggi cancellati).`,
 
   adminMissing:
     "Disputa registrata, ma nessun admin configurato (`ADMIN_TELEGRAM_ID` / `ADMIN_TELEGRAM_IDS`).",

@@ -2,7 +2,7 @@ import type { Bot } from "grammy";
 import { PublicKey } from "@solana/web3.js";
 import type { BotContext } from "../context.js";
 import { isAdminUser } from "../services/deal-logic.js";
-import { it } from "../messages/it.js";
+import { formatDealStatus, it } from "../messages/it.js";
 import { mainMenuKeyboard } from "../keyboards/menus.js";
 import { publishIscrittiCount } from "../services/public-count.js";
 import { registerHandleFromMessage } from "../services/registration.js";
@@ -332,6 +332,65 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     await ctx.reply(header, { parse_mode: "Markdown" });
     for (let i = 0; i < body.length; i += 3500) {
       await ctx.reply(body.slice(i, i + 3500));
+    }
+  });
+
+  /**
+   * Admin DM fase 1: stato deal + ultimi log (anche [del]).
+   * Uso: /deal 250538a0 | /deal #250538a0
+   * Niente centro /admin completo (fase 2).
+   */
+  bot.command("deal", async (ctx) => {
+    if (!ctx.from || !isAdminUser(ctx.from.id)) {
+      await ctx.reply(it.adminOnly);
+      return;
+    }
+    if (ctx.chat?.type !== "private") {
+      await ctx.reply("Usa `/deal` in privato col bot.", {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+    const raw = (ctx.message?.text ?? "").trim();
+    const m = raw.match(/^\/deal(?:@\w+)?\s+#?([a-fA-F0-9]{8})\b/);
+    const dealId = (m?.[1] ?? "").toLowerCase();
+    if (!dealId) {
+      await ctx.reply(it.dealAdminUsage, { parse_mode: "Markdown" });
+      return;
+    }
+    const deal = ctx.store.get(dealId);
+    if (!deal) {
+      await ctx.reply(it.dealAdminUnknown(dealId), { parse_mode: "Markdown" });
+      return;
+    }
+    ctx.dealLogs.pruneExpired();
+    const RECENT = 40;
+    const all = ctx.dealLogs.getEntries(dealId);
+    const recent = ctx.dealLogs.getEntries(dealId, { limit: RECENT });
+    const status = formatDealStatus(deal);
+    const header = it.dealAdminHeader(dealId, all.length, recent.length);
+    const transcript = ctx.dealLogs.formatTranscript(dealId, {
+      limit: RECENT,
+    });
+    const parts = [status, "", header];
+    if (transcript) {
+      parts.push("", transcript);
+    } else {
+      parts.push("", it.logEmpty(dealId));
+    }
+    const full = parts.join("\n");
+    if (full.length <= 3900) {
+      await ctx.reply(full, { parse_mode: "Markdown" });
+      return;
+    }
+    await ctx.reply(status, { parse_mode: "Markdown" });
+    await ctx.reply(header, { parse_mode: "Markdown" });
+    if (transcript) {
+      for (let i = 0; i < transcript.length; i += 3500) {
+        await ctx.reply(transcript.slice(i, i + 3500));
+      }
+    } else {
+      await ctx.reply(it.logEmpty(dealId), { parse_mode: "Markdown" });
     }
   });
 

@@ -24,7 +24,7 @@
 2. Per deal `id`: `HMAC-SHA256(masterSecret, "telegram-escrow-it:deal:"+id)` → 32 byte seed → keypair
 3. Buyer invia SOL a quell’indirizzo
 4. Watcher (~20s) o `/depositato` / «Stato» o «Altre info» (verifica deposito inclusa) → `funded` se saldo ≥ **importo SOL lockato** (mai FX live). Post-deposito: «Altre info» unisce stato + fee (niente Stato standalone).
-5. Dual-confirm paga-seller (UX buyer-first; alias silenti `/pay_seller` / `/payseller`) / **Chiedi il rimborso** solo buyer (dual-confirm; seller conferma 2° voto; alias `/refund_buyer`; o admin in disputa)
+5. Dual-confirm paga-seller (UX buyer-first) / **Chiedi il rimborso** solo buyer (dual-confirm; seller conferma 2° voto; admin force solo in disputa via `/payseller` / `/refundbuyer`)
 6. Dopo 2/2 **release** (non refund): review breve seller → buyer → post su `VOUCH_CHANNEL_ID` (solo Prezzo + review; no prodotto/condizioni) → «Grazie per la vostra valutazione.» → payout + Hash. Admin in disputa / refund saltano le review. ~30 min dopo closed: cleanup gruppo (deleteChat se permesso, altrimenti leave)
 7. **Release:** una tx atomica — **95%** → seller, **5%** fee piattaforma. Se il deal ha invito collaboratore: **2.5%** → master/`FEE_WALLET_PUBKEY`, **2.5%** → wallet collaboratore. **Refund:** 100% → buyer (nessuna fee servizio, nessuna review)
 8. **Fee di rete** pagate dalla **master** (`feePayer`): ricarica la master con poco SOL (es. 0.05)
@@ -54,7 +54,7 @@ Sul **Web Service** (o Background Worker) che esegue il bot — Environment:
 | `FEE_WALLET_PUBKEY` | **sì in prod** | Destinazione fee piattaforma (5% release senza invito). **Render:** `FEE_WALLET_PUBKEY=57fv8agNAjcsaLgodeNDjexTo5azsJpjLyMigaZnfVNP`. Se assente = master pubkey |
 | `SOLANA_RPC_URL` | consigliato | Es. Helius/QuickNode; default pubblico ok per test |
 | `SOLANA_WATCH_INTERVAL_MS` | no | Default `20000` |
-| `ADMIN_TELEGRAM_ID` | sì per dispute / `/log` / codici | Tuo user id Telegram |
+| `ADMIN_TELEGRAM_ID` / `ADMIN_TELEGRAM_IDS` | sì per dispute / force / `/deal` `/log` / codici | User id Telegram admin |
 | `ADMIN_TELEGRAM_IDS` | no | Lista admin csv (oltre al singolo) |
 | `PUBLIC_BASE_URL` | sì in prod | Host HTTPS → Mini App `/tos` (o `RENDER_EXTERNAL_URL`) |
 | `TOS_URL` | no | Override URL Mini App (default `${PUBLIC_BASE_URL}/tos`) |
@@ -88,7 +88,7 @@ All’avvio i log Render stampano:
 4. Gruppo + bot admin + `/avvia` → controparte Confermo → ToS creatore + Accetto → wallet seller poi buyer
 5. Invia `0.01 SOL` a `/indirizzo`
 6. Attendi “Deposito rilevato” (o apri «Stato» per la verifica)
-7. Entrambi `/pay_seller` → signature su [Solscan](https://solscan.io)
+7. Dual-confirm paga-seller (bottoni) → signature su [Solscan](https://solscan.io)
 8. Prova anche `/refund_buyer` su un secondo micro-deal
 
 ## Persistenza deal (Render)
@@ -159,10 +159,17 @@ Persistenza: `DATA_DIR/invites.json`.
 
 ## Admin
 
-- In disputa: `/pay_seller` o `/refund_buyer` forza payout on-chain
-- Emergenza: `/depositato force` (solo `ADMIN_TELEGRAM_ID`) marca `funded` senza saldo (non crea SOL)
+- **Force payout (fase 1):** solo `ADMIN_TELEGRAM_ID(S)`, solo se `status === disputed`.
+  - Gruppo: `/payseller` / `/pay_seller` / `/release` → release on-chain (salta dual-confirm + review)
+  - Gruppo: `/refundbuyer` / `/refund_buyer` → refund on-chain
+  - Parole nude `payseller` / `refundbuyer` idem
+  - Non-admin: messaggio cancellato, nessun effetto
+  - Fuori disputa: rifiuto corto — dual-confirm resta il path delle parti (audit: force OK in disputa)
+- DM: `/deal <hex8>` → stato + ultimi log (anche `[del]`); `/log #id` → transcript completo
+- Emergenza: `/depositato force` (solo admin) marca `funded` senza saldo (non crea SOL)
 - `/ripristina` · `/admin_payout` — recovery orfani (solo admin)
 - `/codice` · `/codici` · `/fee` — inviti e fee summary
+- Niente centro `/admin` UI (fase 2)
 
 ## Fuori scope (dopo)
 
