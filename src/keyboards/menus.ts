@@ -124,6 +124,21 @@ export function uiBackKeyboard(): InlineKeyboard {
 }
 
 /**
+ * Fallback disputa se DM admin fallisce: invite gruppo + deep-link bot (`/start deal_ID`).
+ */
+export function disputeAdminFallbackKeyboard(opts: {
+  inviteLink?: string;
+  startLink: string;
+}): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  if (opts.inviteLink) {
+    kb.url("Entra nel gruppo", opts.inviteLink).row();
+  }
+  kb.url("Apri bot + deal", opts.startLink);
+  return kb;
+}
+
+/**
  * Sotto Altre info: solo Indietro (Disputa è sulla tastiera principale).
  */
 export function altreInfoKeyboard(): InlineKeyboard {

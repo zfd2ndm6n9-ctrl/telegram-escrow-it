@@ -1,8 +1,13 @@
 import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { config } from "../config.js";
-import { formatDealStatus, it } from "../messages/it.js";
 import {
+  depositPhaseFromBalance,
+  formatDealStatus,
+  it,
+} from "../messages/it.js";
+import {
+  disputeAdminFallbackKeyboard,
   groupActionsKeyboard,
   payoutHashKeyboard,
   refundConfirmKeyboard,
@@ -468,7 +473,10 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     await handleSelfConfirmBack(ctx);
   });
 
-  /** Chiude schermata click (Stato / Altre info / hash): torna ai CTA stage. */
+  /**
+   * Chiude schermata click (Stato / Altre info / hash): torna ai CTA stage.
+   * In disputa i CTA vivono sull'effimero (stage prompt cancellati) → ripristina.
+   */
   bot.callbackQuery("ui_back", async (ctx) => {
     const deal = await requireGroupDeal(ctx);
     if (!deal || !ctx.from) {
@@ -483,6 +491,13 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       return;
     }
     await answerCbOk(ctx);
+    if (deal.status === "disputed") {
+      await replaceActionReply(ctx.api, ctx.store, deal, it.disputeOpened(deal), {
+        parse_mode: "Markdown",
+        reply_markup: groupActionsKeyboard(deal.status, deal),
+      });
+      return;
+    }
     await clearEphemeralReplies(ctx.api, ctx.store, deal);
   });
 
@@ -761,12 +776,14 @@ async function applyWallet(
 
 /**
  * Stato: elenco puntato + verifica deposito inclusa (niente bottone Verifica).
+ * Pre-deposito: In attesa (0/amt) → Rilevato → Confermato; poi cleanup → card DEPOSITO CONFERMATO.
  * Se il check fonda il deal → ship ask (come ex Verifica deposito).
  * Altrimenti reply con ← Indietro (igiene: niente tastiera azioni duplicate).
  */
 async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
   let current = deal;
   let depositLine: string | undefined;
+  let depositPhase: ReturnType<typeof depositPhaseFromBalance> | undefined;
 
   if (
     (current.status === "awaiting_deposit" || current.status === "funded") &&
@@ -784,12 +801,34 @@ async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
         result.expectedSol,
         result.funded,
       );
-      // Appena fondato da questa verifica → passa a consegna (chiude UI deposito).
+      // Progressione solo in Stato pre-deposito (niente «In attesa deposito» stantio).
+      if (wasAwaiting || current.status === "awaiting_deposit") {
+        depositPhase = depositPhaseFromBalance(
+          result.balanceSol,
+          result.funded,
+        );
+      }
+      // Appena fondato: mostra Confermato, poi pulisce effimeri → card DEPOSITO CONFERMATO + ship.
       if (wasAwaiting && result.funded && current.status === "funded") {
+        await replaceStatusMessage(
+          ctx.api,
+          ctx.store,
+          current,
+          formatDealStatus(current, {
+            depositLine,
+            depositPhase: "confermato",
+          }),
+          {
+            parse_mode: "Markdown",
+            reply_markup: uiBackKeyboard(),
+          },
+        );
         if (!current.sellerShippedAt) {
           await postShipAsk(ctx.api, ctx.store, current);
           return;
         }
+        await postBuyerAfterShip(ctx.api, ctx.store, current);
+        return;
       }
     }
   }
@@ -798,7 +837,7 @@ async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
     ctx.api,
     ctx.store,
     current,
-    formatDealStatus(current, { depositLine }),
+    formatDealStatus(current, { depositLine, depositPhase }),
     {
       parse_mode: "Markdown",
       reply_markup: uiBackKeyboard(),
@@ -2187,8 +2226,17 @@ async function executeDisputeOpen(
     }
   }
   if (!anyOk) {
+    const botUser = (config.botUsername ?? "ESCROWITAbot").replace(/^@/, "");
+    const startLink = `https://t.me/${botUser}?start=deal_${updated.id}`;
     await ctx.reply(
-      "Disputa aperta ma non riesco a scrivere all'admin in privato (deve aver avviato il bot).",
+      it.disputeAdminDmFailed(updated, adminLink, startLink),
+      {
+        reply_markup: disputeAdminFallbackKeyboard({
+          inviteLink: adminLink,
+          startLink,
+        }),
+        link_preview_options: { is_disabled: true },
+      },
     );
   }
 }
