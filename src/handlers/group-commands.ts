@@ -20,6 +20,7 @@ import {
   canMarkShipped,
   canSetWalletNow,
   canStartBuyerPay,
+  canStartRefund,
   isAdminUser,
   isParty,
   isPreDepositSetup,
@@ -352,8 +353,9 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
     await handleBuyerPay(ctx);
   });
 
+  // Legacy: buyer_info era «chiedi info al seller»; ora = Altre info (stato + fee).
   bot.callbackQuery("buyer_info", async (ctx) => {
-    await handleBuyerMoreInfo(ctx);
+    await handleAltreInfo(ctx);
   });
 
   bot.callbackQuery("altre_info", async (ctx) => {
@@ -1249,6 +1251,17 @@ async function handlePayOrRefund(
       return;
     }
 
+    // Refund: solo buyer avvia (seller non «Chiedi il rimborso»).
+    // Seller conferma solo come 2° voto dopo che il buyer ha iniziato.
+    if (
+      kind === "refund" &&
+      prevVotes.length === 0 &&
+      !canStartRefund(latest, voterId)
+    ) {
+      await rejectWrongRole(ctx, latest, it.buyerOnlyRefund(latest));
+      return;
+    }
+
     // Secondo voto: solo la parte ancora in attesa (tag = chi può premere).
     // Difesa in profondità: anche se il callback wrapper sbaglia.
     if (prevVotes.length === 1) {
@@ -1523,10 +1536,11 @@ async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
 
 /**
  * Avvio rimborso mutuale. Prima «Sei sicuro?» same-@, poi voto 1/2.
- * Admin in disputa forza payout. Terzi → alert.
+ * Solo il buyer può avviare; seller conferma solo il 2° voto.
+ * Admin in disputa forza payout. Terzi / seller-start → alert.
  *
- * Happy: party → self-confirm → 1/2 → altra parte `confirm_refund`.
- * Abuse: dopo 1/2, lo starter (anche admin) su Confermo → reject
+ * Happy: buyer → self-confirm → 1/2 → seller `confirm_refund`.
+ * Abuse: seller apre rimborso → reject; dopo 1/2, buyer su Confermo → reject
  * (`canConfirmRefund` / A3); niente `asUserId` dell'altra parte.
  */
 async function handleStartRefund(ctx: BotContext): Promise<void> {
@@ -1545,17 +1559,22 @@ async function handleStartRefund(ctx: BotContext): Promise<void> {
     return;
   }
   if (await rejectFrozenInDispute(ctx, deal)) return;
-  // Solo buyer/seller avviano i voti; terzi → alert, nessuno stato.
+  // Solo buyer/seller partiti; terzi → alert, nessuno stato.
   if (!isParty(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
-  await clearRoleError(ctx.api, ctx.store, deal);
-  // Nessun voto ancora → conferma clicker prima di aprire 1/2.
+  // Nessun voto ancora → solo buyer può aprire self-confirm / 1/2.
   if (deal.refundVotes.length === 0) {
+    if (!canStartRefund(deal, ctx.from.id)) {
+      await rejectWrongRole(ctx, deal, it.buyerOnlyRefund(deal));
+      return;
+    }
+    await clearRoleError(ctx.api, ctx.store, deal);
     await beginSelfConfirm(ctx, deal, "refund", ctx.from.id);
     return;
   }
+  await clearRoleError(ctx.api, ctx.store, deal);
   await handlePayOrRefund(ctx, "refund", { asUserId: ctx.from.id });
 }
 
@@ -1658,34 +1677,10 @@ async function handleCancelDualConfirm(
   }
 }
 
-async function handleBuyerMoreInfo(ctx: BotContext): Promise<void> {
-  const deal = await requireGroupDeal(ctx);
-  if (!deal || !ctx.from) {
-    if (ctx.callbackQuery) {
-      await ctx.answerCallbackQuery({ text: "Nessun deal" });
-    } else {
-      await ctx.reply(it.noDealInGroup);
-    }
-    return;
-  }
-  if (await rejectFrozenInDispute(ctx, deal)) return;
-  // Buyer-only (seller anche se admin → alert).
-  if (!canStartBuyerPay(deal, ctx.from.id)) {
-    await rejectWrongRole(ctx, deal, it.buyerOnlyPay(deal));
-    return;
-  }
-  await answerCbOk(ctx);
-  // Avvisa seller (Disputa è sulla tastiera principale).
-  await replaceActionReply(
-    ctx.api,
-    ctx.store,
-    deal,
-    it.askSellerMoreInfo(deal),
-    { parse_mode: "Markdown", reply_markup: uiBackKeyboard() },
-  );
-}
-
-/** Fee / supporto; Disputa è sulla tastiera principale. */
+/**
+ * Altre info: stato deal (importo, parti, deposito, …) + fee/supporto.
+ * Post-deposito sostituisce lo Stato standalone. ← Indietro resta.
+ */
 async function handleAltreInfo(ctx: BotContext): Promise<void> {
   const deal = await requireGroupDeal(ctx);
   if (!deal || !ctx.from) {
@@ -1707,11 +1702,50 @@ async function handleAltreInfo(ctx: BotContext): Promise<void> {
     });
     return;
   }
+
+  let current = deal;
+  let depositLine: string | undefined;
+
+  if (
+    (current.status === "awaiting_deposit" || current.status === "funded") &&
+    current.escrowAddress
+  ) {
+    const wasAwaiting = current.status === "awaiting_deposit";
+    const result = await checkDealDeposit(ctx.store, current.id);
+    current = ctx.store.get(current.id) ?? current;
+
+    if (!result.ok) {
+      depositLine = "• Deposito: verifica non riuscita";
+    } else {
+      depositLine = it.depositStatusBullets(
+        result.balanceSol,
+        result.expectedSol,
+        result.funded,
+      );
+      // Appena fondato da questa verifica → passa a consegna (come Stato).
+      if (wasAwaiting && result.funded && current.status === "funded") {
+        await answerCbOk(ctx);
+        if (!current.sellerShippedAt) {
+          await postShipAsk(ctx.api, ctx.store, current);
+          return;
+        }
+        await postBuyerAfterShip(ctx.api, ctx.store, current);
+        return;
+      }
+    }
+  }
+
   await answerCbOk(ctx);
-  await replaceActionReply(ctx.api, ctx.store, deal, it.altreInfoMenu(deal), {
-    parse_mode: "Markdown",
-    reply_markup: uiBackKeyboard(),
-  });
+  await replaceActionReply(
+    ctx.api,
+    ctx.store,
+    current,
+    it.altreInfoMenu(current, { depositLine }),
+    {
+      parse_mode: "Markdown",
+      reply_markup: uiBackKeyboard(),
+    },
+  );
 }
 
 async function handleShowHash(ctx: BotContext): Promise<void> {

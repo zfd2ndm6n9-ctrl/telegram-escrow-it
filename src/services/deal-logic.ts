@@ -143,6 +143,16 @@ export function canStartBuyerPay(deal: Deal, userId: number): boolean {
 }
 
 /**
+ * Solo il buyer avvia «Chiedi il rimborso» / self-confirm refund.
+ * Seller non può aprire il rimborso (solo Disputa / Altre info);
+ * può confermare il 2° voto se il buyer ha già avviato (`canConfirmRefund`).
+ * Party-only: niente proxy admin (A3).
+ */
+export function canStartRefund(deal: Deal, userId: number): boolean {
+  return deal.buyerId != null && userId === deal.buyerId;
+}
+
+/**
  * Solo il seller conferma il 2/2 rilascio («Confermo»).
  * Party-only: buyer anche se admin → false (A3).
  */

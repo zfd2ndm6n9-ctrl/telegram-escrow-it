@@ -19,6 +19,7 @@ import {
   canMarkShipped,
   canSetWalletNow,
   canStartBuyerPay,
+  canStartRefund,
   isParty,
   pendingVoterId,
 } from "../src/services/deal-logic.js";
@@ -78,7 +79,14 @@ function assertReject(
   );
 }
 
-// ——— Happy: refund seller-start → buyer 2° voto ———
+// ——— Abuse: seller non avvia rimborso; solo buyer canStartRefund ———
+{
+  assertReject("refund start buyer", canStartRefund(base, BUYER), true);
+  assertReject("refund start seller", canStartRefund(base, SELLER), false);
+  assertReject("refund start third", canStartRefund(base, THIRD), false);
+}
+
+// ——— Legacy: se seller fosse first voter, buyer conferma 2° (gate confirm) ———
 {
   const d: Deal = {
     ...base,

@@ -131,8 +131,9 @@ export function altreInfoKeyboard(): InlineKeyboard {
 }
 
 /**
- * Post-deposito: CTA rivolte a chi agisce (non etichette third-person).
- * Shared group keyboard → copy azione, non «Rimborsa buyer».
+ * Post-deposito pre-consegna: Consegnato (seller) + rimborso (buyer-gated).
+ * Rimborso resta in UI per il buyer se il seller non consegna; seller → alert.
+ * Altre info include lo Stato (niente bottone Stato separato).
  */
 export function shipAskKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
@@ -145,8 +146,9 @@ export function shipAskKeyboard(): InlineKeyboard {
 }
 
 /**
- * Dopo consegna: CTA buyer (paga / rimborso / disputa / altre info).
- * «Paga» parla a chi preme; niente «Paga @seller» sul bottone.
+ * Dopo consegna: CTA buyer (paga / rimborso) + disputa / altre info.
+ * «Paga» / «Chiedi il rimborso» buyer-only (gate handler); seller usa Disputa / Altre info.
+ * Altre info = stato + fee (callback `altre_info`, non più ask-seller).
  */
 export function buyerAfterShipKeyboard(_deal: Deal): InlineKeyboard {
   void _deal;
@@ -156,7 +158,7 @@ export function buyerAfterShipKeyboard(_deal: Deal): InlineKeyboard {
     .text("↩️ Chiedi il rimborso", "refund_buyer")
     .row()
     .text("⚠️ Disputa", "dispute")
-    .text("ℹ️ Altre info", "buyer_info");
+    .text("ℹ️ Altre info", "altre_info");
 }
 
 /** Dual-confirm 1/2: Confermo (2/2) + Annulla (abort → deal funded). */
@@ -181,10 +183,10 @@ export function payoutHashKeyboard(): InlineKeyboard {
 /**
  * Tastiera azioni gruppo.
  * Niente «Paga seller» / pay_seller in UI: rilascio via flusso consegna→buyer.
- * Niente «Indirizzo escrow» / «Verifica deposito» standalone: deposito in Stato.
- * Copy azione (Chiedi il rimborso), non etichette third-person.
- * Disputa + Stato in chiaro; Annulla disputa solo opener (gate nel handler).
- * Nota: la reply di Stato usa solo ← Indietro (niente tastiera azioni duplicate).
+ * Niente «Indirizzo escrow» / «Verifica deposito» standalone: deposito in Stato/Altre info.
+ * Copy azione (Chiedi il rimborso), non etichette third-person — avvio buyer-only (gate).
+ * Post-deposito: Stato assorbito in Altre info (niente bottone Stato duplicato).
+ * Annulla disputa solo opener (gate nel handler).
  */
 export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboard {
   const kb = new InlineKeyboard();
@@ -195,17 +197,28 @@ export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboar
     return kb;
   }
 
+  const postDeposit =
+    status === "funded" ||
+    status === "refund_pending" ||
+    status === "release_pending" ||
+    status === "released" ||
+    status === "refunded";
+
   // Post-deposito: se non ancora consegnato, bottone consegna (CTA dedicate altrimenti).
   if (status === "funded" && deal && !deal.sellerShippedAt) {
     kb.text("✅ Consegnato", "shipped").row();
   }
 
-  // Mutual refund: solo post-deposito, finché non chiuso / in rilascio.
+  // Mutual refund UI: post-deposito; avvio gated buyer-only nel handler.
   if (status === "funded" || status === "refund_pending") {
     kb.text("↩️ Chiedi il rimborso", "refund_buyer").row();
   }
 
   kb.text("⚠️ Disputa", "dispute").text("ℹ️ Altre info", "altre_info").row();
-  kb.text("📄 Stato", "stato");
+  // Pre-deposito: Stato standalone (verifica deposito inclusa).
+  // Post-deposito: contenuto Stato → Altre info.
+  if (!postDeposit) {
+    kb.text("📄 Stato", "stato");
+  }
   return kb;
 }

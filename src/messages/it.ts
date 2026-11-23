@@ -132,7 +132,7 @@ Escrow per *servizi digitali*, info e lavoro online.
 
 ${inviteLink}
 
-Poi tocca *Ho entrato* o reinvia \`/start\`.`,
+Poi tocca *Sono entrato* o reinvia \`/start\`.`,
 
   vouchJoinedOk:
     "✅ Canale reviews ok. Ora puoi usare /crea.",
@@ -142,7 +142,7 @@ Poi tocca *Ho entrato* o reinvia \`/start\`.`,
 
 ${inviteLink}
 
-Entra, poi *Ho entrato* o \`/start\`.`,
+Entra, poi *Sono entrato* o \`/start\`.`,
 
   /** Opzionale su ogni /crea (si aggancia al deal). */
   askInviteOptional:
@@ -599,6 +599,12 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     return `Solo ${buyer} può avviare il pagamento.`;
   },
 
+  /** Seller non avvia rimborso: solo buyer chiede; seller al massimo conferma 2/2. */
+  buyerOnlyRefund: (deal: Deal) => {
+    const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
+    return `Solo ${buyer} può chiedere il rimborso. Usa *Disputa* o *Altre info*.`;
+  },
+
   sellerOnlyConfirm: (deal: Deal) => {
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
     return `Solo ${seller} può confermare il rilascio.`;
@@ -625,11 +631,13 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   },
 
   /**
-   * Altre info: solo contenuto distinto dallo Stato (niente status/ruoli/deposito).
-   * Fee UI: sempre 5% puntato — niente split 2.5/2.5 o «seller 95%».
+   * Altre info: dopo deposito include lo Stato (importo, parti, deposito, …)
+   * + fee/supporto in un unico elenco puntato. Fee UI: sempre 5%.
    */
-  altreInfoMenu: (deal: Deal) =>
-    `Info #${deal.id}\n• Fee: *5%*\n• Rimborso: senza fee\n• Supporto: *Disputa*`,
+  altreInfoMenu: (deal: Deal, opts?: { depositLine?: string }) => {
+    const status = formatDealStatus(deal, { depositLine: opts?.depositLine });
+    return `${status}\n• Fee: *5%*\n• Rimborso: senza fee\n• Supporto: *Disputa*`;
+  },
 
   /**
    * Conferma same-@ prima di azione sensibile.
