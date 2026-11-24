@@ -651,12 +651,43 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   },
 
   /**
-   * Altre info: dopo deposito include lo Stato (importo, parti, deposito, …)
-   * + fee/supporto in un unico elenco puntato. Fee UI: sempre 5%.
+   * Altre info: parti + importo + fee.
+   * Pre-deposito: niente riga Deposito / «In attesa deposito», niente Supporto.
+   * Post-deposito: «Deposito confermato» + Supporto (Disputa).
    */
   altreInfoMenu: (deal: Deal, opts?: { depositLine?: string }) => {
-    const status = formatDealStatus(deal, { depositLine: opts?.depositLine });
-    return `${status}\n• Fee: *5%*\n• Rimborso: senza fee\n• Supporto: *Disputa*`;
+    void opts?.depositLine;
+    const postDeposit =
+      deal.status === "funded" ||
+      deal.status === "release_pending" ||
+      deal.status === "refund_pending" ||
+      deal.status === "released" ||
+      deal.status === "refunded" ||
+      Boolean(deal.depositDetectedAt);
+    const seller = deal.sellerUsername
+      ? `@${deal.sellerUsername}`
+      : deal.sellerId
+        ? String(deal.sellerId)
+        : "—";
+    const buyer = deal.buyerUsername
+      ? `@${deal.buyerUsername}`
+      : deal.buyerId
+        ? String(deal.buyerId)
+        : "—";
+    const lines = [
+      `*#${deal.id}*`,
+      amountLine(deal),
+      `• Seller: ${seller}`,
+      `• Buyer: ${buyer}`,
+    ];
+    if (postDeposit) {
+      lines.push("• Deposito confermato");
+    }
+    lines.push("• Fee: *5%*", "• Rimborso: senza fee");
+    if (postDeposit) {
+      lines.push("• Supporto: *Disputa*");
+    }
+    return lines.join("\n");
   },
 
   /**
@@ -1130,11 +1161,41 @@ export function statusLabel(status: Deal["status"]): string {
 }
 
 /**
- * /stato e callback: elenco puntato italiano chiaro.
- * Niente fee (sta in Altre info), niente indirizzo escrow; invito solo sulla card.
- * Opzionale: riga deposito da verifica inclusa nella stessa reply.
- * Pre-deposito: `depositPhase` sostituisce «In attesa deposito» con In attesa/Rilevato/Confermato.
- * La reply Stato porta solo ← Indietro (niente tastiera azioni).
+ * Bottone Stato: solo fase deposito (In attesa / Rilevato / Confermato) + SOL + EUR.
+ * Niente seller/buyer/fee/supporto (quelli in Altre info).
+ */
+export function formatDepositStato(
+  deal: Deal,
+  opts?: { depositLine?: string; depositPhase?: DepositPhase },
+): string {
+  // Disputa solo post-deposito → disputed e stati chiusi contano come confermato.
+  const phase: DepositPhase =
+    opts?.depositPhase &&
+    (deal.status === "awaiting_deposit" || opts.depositPhase === "confermato")
+      ? opts.depositPhase
+      : deal.status === "awaiting_deposit"
+        ? "in_attesa"
+        : "confermato";
+  const lines: string[] = [];
+  if (opts?.depositLine) {
+    lines.push(opts.depositLine);
+  } else {
+    lines.push(`• Deposito: *${DEPOSIT_PHASE_LABELS[phase]}*`);
+  }
+  if (deal.amount) {
+    lines.push(`• Importo: *${deal.amount} ${deal.asset}*`);
+  } else {
+    lines.push(`• Importo: *—* (${deal.asset})`);
+  }
+  if (deal.priceEur) {
+    lines.push(`• Prezzo: *${escMd(formatEuroPrice(deal.priceEur))}*`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Elenco puntato completo (fallback / evidence-adjacent).
+ * Preferire `formatDepositStato` per il bottone Stato e `altreInfoMenu` per Altre info.
  */
 export function formatDealStatus(
   deal: Deal,

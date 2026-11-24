@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import {
   depositPhaseFromBalance,
   formatDealStatus,
+  formatDepositStato,
   it,
 } from "../messages/it.js";
 import {
@@ -775,9 +776,8 @@ async function applyWallet(
 }
 
 /**
- * Stato: elenco puntato + verifica deposito inclusa (niente bottone Verifica).
- * Pre-deposito: In attesa (0/amt) → Rilevato → Confermato; poi cleanup → card DEPOSITO CONFERMATO.
- * Se il check fonda il deal → ship ask (come ex Verifica deposito).
+ * Stato: solo fase deposito (In attesa / Rilevato / Confermato) + SOL + EUR.
+ * Se il check fonda il deal → pin DEPOSITO CONFERMATO + ship ask (niente summary `#id — Confermato`).
  * Altrimenti reply con ← Indietro (igiene: niente tastiera azioni duplicate).
  */
 async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
@@ -801,28 +801,14 @@ async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
         result.expectedSol,
         result.funded,
       );
-      // Progressione solo in Stato pre-deposito (niente «In attesa deposito» stantio).
       if (wasAwaiting || current.status === "awaiting_deposit") {
         depositPhase = depositPhaseFromBalance(
           result.balanceSol,
           result.funded,
         );
       }
-      // Appena fondato: mostra Confermato, poi pulisce effimeri → card DEPOSITO CONFERMATO + ship.
+      // Appena fondato: pin DEPOSITO CONFERMATO + ship — niente secondo summary `#id — Confermato`.
       if (wasAwaiting && result.funded && current.status === "funded") {
-        await replaceStatusMessage(
-          ctx.api,
-          ctx.store,
-          current,
-          formatDealStatus(current, {
-            depositLine,
-            depositPhase: "confermato",
-          }),
-          {
-            parse_mode: "Markdown",
-            reply_markup: uiBackKeyboard(),
-          },
-        );
         if (!current.sellerShippedAt) {
           await postShipAsk(ctx.api, ctx.store, current);
           return;
@@ -837,7 +823,7 @@ async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
     ctx.api,
     ctx.store,
     current,
-    formatDealStatus(current, { depositLine, depositPhase }),
+    formatDepositStato(current, { depositLine, depositPhase }),
     {
       parse_mode: "Markdown",
       reply_markup: uiBackKeyboard(),
@@ -1821,8 +1807,8 @@ async function handleCancelDualConfirm(
 }
 
 /**
- * Altre info: stato deal (importo, parti, deposito, …) + fee/supporto.
- * Post-deposito sostituisce lo Stato standalone. ← Indietro resta.
+ * Altre info: parti + importo + fee; post-deposito anche «Deposito confermato» + Supporto.
+ * Pre-deposito: niente riga Deposito / Supporto. ← Indietro resta.
  */
 async function handleAltreInfo(ctx: BotContext): Promise<void> {
   const deal = await requireGroupDeal(ctx);
@@ -1847,7 +1833,6 @@ async function handleAltreInfo(ctx: BotContext): Promise<void> {
   }
 
   let current = deal;
-  let depositLine: string | undefined;
 
   if (
     (current.status === "awaiting_deposit" || current.status === "funded") &&
@@ -1857,24 +1842,20 @@ async function handleAltreInfo(ctx: BotContext): Promise<void> {
     const result = await checkDealDeposit(ctx.store, current.id);
     current = ctx.store.get(current.id) ?? current;
 
-    if (!result.ok) {
-      depositLine = "• Deposito: verifica non riuscita";
-    } else {
-      depositLine = it.depositStatusBullets(
-        result.balanceSol,
-        result.expectedSol,
-        result.funded,
-      );
-      // Appena fondato da questa verifica → passa a consegna (come Stato).
-      if (wasAwaiting && result.funded && current.status === "funded") {
-        await answerCbOk(ctx);
-        if (!current.sellerShippedAt) {
-          await postShipAsk(ctx.api, ctx.store, current);
-          return;
-        }
-        await postBuyerAfterShip(ctx.api, ctx.store, current);
+    // Appena fondato da questa verifica → pin DEPOSITO CONFERMATO + ship (niente summary).
+    if (
+      result.ok &&
+      wasAwaiting &&
+      result.funded &&
+      current.status === "funded"
+    ) {
+      await answerCbOk(ctx);
+      if (!current.sellerShippedAt) {
+        await postShipAsk(ctx.api, ctx.store, current);
         return;
       }
+      await postBuyerAfterShip(ctx.api, ctx.store, current);
+      return;
     }
   }
 
@@ -1883,7 +1864,7 @@ async function handleAltreInfo(ctx: BotContext): Promise<void> {
     ctx.api,
     ctx.store,
     current,
-    it.altreInfoMenu(current, { depositLine }),
+    it.altreInfoMenu(current),
     {
       parse_mode: "Markdown",
       reply_markup: uiBackKeyboard(),

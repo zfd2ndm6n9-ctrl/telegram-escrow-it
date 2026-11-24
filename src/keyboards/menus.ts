@@ -146,15 +146,12 @@ export function altreInfoKeyboard(): InlineKeyboard {
 }
 
 /**
- * Post-deposito pre-consegna: Consegnato (seller) + rimborso (buyer-gated).
- * Rimborso resta in UI per il buyer se il seller non consegna; seller → alert.
- * Altre info include lo Stato (niente bottone Stato separato).
+ * Post-deposito pre-consegna: Consegnato (seller) + Disputa + Altre info.
+ * Rimborso non in UI qui — via percorso Disputa.
  */
 export function shipAskKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("✅ Consegnato", "shipped")
-    .row()
-    .text("↩️ Chiedi il rimborso", "refund_buyer")
     .row()
     .text("⚠️ Disputa", "dispute")
     .text("ℹ️ Altre info", "altre_info");
@@ -198,8 +195,10 @@ export function payoutHashKeyboard(): InlineKeyboard {
 /**
  * Tastiera azioni gruppo.
  * Niente «Paga seller» / pay_seller in UI: rilascio via flusso consegna→buyer.
- * Niente «Indirizzo escrow» / «Verifica deposito» standalone: deposito in Stato/Altre info.
- * Copy azione (Chiedi il rimborso), non etichette third-person — avvio buyer-only (gate).
+ * Niente «Indirizzo escrow» / «Verifica deposito» standalone: deposito in Stato.
+ * Pre-deposito: Altre info + Stato — niente Disputa finché il deposito non è confermato.
+ * Post-deposito pre-consegna: Consegnato + Disputa + Altre info (rimborso via Disputa).
+ * Dopo consegna / refund_pending: Chiedi il rimborso (buyer-gated) resta disponibile.
  * Post-deposito: Stato assorbito in Altre info (niente bottone Stato duplicato).
  * Annulla disputa solo opener (gate nel handler).
  */
@@ -219,20 +218,19 @@ export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboar
     status === "released" ||
     status === "refunded";
 
-  // Post-deposito: se non ancora consegnato, bottone consegna (CTA dedicate altrimenti).
+  // Post-deposito pre-consegna: solo Consegnato (niente rimborso su questa CTA).
   if (status === "funded" && deal && !deal.sellerShippedAt) {
     kb.text("✅ Consegnato", "shipped").row();
-  }
-
-  // Mutual refund UI: post-deposito; avvio gated buyer-only nel handler.
-  if (status === "funded" || status === "refund_pending") {
+  } else if (status === "funded" || status === "refund_pending") {
+    // Dopo consegna (o refund già avviato): rimborso buyer-gated.
     kb.text("↩️ Chiedi il rimborso", "refund_buyer").row();
   }
 
-  kb.text("⚠️ Disputa", "dispute").text("ℹ️ Altre info", "altre_info").row();
-  // Pre-deposito: Stato standalone (verifica deposito inclusa).
-  // Post-deposito: contenuto Stato → Altre info.
-  if (!postDeposit) {
+  if (postDeposit) {
+    kb.text("⚠️ Disputa", "dispute").text("ℹ️ Altre info", "altre_info").row();
+  } else {
+    // Pre-deposito: niente Disputa; Stato verifica il deposito.
+    kb.text("ℹ️ Altre info", "altre_info").row();
     kb.text("📄 Stato", "stato");
   }
   return kb;
