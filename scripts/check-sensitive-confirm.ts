@@ -14,7 +14,7 @@ import {
   shipAskKeyboard,
   uiBackKeyboard,
 } from "../src/keyboards/menus.js";
-import { formatDealStatus, it } from "../src/messages/it.js";
+import { formatDealStatus, formatDepositStato, it } from "../src/messages/it.js";
 import {
   canCancelDualConfirm,
   canConfirmPendingVote,
@@ -82,30 +82,39 @@ const baseDeal = {
   assert.ok(!cbs.includes("stato"), "post-consegna: Stato in Altre info");
 }
 
-// awaiting_deposit: Disputa + Altre info + Stato; niente Verifica / Indirizzo
+// awaiting_deposit: Altre info + Stato; niente Disputa / Verifica / Indirizzo
 {
   const cbs = callbacksOf(groupActionsKeyboard("awaiting_deposit", baseDeal));
   assert.ok(!cbs.includes("funded"), "Verifica deposito standalone rimossa");
-  assert.ok(cbs.includes("dispute"));
+  assert.ok(!cbs.includes("dispute"), "Disputa solo post-deposito");
   assert.ok(cbs.includes("altre_info"));
   assert.ok(cbs.includes("stato"));
   assert.ok(!cbs.includes("addr"));
   assert.ok(!cbs.includes("refund_buyer"));
   const labels = labelsOf(groupActionsKeyboard("awaiting_deposit", baseDeal));
   assert.ok(!labels.includes("💰 Verifica deposito"));
-  assert.ok(labels.includes("⚠️ Disputa"));
+  assert.ok(!labels.includes("⚠️ Disputa"));
   assert.ok(labels.includes("ℹ️ Altre info"));
   assert.ok(labels.includes("📄 Stato"));
   assert.ok(!labels.includes("📫 Indirizzo escrow"));
 }
 
-// funded: rimborso + Altre info; niente Stato standalone (contenuto in Altre info)
+// funded pre-consegna: Consegnato + Disputa + Altre info; niente rimborso / Stato
 {
   const cbs = callbacksOf(groupActionsKeyboard("funded", baseDeal));
-  assert.ok(cbs.includes("refund_buyer"));
+  assert.ok(cbs.includes("shipped"));
+  assert.ok(!cbs.includes("refund_buyer"), "rimborso non sulla CTA Consegnato");
   assert.ok(cbs.includes("altre_info"));
   assert.ok(cbs.includes("dispute"));
   assert.ok(!cbs.includes("stato"), "post-deposito: Stato assorbito in Altre info");
+}
+
+// funded post-consegna (fallback group actions): rimborso buyer-gated
+{
+  const shipped = { ...baseDeal, sellerShippedAt: new Date().toISOString() };
+  const cbs = callbacksOf(groupActionsKeyboard("funded", shipped));
+  assert.ok(cbs.includes("refund_buyer"));
+  assert.ok(!cbs.includes("shipped"));
 }
 
 // disputed: stato + annulla — niente addr/paga/rimborsa/verifica/consegnato
@@ -119,19 +128,19 @@ const baseDeal = {
   assert.ok(!cbs.includes("shipped"));
 }
 
-// funded ship ask: rimborso azione + disputa (niente «Rimborsa buyer»)
+// funded ship ask: Consegnato + Disputa + Altre info (rimborso via Disputa)
 {
   const cbs = callbacksOf(shipAskKeyboard());
   const labels = labelsOf(shipAskKeyboard());
   assert.ok(cbs.includes("shipped"));
-  assert.ok(cbs.includes("refund_buyer"));
+  assert.ok(!cbs.includes("refund_buyer"));
   assert.ok(cbs.includes("dispute"));
   assert.ok(cbs.includes("altre_info"));
-  assert.ok(labels.includes("↩️ Chiedi il rimborso"));
+  assert.ok(!labels.includes("↩️ Chiedi il rimborso"));
   assert.ok(!labels.some((l) => /Rimborsa buyer/i.test(l)));
 }
 
-// Role-aware CTA: Paga / Chiedi il rimborso (non «Paga @seller»)
+// Role-aware CTA post-consegna: Paga / Chiedi il rimborso (non «Paga @seller»)
 {
   const labels = labelsOf(buyerAfterShipKeyboard(baseDeal));
   assert.ok(labels.includes("🔓 Paga"));
@@ -139,8 +148,8 @@ const baseDeal = {
   assert.ok(!labels.some((l) => /Paga @/i.test(l)));
   assert.ok(!labels.some((l) => /Rimborsa buyer/i.test(l)));
   const fundedLabels = labelsOf(groupActionsKeyboard("funded", baseDeal));
-  assert.ok(fundedLabels.includes("↩️ Chiedi il rimborso"));
-  assert.ok(!fundedLabels.some((l) => /Rimborsa buyer/i.test(l)));
+  assert.ok(!fundedLabels.includes("↩️ Chiedi il rimborso"));
+  assert.ok(fundedLabels.includes("✅ Consegnato"));
 }
 
 // Mentions: wallet prompt senza label Seller/Buyer prima della @
@@ -156,23 +165,24 @@ const baseDeal = {
   assert.match(it.buyerAfterShip(baseDeal), /Chiedi il rimborso/i);
 }
 
-// Stato: Seller/Buyer bullets; niente fee / indirizzo / Invito
+// Stato bottone: solo fase deposito + SOL + EUR; niente seller/buyer/fee
 {
-  const status = formatDealStatus({
+  const status = formatDepositStato({
     ...baseDeal,
     status: "awaiting_deposit",
+    priceEur: "10",
     inviteCode: "KEYTEST",
   });
-  assert.match(status, /#deadbeef/);
-  assert.match(status, /Importo/);
-  assert.match(status, /• Seller: @seller_y/);
-  assert.match(status, /• Buyer: @buyer_x/);
-  assert.ok(!/@buyer_x · @seller_y/.test(status));
-  assert.ok(!/@seller_y · @buyer_x/.test(status));
+  assert.match(status, /• Deposito: \*In attesa\*/);
+  assert.match(status, /• Importo: \*0\.1 SOL\*/);
+  assert.match(status, /• Prezzo: \*10 €\*/);
+  assert.ok(!/#deadbeef/.test(status));
+  assert.ok(!/Seller/.test(status));
+  assert.ok(!/Buyer/.test(status));
   assert.ok(!status.includes(baseDeal.escrowAddress));
-  assert.ok(!/Escrow:/.test(status));
-  assert.ok(!/Invito:/.test(status));
   assert.ok(!/Fee:/i.test(status), "fee solo in Altre info");
+  assert.ok(!/Supporto/.test(status));
+  assert.ok(!/Invito:/.test(status));
 }
 
 // Stato + riga deposito: In attesa (0) → Rilevato → Confermato
@@ -189,40 +199,52 @@ const baseDeal = {
     it.depositStatusBullets("0.1", "0.1", true),
     /• Deposito: \*Confermato\* \(\*0\.1 SOL\*\)/,
   );
-  const withDep = formatDealStatus(
-    { ...baseDeal, status: "awaiting_deposit" },
+  const withDep = formatDepositStato(
+    { ...baseDeal, status: "awaiting_deposit", priceEur: "10" },
     {
       depositLine: it.depositStatusBullets("0.01", "0.1", false),
       depositPhase: "rilevato",
     },
   );
-  assert.match(withDep, /— Rilevato/);
+  assert.match(withDep, /• Deposito: \*Rilevato\*/);
+  assert.match(withDep, /• Prezzo: \*10 €\*/);
   assert.ok(!/In attesa deposito/.test(withDep));
+  assert.ok(!/Seller/.test(withDep));
   assert.ok(!withDep.includes(baseDeal.escrowAddress));
-  const confirmed = formatDealStatus(
-    { ...baseDeal, status: "funded" },
+  const confirmed = formatDepositStato(
+    { ...baseDeal, status: "funded", priceEur: "10" },
     {
       depositLine: it.depositStatusBullets("0.1", "0.1", true),
       depositPhase: "confermato",
     },
   );
-  assert.match(confirmed, /— Confermato/);
+  assert.match(confirmed, /• Deposito: \*Confermato\*/);
   assert.ok(!/In attesa deposito/.test(confirmed));
+  assert.ok(!/#deadbeef — Confermato/.test(confirmed));
 }
 
-// Altre info: include Stato (parti/importo/deposito) + fee 5%; niente split 2.5 / 95%
+// formatDealStatus legacy ancora con parti (fallback)
 {
-  const info = it.altreInfoMenu(baseDeal, {
-    depositLine: it.depositStatusBullets("0.1", "0.1", true),
+  const full = formatDealStatus({
+    ...baseDeal,
+    status: "awaiting_deposit",
   });
+  assert.match(full, /#deadbeef/);
+  assert.match(full, /• Seller: @seller_y/);
+  assert.match(full, /• Buyer: @buyer_x/);
+}
+
+// Altre info post-deposito: parti + Deposito confermato + fee + Supporto
+{
+  const info = it.altreInfoMenu(baseDeal);
   assert.match(info, /#deadbeef/);
-  assert.match(info, /Fondato/);
   assert.match(info, /• Seller: @seller_y/);
   assert.match(info, /• Buyer: @buyer_x/);
-  assert.match(info, /• Deposito: \*Confermato\*/);
+  assert.match(info, /• Deposito confermato/);
   assert.match(info, /• Fee: \*5%\*/);
   assert.match(info, /• Rimborso: senza fee/);
   assert.match(info, /• Supporto: \*Disputa\*/);
+  assert.ok(!/In attesa deposito/.test(info));
   assert.ok(!/2\.5%/.test(info));
   assert.ok(!/95%/.test(info));
   assert.ok(!info.includes(baseDeal.escrowAddress));
@@ -233,6 +255,32 @@ const baseDeal = {
   });
   assert.match(withCollab, /• Fee: \*5%\*/);
   assert.ok(!/2\.5%/.test(withCollab));
+}
+
+// Altre info pre-deposito: niente Deposito / Supporto / «In attesa deposito»
+{
+  const pre = it.altreInfoMenu({
+    ...baseDeal,
+    status: "awaiting_deposit",
+  });
+  assert.match(pre, /#deadbeef/);
+  assert.match(pre, /• Seller: @seller_y/);
+  assert.match(pre, /• Fee: \*5%\*/);
+  assert.ok(!/Deposito/.test(pre));
+  assert.ok(!/Supporto/.test(pre));
+  assert.ok(!/In attesa deposito/.test(pre));
+}
+
+// Card pinnata post-deposito: DEPOSITO CONFERMATO
+{
+  const fundedCard = it.groupSetupCard({
+    ...baseDeal,
+    status: "funded",
+    tosProduct: "Servizio test",
+    priceEur: "10",
+    tosConditions: "subito",
+  });
+  assert.match(fundedCard, /\*DEPOSITO CONFERMATO\*/);
 }
 
 // Vouch gate copy: «Sono entrato» (bottone + body), mai «Ho entrato»
