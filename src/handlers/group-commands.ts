@@ -220,6 +220,16 @@ async function answerCbOk(ctx: BotContext): Promise<void> {
   }
 }
 
+/** Toglie la inline keyboard dal messaggio del callback (anti doppio tap). */
+async function stripCallbackKeyboard(ctx: BotContext): Promise<void> {
+  if (!ctx.callbackQuery) return;
+  try {
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+  } catch {
+    // già senza markup / messaggio cancellato / non modificabile
+  }
+}
+
 /** Click → alert; write → delete + reminder. Niente wrongStatus spam in chat. */
 async function rejectWrongStatus(
   ctx: BotContext,
@@ -1028,7 +1038,19 @@ async function runPayout(
   }
 
   if (payoutInFlight.has(fresh.id)) {
-    await ctx.reply(it.payoutBusy(fresh), { parse_mode: "Markdown" });
+    await stripCallbackKeyboard(ctx);
+    if (ctx.callbackQuery) {
+      try {
+        await ctx.answerCallbackQuery({
+          text: plainAlert(it.payoutBusy(fresh)),
+          show_alert: true,
+        });
+      } catch {
+        // già risposto
+      }
+    } else {
+      await ctx.reply(it.payoutBusy(fresh), { parse_mode: "Markdown" });
+    }
     return;
   }
 
@@ -1300,6 +1322,7 @@ async function handlePayOrRefund(
 
   const lockKey = `${deal.id}:${kind}:${voterId}`;
   if (voteInFlight.has(lockKey)) {
+    await stripCallbackKeyboard(ctx);
     await answerCbOk(ctx);
     return;
   }
@@ -1358,6 +1381,10 @@ async function handlePayOrRefund(
     }
 
     if (prevVotes.includes(voterId)) {
+      // 2/2 o payout: niente Confermo sticky (BET-96).
+      if (prevVotes.length >= 2 || payoutInFlight.has(latest.id)) {
+        await stripCallbackKeyboard(ctx);
+      }
       await answerCbOk(ctx);
       await replaceActionReply(
         ctx.api,
@@ -1445,12 +1472,17 @@ async function handlePayOrRefund(
 
     await clearRoleError(ctx.api, ctx.store, pending);
 
+    // 2/2: togli Confermo/Annulla subito (refund non passa dal review gate
+    // che già clearBotPrompts; senza questo la card resta cliccabile in payout).
+    await stripCallbackKeyboard(ctx);
+    const cleaned = await clearBotPrompts(ctx.api, ctx.store, pending);
+
     // Refund: payout immediato. Release: review seller→buyer, poi payout.
     if (kind === "refund") {
-      await runPayout(ctx, pending, kind);
+      await runPayout(ctx, cleaned, kind);
       return;
     }
-    await afterReleaseVotesReady(ctx, pending);
+    await afterReleaseVotesReady(ctx, cleaned);
   } finally {
     voteInFlight.delete(lockKey);
   }
@@ -1660,6 +1692,8 @@ async function handleSellerConfirmPay(ctx: BotContext): Promise<void> {
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
+  // Disabilita Confermo subito (anti doppio tap mentre review/payout partono).
+  await stripCallbackKeyboard(ctx);
   await handlePayOrRefund(ctx, "release", { asUserId: ctx.from.id });
 }
 
@@ -1725,6 +1759,10 @@ async function handleConfirmRefund(ctx: BotContext): Promise<void> {
   const expectedId = pendingVoterId(deal, deal.refundVotes);
   if (expectedId == null) {
     if (deal.refundVotes.includes(ctx.from.id)) {
+      // 2/2 già chiuso / payout: togli Confermo sticky.
+      if (deal.refundVotes.length >= 2 || payoutInFlight.has(deal.id)) {
+        await stripCallbackKeyboard(ctx);
+      }
       await answerCbOk(ctx);
       await replaceActionReply(
         ctx.api,
@@ -1744,6 +1782,8 @@ async function handleConfirmRefund(ctx: BotContext): Promise<void> {
     return;
   }
   await clearRoleError(ctx.api, ctx.store, deal);
+  // Disabilita Confermo/Annulla subito (anti doppio tap mentre payout parte).
+  await stripCallbackKeyboard(ctx);
   await handlePayOrRefund(ctx, "refund", { asUserId: ctx.from.id });
 }
 
