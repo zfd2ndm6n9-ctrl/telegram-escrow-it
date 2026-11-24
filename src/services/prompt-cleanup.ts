@@ -6,6 +6,12 @@ import {
   extractMigrateToChatId,
   remapDealGroupChatId,
 } from "./group-chat-remap.js";
+import {
+  isBotKickedOrChatGoneError,
+  isMessageMissingError,
+  markGroupCompromised,
+  maybeCompromiseFromApiError,
+} from "./group-compromise.js";
 
 type PromptExtra = {
   parse_mode?: "Markdown" | "MarkdownV2" | "HTML";
@@ -69,13 +75,37 @@ async function sendMessageToDealChat(
     return { deal: current, message };
   } catch (err) {
     const toId = extractMigrateToChatId(err);
-    if (toId == null) throw err;
+    if (toId == null) {
+      if (isBotKickedOrChatGoneError(err)) {
+        current = await markGroupCompromised(
+          api,
+          store,
+          current,
+          "group_gone",
+        );
+        return { deal: current, message: null };
+      }
+      throw err;
+    }
     current =
       remapDealGroupChatId(store, chatId, toId) ??
       store.get(current.id) ??
       current;
-    const message = await api.sendMessage(toId, text, extra);
-    return { deal: current, message };
+    try {
+      const message = await api.sendMessage(toId, text, extra);
+      return { deal: current, message };
+    } catch (err2) {
+      if (isBotKickedOrChatGoneError(err2)) {
+        current = await markGroupCompromised(
+          api,
+          store,
+          current,
+          "group_gone",
+        );
+        return { deal: current, message: null };
+      }
+      throw err2;
+    }
   }
 }
 
@@ -193,18 +223,47 @@ export async function upsertSetupMessage(
           return current;
         } catch (err2) {
           if (isNotModifiedError(err2)) return current;
+          if (isBotKickedOrChatGoneError(err2)) {
+            return markGroupCompromised(api, store, current, "group_gone");
+          }
+          if (isMessageMissingError(err2)) {
+            current = await markGroupCompromised(
+              api,
+              store,
+              current,
+              "critical_msgs_deleted",
+            );
+            // Freeze: non ripostare la card completa (azioni congelate).
+            return current;
+          }
           console.warn(
             `edit setup msg ${msgId} in ${liveChatId} failed after migrate, re-sending:`,
             err2,
           );
         }
+      } else if (isBotKickedOrChatGoneError(err)) {
+        return markGroupCompromised(api, store, current, "group_gone");
+      } else if (isMessageMissingError(err)) {
+        current = await markGroupCompromised(
+          api,
+          store,
+          current,
+          "critical_msgs_deleted",
+        );
+        return current;
       } else {
         console.warn(
           `edit setup msg ${msgId} in ${liveChatId} failed, re-sending:`,
           err,
         );
+        await maybeCompromiseFromApiError(api, store, current, err);
+        current = store.get(current.id) ?? current;
       }
     }
+  }
+
+  if (current.groupCompromisedAt) {
+    return current;
   }
 
   const sent = await sendMessageToDealChat(

@@ -17,6 +17,13 @@ export type DealStatus =
   | "disputed"
   | "cancelled";
 
+/** Perché il gruppo escrow non è più affidabile (freeze azioni in gruppo). */
+export type GroupCompromiseReason =
+  | "bot_kicked"
+  | "group_gone"
+  | "critical_msgs_deleted"
+  | "admin_kicked";
+
 /**
  * Conferma same-@ prima di azioni sensibili (disputa / paga / rimborsa / annulla).
  * Il voto controparte (1/2→2/2) resta separato.
@@ -220,6 +227,14 @@ export interface Deal {
    * Cancellato dopo ogni risposta + a fine wizard.
    */
   groupTermsPromptMessageId?: number;
+  /**
+   * ISO: gruppo compromesso (bot kick / gruppo cancellato / wipe card /
+   * admin supporto kickato). Congela azioni parti in gruppo; soldi restano
+   * chiudibili da DM admin (`/deal`, `/payseller`, `/refundbuyer`).
+   */
+  groupCompromisedAt?: string;
+  /** Motivo del freeze gruppo (prima volta). */
+  groupCompromisedReason?: GroupCompromiseReason;
   /**
    * Deadline ISO: da create deal (e refresh sulle istruzioni DM).
    * Scade se ancora `awaiting_group` senza bind, o `awaiting_bot_admin`

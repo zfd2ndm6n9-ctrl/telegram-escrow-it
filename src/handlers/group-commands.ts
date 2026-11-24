@@ -34,6 +34,7 @@ import {
   pendingVoterId,
 } from "../services/deal-logic.js";
 import { scheduleGroupCloseCleanup } from "../services/group-close-cleanup.js";
+import { isGroupActionsFrozen } from "../services/group-compromise.js";
 import {
   createAdminInviteLink,
   postAskBuyerWallet,
@@ -309,11 +310,20 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
 
   // Force payout admin-only (disputa). Non-admin → delete silenzioso.
   // Dual-confirm resta su bottoni UI (buyer Paga / seller Confermo / Rimborsa).
+  // In DM: `/payseller <dealId>` / `/refundbuyer <dealId>` (gruppo perso).
   bot.command(["pay_seller", "payseller", "release"], async (ctx) => {
+    if (ctx.chat?.type === "private") {
+      await handleAdminForcePayoutDm(ctx, "release");
+      return;
+    }
     await handleAdminForcePayout(ctx, "release");
   });
 
   bot.command(["refund_buyer", "refundbuyer"], async (ctx) => {
+    if (ctx.chat?.type === "private") {
+      await handleAdminForcePayoutDm(ctx, "refund");
+      return;
+    }
     await handleAdminForcePayout(ctx, "refund");
   });
 
@@ -399,7 +409,7 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
       });
       return;
     }
-    if (await rejectFrozenInDispute(ctx, deal)) return;
+    if (await rejectFrozenDealActions(ctx, deal)) return;
     await ctx.answerCallbackQuery();
     await verifyDeposit(ctx, { ephemeral: true });
   });
@@ -602,6 +612,7 @@ async function setWallet(ctx: BotContext): Promise<void> {
       await ctx.reply(it.noDealInGroup);
       return;
     }
+    if (await rejectFrozenGroupCompromised(ctx, deal)) return;
 
     // Heal live chat id se migrazione group→supergroup ha lasciato id stale.
     if (
@@ -854,7 +865,15 @@ async function verifyDeposit(
     await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
-  if (await rejectFrozenInDispute(ctx, deal)) return;
+  // Admin `/depositato force` resta utile anche con gruppo compromesso.
+  const rawForce = ctx.message?.text ?? "";
+  const adminForceDeposit =
+    isAdminUser(ctx.from.id) &&
+    deal.status === "awaiting_deposit" &&
+    /\bforce\b/i.test(rawForce);
+  if (!adminForceDeposit && (await rejectFrozenDealActions(ctx, deal))) {
+    return;
+  }
 
   if (isPreDepositSetup(deal.status) || deal.status === "awaiting_counterpart") {
     const chatId = deal.groupChatId ?? ctx.chat?.id;
@@ -1176,6 +1195,44 @@ async function runPayout(
 }
 
 /**
+ * DM admin: `/payseller <dealId>` / `/refundbuyer <dealId>`.
+ * Serve quando il gruppo è perso (kick/wipe) — stessi gate disputa.
+ */
+async function handleAdminForcePayoutDm(
+  ctx: BotContext,
+  kind: "release" | "refund",
+): Promise<void> {
+  if (!ctx.from || !isAdminUser(ctx.from.id)) {
+    await ctx.reply(it.adminOnly);
+    return;
+  }
+  const raw = (ctx.message?.text ?? "").trim();
+  const m = raw.match(
+    /^\/(?:pay_seller|payseller|release|refund_buyer|refundbuyer)(?:@[A-Za-z0-9_]+)?\s+#?([a-fA-F0-9]{8})\b/i,
+  );
+  const dealId = (m?.[1] ?? "").toLowerCase();
+  if (!dealId) {
+    await ctx.reply(it.adminForceDmUsage(kind), { parse_mode: "Markdown" });
+    return;
+  }
+  const deal = ctx.store.get(dealId);
+  if (!deal) {
+    await ctx.reply(it.adminForceDmUnknown(dealId), { parse_mode: "Markdown" });
+    return;
+  }
+  if (!canAdminForcePayout(deal, ctx.from.id)) {
+    await ctx.reply(it.adminForceOnlyDisputed, { parse_mode: "Markdown" });
+    return;
+  }
+  ctx.dealLogs.appendEvent(
+    deal.id,
+    `Admin force DM ${kind === "release" ? "payseller" : "refundbuyer"}` +
+      (deal.groupCompromisedAt ? " (gruppo compromesso)" : ""),
+  );
+  await runPayout(ctx, deal, kind);
+}
+
+/**
  * `/payseller` `/refundbuyer` (+ parole nude): solo ADMIN_TELEGRAM_IDS.
  * In disputa → force on-chain (salta dual-confirm e review).
  * Non-admin → cancella messaggio, nessun effetto / reply.
@@ -1247,7 +1304,7 @@ async function handlePayOrRefund(
     await runPayout(ctx, deal, kind);
     return;
   }
-  if (await rejectFrozenInDispute(ctx, deal)) return;
+  if (await rejectFrozenDealActions(ctx, deal)) return;
 
   // Fuori disputa: il clicker DEVE essere il voter (A3 — no admin proxy as other party).
   const voterId = opts?.asUserId ?? ctx.from.id;
@@ -1573,7 +1630,7 @@ async function handleSellerShipped(
     }
     return;
   }
-  if (await rejectFrozenInDispute(ctx, deal)) return;
+  if (await rejectFrozenDealActions(ctx, deal)) return;
   // Seller-only (buyer anche se admin → alert, mai avanzare).
   if (!canMarkShipped(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.shipOnlySeller(deal));
@@ -1636,7 +1693,7 @@ async function handleBuyerPay(ctx: BotContext): Promise<void> {
     }
     return;
   }
-  if (await rejectFrozenInDispute(ctx, deal)) return;
+  if (await rejectFrozenDealActions(ctx, deal)) return;
   if (deal.buyerId == null) {
     if (ctx.callbackQuery) {
       await ctx.answerCallbackQuery({ text: "Mancano buyer o seller" });
@@ -1721,7 +1778,7 @@ async function handleStartRefund(ctx: BotContext): Promise<void> {
     await handlePayOrRefund(ctx, "refund");
     return;
   }
-  if (await rejectFrozenInDispute(ctx, deal)) return;
+  if (await rejectFrozenDealActions(ctx, deal)) return;
   // Solo buyer/seller partiti; terzi → alert, nessuno stato.
   if (!isParty(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.notParty);
@@ -1755,7 +1812,7 @@ async function handleConfirmRefund(ctx: BotContext): Promise<void> {
     }
     return;
   }
-  if (await rejectFrozenInDispute(ctx, deal)) return;
+  if (await rejectFrozenDealActions(ctx, deal)) return;
   const expectedId = pendingVoterId(deal, deal.refundVotes);
   if (expectedId == null) {
     if (deal.refundVotes.includes(ctx.from.id)) {
@@ -1804,7 +1861,7 @@ async function handleCancelDualConfirm(
     }
     return;
   }
-  if (await rejectFrozenInDispute(ctx, deal)) return;
+  if (await rejectFrozenDealActions(ctx, deal)) return;
   if (!canCancelDualConfirm(deal, ctx.from.id)) {
     await rejectWrongRole(ctx, deal, it.notParty);
     return;
@@ -1986,6 +2043,40 @@ async function rejectFrozenInDispute(
 }
 
 /**
+ * Gruppo compromesso (kick/wipe): congela azioni parti in gruppo.
+ * Admin force payout (`handleAdminForcePayout`) non passa da qui.
+ */
+async function rejectFrozenGroupCompromised(
+  ctx: BotContext,
+  deal: Deal,
+): Promise<boolean> {
+  if (!isGroupActionsFrozen(deal)) return false;
+  if (ctx.callbackQuery) {
+    try {
+      await ctx.answerCallbackQuery({
+        text: plainAlert(it.frozenGroupCompromised),
+        show_alert: true,
+      });
+    } catch {
+      // già risposto
+    }
+    return true;
+  }
+  await rejectWrongRole(ctx, deal, it.frozenGroupCompromised);
+  return true;
+}
+
+/** Freeze gruppo compromesso + freeze disputa (azioni parti). */
+async function rejectFrozenDealActions(
+  ctx: BotContext,
+  deal: Deal,
+): Promise<boolean> {
+  if (await rejectFrozenGroupCompromised(ctx, deal)) return true;
+  if (await rejectFrozenInDispute(ctx, deal)) return true;
+  return false;
+}
+
+/**
  * Prompt «Sei sicuro…?» same-@ con Sì / ← Indietro.
  * Non cancella i CTA di stage: Indietro ripristina chiudendo solo l'effimero.
  */
@@ -2031,6 +2122,7 @@ async function handleSelfConfirmYes(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({ text: "Nessun deal" });
     return;
   }
+  if (await rejectFrozenGroupCompromised(ctx, deal)) return;
   const pending = deal.pendingSelfConfirm;
   if (!pending) {
     await ctx.answerCallbackQuery({ text: "Conferma scaduta" });
@@ -2112,6 +2204,7 @@ async function requestDisputeOpen(
     await rejectWrongRole(ctx, deal, it.notParty);
     return;
   }
+  if (await rejectFrozenGroupCompromised(ctx, deal)) return;
   if (deal.status === "disputed") {
     if (ctx.callbackQuery) {
       await ctx.answerCallbackQuery({

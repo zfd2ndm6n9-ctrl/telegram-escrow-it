@@ -1,4 +1,4 @@
-import type { Deal, DmTermsStep } from "../types.js";
+import type { Deal, DmTermsStep, GroupCompromiseReason } from "../types.js";
 import {
   amountConfirmed,
   bothPartiesPresent,
@@ -730,6 +730,48 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   /** Azioni soldi bloccate in disputa — alert corto, niente wrongStatus spam. */
   frozenInDispute: "In disputa.",
 
+  /** Gruppo compromesso: freeze azioni parti (bottoni / comandi in gruppo). */
+  frozenGroupCompromised:
+    "Gruppo non sicuro. Deal congelato — aspetta l'admin.",
+
+  /**
+   * DM admin: gruppo perso / bot o admin kickati / wipe card critica.
+   * Corto: id + stato + motivo. Recovery: `/deal` + force payout in DM.
+   */
+  groupCompromisedAdminDm: (deal: Deal, reason: GroupCompromiseReason) => {
+    const reasonIt: Record<GroupCompromiseReason, string> = {
+      bot_kicked: "bot kickato dal gruppo",
+      group_gone: "gruppo cancellato o irraggiungibile",
+      critical_msgs_deleted: "messaggi critici del bot cancellati",
+      admin_kicked: "admin kickato dal gruppo deal",
+    };
+    const status = STATUS_LABELS[deal.status];
+    const lines = [
+      `⚠️ *Gruppo compromesso* — deal \`#${deal.id}\``,
+      `• Stato: *${status}*`,
+      `• Motivo: ${reasonIt[reason]}`,
+    ];
+    if (deal.amount) {
+      lines.push(`• Importo: *${deal.amount} ${deal.asset}*`);
+    } else if (deal.priceEur) {
+      lines.push(`• Prezzo: *${deal.priceEur} €*`);
+    }
+    lines.push(
+      "",
+      `DM: \`/deal ${deal.id}\``,
+      `Force (solo disputa): \`/payseller ${deal.id}\` · \`/refundbuyer ${deal.id}\``,
+    );
+    return lines.join("\n");
+  },
+
+  adminForceDmUsage: (kind: "release" | "refund") =>
+    kind === "release"
+      ? "Uso (admin, in privato): `/payseller <dealId>`\nEs: `/payseller 82978c05` (solo in disputa)."
+      : "Uso (admin, in privato): `/refundbuyer <dealId>`\nEs: `/refundbuyer 82978c05` (solo in disputa).",
+
+  adminForceDmUnknown: (dealId: string) =>
+    `Deal #${dealId} non trovato nello store.`,
+
   disputeAlreadyOpen: "Disputa già aperta.",
 
   disputeCancelOnlyOpener: (deal: Deal) => {
@@ -1235,6 +1277,9 @@ export function formatDealStatus(
   if (deal.status === "disputed") {
     lines.push("• Disputa aperta");
   }
+  if (deal.groupCompromisedAt) {
+    lines.push("• Gruppo: congelato");
+  }
   if (deal.payoutTxSig) {
     lines.push("• Hash: disponibile (bottone)");
   }
@@ -1263,6 +1308,10 @@ export function formatDealEvidenceFacts(deal: Deal): string {
     `• Buyer: ${buyer}`,
     formatTosBullets(deal),
   ];
+  if (deal.groupCompromisedAt) {
+    const why = deal.groupCompromisedReason ?? "—";
+    lines.push(`• Gruppo: *congelato* (${why})`);
+  }
 
   if (amountConfirmed(deal) || deal.amount) {
     lines.push(`• Importo SOL: *${deal.amount} ${deal.asset}*`);
