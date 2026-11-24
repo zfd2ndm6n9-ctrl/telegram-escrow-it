@@ -6,6 +6,7 @@ import {
   amountConfirmed,
   assignJoiningParty,
   bothPartiesPresent,
+  isAdminUser,
   isAllowedHuman,
   isParty,
   isPreDepositSetup,
@@ -16,6 +17,7 @@ import {
   termsReadyForConfirm,
   tosAccepted,
 } from "../services/deal-logic.js";
+import { markGroupCompromised } from "../services/group-compromise.js";
 import {
   applyGroupTermsAnswer,
   startProposeTermsWizard,
@@ -278,6 +280,16 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     const update = ctx.myChatMember;
     const status = update.new_chat_member.status;
+
+    // Bot kickato / uscito / gruppo cancellato → DM admin + freeze.
+    if (status === "left" || status === "kicked") {
+      const deal = ctx.store.findByGroupChatId(chat.id);
+      if (deal) {
+        await markGroupCompromised(ctx.api, ctx.store, deal, "bot_kicked");
+      }
+      return;
+    }
+
     const joined =
       status === "member" || status === "administrator" || status === "restricted";
     if (!joined) return;
@@ -1156,6 +1168,27 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
 
     const member = ctx.chatMember.new_chat_member;
     const user = member.user;
+    const oldStatus = ctx.chatMember.old_chat_member.status;
+
+    // Admin supporto kickato / uscito dal gruppo deal → stesso alert + freeze.
+    const leftOrKicked =
+      member.status === "left" || member.status === "kicked";
+    if (
+      leftOrKicked &&
+      !user.is_bot &&
+      isAdminUser(user.id) &&
+      (oldStatus === "member" ||
+        oldStatus === "administrator" ||
+        oldStatus === "restricted")
+    ) {
+      const deal = ctx.store.findByGroupChatId(chat.id);
+      if (deal) {
+        await markGroupCompromised(ctx.api, ctx.store, deal, "admin_kicked", {
+          detail: `admin ${user.id}`,
+        });
+      }
+      return;
+    }
 
     const becameMember =
       member.status === "member" ||
