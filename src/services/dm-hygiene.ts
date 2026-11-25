@@ -1,52 +1,18 @@
-import type { Api } from "grammy";
 import type { BotContext } from "../context.js";
-import { mainMenuKeyboard, removeReplyKeyboard } from "../keyboards/menus.js";
+import { mainMenuKeyboard } from "../keyboards/menus.js";
 import { clearDmTermsUi } from "./dm-terms.js";
 import { dismissInviteStep } from "./invite-step.js";
 import { deleteMessageSafe } from "./prompt-cleanup.js";
 
-/** Clients often ignore remove_keyboard if the carrier message is deleted instantly. */
-const REPLY_KEYBOARD_STRIP_DELETE_MS = 1600;
-
 /**
- * Toglie una reply keyboard residua (deploy precedenti: Crea / I miei sopra il
- * telefono). Telegram non permette remove_keyboard + InlineKeyboard insieme:
- * messaggio carrier, delete ritardata così i client applicano lo strip.
- */
-export async function stripPersistentReplyKeyboard(
-  ctx: BotContext,
-): Promise<void> {
-  if (!ctx.chat || ctx.chat.type !== "private") return;
-  await stripPersistentReplyKeyboardChat(ctx.api, ctx.chat.id);
-}
-
-/** Stesso strip via Api (expiry watcher / no BotContext). */
-export async function stripPersistentReplyKeyboardChat(
-  api: Api,
-  chatId: number,
-): Promise<void> {
-  try {
-    const msg = await api.sendMessage(chatId, "\u2060", {
-      reply_markup: removeReplyKeyboard(),
-    });
-    setTimeout(() => {
-      void deleteMessageSafe(api, chatId, msg.message_id);
-    }, REPLY_KEYBOARD_STRIP_DELETE_MS);
-  } catch {
-    // ok — best-effort
-  }
-}
-
-/**
- * Risposta DM con menu inline (Crea / I miei). Strip reply KB residua prima,
- * perché non si può combinare remove_keyboard con InlineKeyboard.
+ * Risposta DM con reply keyboard persistente (Crea / I miei).
+ * Nessuno strip / messaggio fantasma: la tastiera resta visibile.
  */
 export async function replyWithMainMenu(
   ctx: BotContext,
   text: string,
   extra?: { parse_mode?: "Markdown" | "HTML" },
 ): Promise<{ message_id: number }> {
-  await stripPersistentReplyKeyboard(ctx);
   return ctx.reply(text, {
     ...extra,
     reply_markup: mainMenuKeyboard(),
