@@ -1,6 +1,6 @@
 # ESCROWITA TOS
 
-**Versione:** soft-launch · **Ultimo aggiornamento:** 18 novembre 2026  
+**Versione:** soft-launch · **Ultimo aggiornamento:** 26 novembre 2026  
 **Lingua:** italiano · **Mercato:** Italia
 
 Usando il bot Telegram **Escrowita** accetti questi Termini. Se non li accetti, non usare il bot.
@@ -41,7 +41,11 @@ Decide l’amministratore dopo aver analizzato i messaggi salvati. In caso di co
 
 In caso di crash del servizio o di proprietario del gruppo che agisce in mala fede, i fondi vengono rimborsati. Conservate sempre l’identificativo del deal.
 
-## 8. Account Telegram
+## 8. Chiusura del deal e gruppo Telegram
+
+Dopo un rilascio o un rimborso andato a buon fine, il gruppo del deal viene **eliminato automaticamente** (di norma dopo circa **1 minuto**). Da quel momento le parti **non hanno più responsabilità** su quella chat di gruppo: non è più un canale operativo del deal chiuso. Conservate l’identificativo del deal e le prove rilevanti fuori dal gruppo se vi servono.
+
+## 9. Account Telegram
 
 Gli obblighi restano legati all’account (identificativo Telegram), anche se si cambia il nome utente.
 

@@ -63,6 +63,17 @@ Su gruppi helper il bot ha anche **promuovi membri** per demote automatico se un
 - Alert se buyer/seller cambiano username o nome  
 - TODO (poi): harden se le parti cancellano messaggi del bot in gruppo (Bot API non notifica delete utente)
 
+## Chiusura deal → delete gruppo
+
+Dopo payout **release** o **refund** riuscito:
+
+1. Bot invia in gruppo: «Il gruppo si chiude tra 1 minuto.»
+2. Scheduler (`groupDeleteAt`, watcher ~15s) aspetta ~**1 minuto**
+3. Helper MTProto: `channels.DeleteChannel` (owner) — soft-fail + log chiaro
+4. Path manuale: fallback Bot API `deleteChat` / `leaveChat`
+
+Dopo la delete le parti non hanno più responsabilità su quella chat.
+
 ## Limiti onesti
 
 | Limite | Mitigazione |
@@ -72,6 +83,7 @@ Su gruppi helper il bot ha anche **promuovi membri** per demote automatico se un
 | Owner umano (path manuale) | Evitare; warning in DM; compromise freeze se kick bot |
 | Helper owner | Proteggi `TELEGRAM_HELPER_SESSION` come secret di produzione |
 | Inbox helper piena | Archive automatico dopo create (`folder_id=1`) |
+| Gruppo leftover post-deal | Delete ~1 min dopo pay/refund (helper owner) |
 
 ---
 

@@ -145,6 +145,11 @@ export interface Deal {
    * - `manual` = una parte ha creato il gruppo (owner umano = rischio kick/delete)
    */
   groupCreatedVia?: "helper" | "manual";
+  /**
+   * access_hash MTProto del megagroup (solo path helper).
+   * Serve a `channels.DeleteChannel` dopo restart (StringSession senza entity cache).
+   */
+  groupAccessHash?: string;
   adminInviteLink?: string;
   /** Voti per /pay_seller */
   releaseVotes: number[];
@@ -199,8 +204,9 @@ export interface Deal {
   /** true dopo payout release/refund riuscito (idempotenza) */
   payoutCompleted?: boolean;
   /**
-   * Dopo released/refunded: quando tentare deleteChat / leave del gruppo (~30 min).
-   * Soft-fail: se API delete fallisce → leave + avviso corto.
+   * Dopo released/refunded: quando tentare delete del gruppo (~1 min).
+   * Path helper: MTProto `channels.DeleteChannel` (owner). Soft-fail + log.
+   * Path manuale: Bot API deleteChat se permesso, altrimenti leave.
    */
   groupDeleteAt?: string;
   /** ISO: cleanup gruppo (delete o leave) già tentato. */

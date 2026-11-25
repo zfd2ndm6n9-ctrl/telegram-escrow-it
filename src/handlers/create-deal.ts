@@ -738,6 +738,7 @@ async function finishDealReady(
             groupInviteLink: created.creatorInviteLink,
             counterpartInviteLink: created.counterpartInviteLink,
             groupCreatedVia: "helper",
+            groupAccessHash: created.accessHash,
             awaitingGroupExpiresAt: undefined,
             dmGroupInstructionsMessageId: undefined,
           }) ?? current;

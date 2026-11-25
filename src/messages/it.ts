@@ -189,7 +189,10 @@ Entra, poi *Sono entrato* o \`/start\`.`,
   groupWipedNotice:
     "⚠️ Store deal azzerato dall'admin. Questo gruppo non è più collegato.\nIn privato: /crea → nuovo gruppo → /avvia.",
 
-  /** Prima di leaveChat se deleteChat non riesce (~30 min post-chiusura). */
+  /** Avviso subito dopo payout/refund riuscito (~1 min prima della delete). */
+  groupClosingSoonNotice: "Il gruppo si chiude tra 1 minuto.",
+
+  /** Fallback: prima di leaveChat se delete fallisce (gruppi manuali). */
   groupClosingNotice:
     "Deal concluso. Il bot lascia il gruppo. Potete archiviarlo o eliminarlo.",
 

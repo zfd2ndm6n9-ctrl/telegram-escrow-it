@@ -65,7 +65,7 @@ const baseDeal = {
   assert.notEqual(it.reviewThanksBoth, it.reviewThanks);
 }
 
-// Schedule ~30 min
+// Schedule ~1 min
 {
   const dir = mkdtempSync(join(tmpdir(), "escrow-cleanup-"));
   try {
@@ -91,8 +91,10 @@ const baseDeal = {
     assert.ok(
       delta > GROUP_DELETE_AFTER_MS - 5_000 &&
         delta < GROUP_DELETE_AFTER_MS + 5_000,
-      `expected ~30m, got ${delta}ms`,
+      `expected ~1m, got ${delta}ms`,
     );
+    assert.equal(GROUP_DELETE_AFTER_MS, 60_000);
+    assert.equal(it.groupClosingSoonNotice, "Il gruppo si chiude tra 1 minuto.");
     // Idempotent
     const again = scheduleGroupCloseCleanup(store, scheduled);
     assert.equal(again.groupDeleteAt, scheduled.groupDeleteAt);

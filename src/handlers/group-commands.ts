@@ -1022,7 +1022,7 @@ function markPayoutCompleted(
       : `Payout refund ok · ${result.signature.slice(0, 8)}…`,
   );
   if (updated) {
-    scheduleGroupCloseCleanup(ctx.store, updated);
+    scheduleGroupCloseCleanup(ctx.store, updated, ctx.api);
     return ctx.store.get(dealId) ?? updated;
   }
   return updated;
@@ -1049,7 +1049,7 @@ async function reconcileEmptyEscrow(
     `Payout empty_escrow reconciled #${deal.id} kind=${kind} status→${doneStatus}` +
       (deal.payoutTxSig ? ` tx=${deal.payoutTxSig}` : " (no stored sig)"),
   );
-  scheduleGroupCloseCleanup(ctx.store, updated);
+  scheduleGroupCloseCleanup(ctx.store, updated, ctx.api);
   return ctx.store.get(updated.id) ?? updated;
 }
 

@@ -10,6 +10,8 @@ import {
   BOT_API_MEMBER_PERMISSIONS,
   groupCreatorReady,
 } from "../src/services/group-creator.js";
+import { GROUP_DELETE_AFTER_MS } from "../src/services/group-close-cleanup.js";
+import { botApiChatIdToChannelId } from "../src/services/mtproto-helper.js";
 import { config } from "../src/config.js";
 import { it } from "../src/messages/it.js";
 import {
@@ -28,6 +30,13 @@ assert.equal(
   false,
   "Bot API cannot create groups — hard limit",
 );
+
+assert.equal(GROUP_DELETE_AFTER_MS, 60_000, "delete ~1 min after pay/refund");
+assert.equal(
+  botApiChatIdToChannelId(-1001234567890).toString(),
+  "1234567890",
+);
+assert.equal(it.groupClosingSoonNotice, "Il gruppo si chiude tra 1 minuto.");
 
 assert.equal(BOT_API_MEMBER_PERMISSIONS.can_invite_users, false);
 assert.equal(BOT_API_MEMBER_PERMISSIONS.can_change_info, false);
@@ -59,6 +68,20 @@ assert.equal(config.disputeAdminNotify, true);
     "archive uses MTProto folders.EditPeerFolders",
   );
   assert.match(helperSrc, /folderId:\s*1/, "archive folder_id = 1");
+  assert.match(
+    helperSrc,
+    /channels\.DeleteChannel/,
+    "post-payout delete uses MTProto DeleteChannel",
+  );
+  const cleanupSrc = readFileSync(
+    resolve(root, "src/services/group-close-cleanup.ts"),
+    "utf8",
+  );
+  assert.match(
+    cleanupSrc,
+    /deleteHelperOwnedGroup/,
+    "close cleanup prefers helper delete",
+  );
 }
 
 const deal = {

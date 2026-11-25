@@ -95,7 +95,7 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 7. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 8. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
 9. Rilevamento automatico → seller *Consegnato* → buyer *Paga* (dual-confirm). In parallelo: *Rimborsa buyer* (dual-confirm buyer+seller; anche pre-consegna da stato / ship ask)
-10. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (solo Prezzo + review @; niente prodotto/condizioni) → «Grazie per la vostra valutazione.» → release on-chain (seller 95% + fee 5%) + Hash. Refund 2/2: payout immediato 100% → buyer (0 fee servizio), senza review; stato `refunded` / «rimborsato» in `/miei`. ~30 min dopo closed: tentativo `deleteChat` (se creator/admin con diritti), altrimenti leave + avviso corto (soft-fail).
+10. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (solo Prezzo + review @; niente prodotto/condizioni) → «Grazie per la vostra valutazione.» → release on-chain (seller 95% + fee 5%) + Hash. Refund 2/2: payout immediato 100% → buyer (0 fee servizio), senza review; stato `refunded` / «rimborsato» in `/miei`. ~1 min dopo closed: avviso «Il gruppo si chiude tra 1 minuto.» poi delete via helper MTProto (`channels.DeleteChannel`); soft-fail + log; fallback leave su gruppi manuali.
 11. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; in disputa admin forza release/refund con `/payseller` o `/refundbuyer` (salta dual-confirm e review)
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato, solo deal *conclusi* `released`/`refunded`), `/invito CODICE`.  

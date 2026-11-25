@@ -1,5 +1,6 @@
 import type { Api as GrammyApi } from "grammy";
 import { Api } from "teleproto";
+import { returnBigInt } from "teleproto/Helpers";
 import type { Deal } from "../types.js";
 import { it } from "../messages/it.js";
 import { config } from "../config.js";
@@ -102,6 +103,8 @@ export type CreateEscrowGroupResult =
   | {
       ok: true;
       chatId: number;
+      /** access_hash MTProto (string) per DeleteChannel post-payout. */
+      accessHash: string;
       /** Link per il creator del deal (member_limit 1). */
       creatorInviteLink: string;
       /** Link per la controparte (member_limit 1). */
@@ -269,6 +272,7 @@ export async function createEscrowGroup(input: {
     return {
       ok: true,
       chatId,
+      accessHash: (channel.accessHash ?? returnBigInt(0)).toString(),
       creatorInviteLink,
       counterpartInviteLink,
       inviteLink: creatorInviteLink,

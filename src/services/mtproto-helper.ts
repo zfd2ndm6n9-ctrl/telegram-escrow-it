@@ -1,4 +1,5 @@
 import { Api, TelegramClient } from "teleproto";
+import { returnBigInt } from "teleproto/Helpers";
 import { StringSession } from "teleproto/sessions";
 import { config } from "../config.js";
 
@@ -118,6 +119,119 @@ export async function archiveHelperPeer(
     return true;
   } catch (err) {
     console.warn("archiveHelperPeer (folders.EditPeerFolders) failed:", err);
+    return false;
+  }
+}
+
+/** Bot API `-100…` → channel id MTProto. */
+export function botApiChatIdToChannelId(chatId: number): ReturnType<typeof returnBigInt> {
+  const s = String(chatId);
+  if (s.startsWith("-100")) {
+    return returnBigInt(s.slice(4));
+  }
+  throw new Error(`chatId ${chatId} non è un megagroup/channel Bot API (-100…)`);
+}
+
+function errDetail(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as { message?: unknown; errorMessage?: unknown };
+    if (typeof e.errorMessage === "string" && e.errorMessage.trim()) {
+      return e.errorMessage;
+    }
+    if (typeof e.message === "string" && e.message.trim()) {
+      return e.message;
+    }
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Risolve un megagroup helper da Bot API chat id (cache → dialoghi Archiviati).
+ * Soft: undefined se non trovato (sessione senza entity / gruppo già eliminato).
+ */
+export async function resolveHelperChannel(
+  chatId: number,
+  accessHash?: string,
+): Promise<Api.Channel | Api.InputChannel | undefined> {
+  if (accessHash != null && accessHash.trim() !== "") {
+    try {
+      return new Api.InputChannel({
+        channelId: botApiChatIdToChannelId(chatId),
+        accessHash: returnBigInt(accessHash),
+      });
+    } catch (err) {
+      console.warn(
+        `[mtproto] InputChannel from accessHash failed chat=${chatId}: ${errDetail(err)}`,
+      );
+    }
+  }
+
+  if (!isMtprotoHelperConfigured()) return undefined;
+  const client = await getMtprotoHelper();
+
+  const tryGet = async (): Promise<Api.Channel | undefined> => {
+    try {
+      const entity = await client.getEntity(chatId);
+      if (entity instanceof Api.Channel) return entity;
+    } catch {
+      // not in cache
+    }
+    return undefined;
+  };
+
+  let channel = await tryGet();
+  if (channel) return channel;
+
+  // Dopo restart StringSession non ha entity cache: ripopola da Archiviati (+ inbox).
+  try {
+    for await (const _ of client.iterDialogs({ archived: true })) {
+      // populate cache only
+    }
+    for await (const _ of client.iterDialogs({ archived: false })) {
+      // populate cache only
+    }
+  } catch (err) {
+    console.warn(
+      `[mtproto] iterDialogs refresh failed chat=${chatId}: ${errDetail(err)}`,
+    );
+  }
+
+  channel = await tryGet();
+  return channel;
+}
+
+/**
+ * Elimina un megagroup di cui l'helper è owner (`channels.DeleteChannel`).
+ * Soft-fail: mai throw; log chiaro su successo/fallimento.
+ */
+export async function deleteHelperOwnedGroup(
+  chatId: number,
+  accessHash?: string,
+): Promise<boolean> {
+  if (!isMtprotoHelperConfigured()) {
+    console.warn(
+      `[group-cleanup] MTProto delete skip chat=${chatId}: helper non configurato`,
+    );
+    return false;
+  }
+
+  try {
+    const client = await getMtprotoHelper();
+    const channel = await resolveHelperChannel(chatId, accessHash);
+    if (!channel) {
+      console.warn(
+        `[group-cleanup] MTProto delete skip chat=${chatId}: channel non risolto (cache/dialoghi)`,
+      );
+      return false;
+    }
+
+    await client.invoke(new Api.channels.DeleteChannel({ channel }));
+    console.log(`[group-cleanup] MTProto DeleteChannel ok chat=${chatId}`);
+    return true;
+  } catch (err) {
+    console.warn(
+      `[group-cleanup] MTProto DeleteChannel failed chat=${chatId}: ${errDetail(err)}`,
+    );
     return false;
   }
 }
