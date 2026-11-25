@@ -25,7 +25,7 @@
 3. Buyer invia SOL a quell’indirizzo
 4. Watcher (~20s) o `/depositato` / «Stato» o «Altre info» (verifica deposito inclusa) → `funded` se saldo ≥ **importo SOL lockato** (mai FX live). Post-deposito: «Altre info» unisce stato + fee (niente Stato standalone).
 5. Dual-confirm paga-seller (UX buyer-first) / **Chiedi il rimborso** solo buyer (dual-confirm; seller conferma 2° voto; admin force solo in disputa via `/payseller` / `/refundbuyer`)
-6. Dopo 2/2 **release** (non refund): review breve seller → buyer → post su `VOUCH_CHANNEL_ID` (solo Prezzo + review; no prodotto/condizioni) → «Grazie per la vostra valutazione.» → payout + Hash. Admin in disputa / refund saltano le review. ~30 min dopo closed: cleanup gruppo (deleteChat se permesso, altrimenti leave)
+6. Dopo 2/2 **release** (non refund): review breve seller → buyer → post su `VOUCH_CHANNEL_ID` (solo Prezzo + review; no prodotto/condizioni) → «Grazie per la vostra valutazione.» → payout + Hash. Admin in disputa / refund saltano le review. ~1 min dopo closed: avviso «Il gruppo si chiude tra 1 minuto.» poi delete gruppo via helper MTProto (`channels.DeleteChannel`); soft-fail + log; fallback Bot API leave su path manuale
 7. **Release:** una tx atomica — **95%** → seller, **5%** fee piattaforma. Se il deal ha invito collaboratore: **2.5%** → master/`FEE_WALLET_PUBKEY`, **2.5%** → wallet collaboratore. **Refund:** 100% → buyer (nessuna fee servizio, nessuna review)
 8. **Fee di rete** pagate dalla **master** (`feePayer`): ricarica la master con poco SOL (es. 0.05)
 9. Payout: `getLatestBlockhash("confirmed")` + stesso `preflightCommitment`, con retry su #7050008 (Blockhash not found). Contabilità idempotente (`payoutCompleted` + `payoutTxSig`)

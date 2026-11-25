@@ -180,7 +180,8 @@ async function main(): Promise<void> {
   );
 
   const groupBindExpiry = startGroupBindExpiryWatcher(store, bot.api, 30_000);
-  const groupCloseCleanup = startGroupCloseCleanupWatcher(store, bot.api, 30_000);
+  // ~1 min post-payout: tick ogni 15s così la delete arriva vicino al minuto.
+  const groupCloseCleanup = startGroupCloseCleanupWatcher(store, bot.api, 15_000);
   const usernameRefresh = startUsernameRefresh(bot.api, store, members, 60_000);
 
   const allowed_updates = [
