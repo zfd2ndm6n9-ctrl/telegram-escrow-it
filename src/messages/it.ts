@@ -1160,13 +1160,13 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     "Controlla l'indirizzo escrow *solo* nei messaggi di Escrowita in questo gruppo. Non fidarti di altri canali o forward.",
 
   disputeOpened: (deal: Deal) =>
-    `⚠️ Disputa aperta (#${deal.id}). Supporto avvisato: può entrare e risolvere.`,
+    `⚠️ Disputa aperta (#${deal.id}). Supporto può entrare e risolvere quando serve.`,
 
   supportGroup:
     "Supporto Escrowita: usa *Disputa* nel gruppo. In disputa può entrare un operatore.",
 
   supportDm:
-    "Supporto Escrowita: nel gruppo del deal apri *Disputa*. L'operatore riceve notifica e può entrare.",
+    "Supporto Escrowita: nel gruppo del deal apri *Disputa*. Un operatore può entrare quando serve.",
 
   blockchainLink: (deal: Deal, url: string) =>
     `🔗 Tx deal *#${deal.id}*:\n${url}`,

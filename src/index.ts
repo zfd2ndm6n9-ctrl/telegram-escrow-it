@@ -71,9 +71,14 @@ async function main(): Promise<void> {
     );
   } else {
     console.warn(
-      "Nessun ADMIN_TELEGRAM_ID / ADMIN_TELEGRAM_IDS: dispute notify e /log disabilitati.",
+      "Nessun ADMIN_TELEGRAM_ID / ADMIN_TELEGRAM_IDS: /log e force payout disabilitati.",
     );
   }
+  console.log(
+    config.disputeAdminNotify
+      ? "Dispute admin DM: ON (DISPUTE_ADMIN_NOTIFY=1)."
+      : "Dispute admin DM: OFF (default). Critici kick/delete restano ON.",
+  );
   if (config.updatesChannelId != null) {
     console.log(
       `Contatore pubblico: UPDATES_CHANNEL_ID=${config.updatesChannelId}` +

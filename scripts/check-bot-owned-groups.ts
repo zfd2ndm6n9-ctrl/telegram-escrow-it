@@ -25,6 +25,8 @@ assert.equal(BOT_API_MEMBER_PERMISSIONS.can_pin_messages, false);
 
 // Default prefer create (unless TELEGRAM_BOT_CREATES_GROUPS=0)
 assert.equal(typeof config.telegramBotCreatesGroups, "boolean");
+// Dispute admin DMs off unless DISPUTE_ADMIN_NOTIFY=1
+assert.equal(config.disputeAdminNotify, false);
 
 const deal = {
   id: "abcd1234",
