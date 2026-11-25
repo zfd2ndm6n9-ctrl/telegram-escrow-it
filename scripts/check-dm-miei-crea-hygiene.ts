@@ -58,6 +58,10 @@ assert.match(hygieneSrc, /clearTermsErrorMessages/);
 // Expiry clears terms UI, not only group instructions
 assert.match(expirySrc, /clearDmTermsUi/);
 
+// Expiry tracks scaduto notice; /crea leftover cancel deletes it
+assert.match(expirySrc, /dmGroupBindExpiredMessageId/);
+assert.match(hygieneSrc, /clearExpiredGroupBindNotices/);
+
 // Session comment matches edit behavior
 assert.match(ctxSrc, /edit-in-place/);
 

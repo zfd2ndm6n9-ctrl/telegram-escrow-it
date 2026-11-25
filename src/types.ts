@@ -245,6 +245,11 @@ export interface Deal {
    * Message id delle istruzioni gruppo in DM del creator (cancellato a bind o scadenza).
    */
   dmGroupInstructionsMessageId?: number;
+  /**
+   * Message id del notice «deal scaduto» in DM del creator
+   * (cancellato al prossimo /crea).
+   */
+  dmGroupBindExpiredMessageId?: number;
   createdAt: string;
   updatedAt: string;
 }

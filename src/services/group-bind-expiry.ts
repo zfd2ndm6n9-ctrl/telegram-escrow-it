@@ -44,9 +44,16 @@ export function startGroupBindExpiryWatcher(
     }
 
     try {
-      await api.sendMessage(deal.creatorId, it.groupBindExpired(deal), {
-        parse_mode: "Markdown",
-        reply_markup: mainMenuKeyboard(),
+      const notice = await api.sendMessage(
+        deal.creatorId,
+        it.groupBindExpired(deal),
+        {
+          parse_mode: "Markdown",
+          reply_markup: mainMenuKeyboard(),
+        },
+      );
+      store.update(deal.id, {
+        dmGroupBindExpiredMessageId: notice.message_id,
       });
     } catch (err) {
       console.warn(
