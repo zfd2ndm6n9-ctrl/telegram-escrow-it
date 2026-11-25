@@ -222,8 +222,8 @@ export interface Deal {
    */
   tosAcceptedMessageId?: number;
   /**
-   * Teaser pinnato Mini App ToS (dopo bind, prima di Accetta).
-   * Non cancellare in hygiene finché i termini non sono accettati.
+   * Teaser pinnato Mini App ToS (sola lettura, dopo bind).
+   * Non cancellare in hygiene finché i termini deal non sono accettati.
    */
   tosMiniAppMessageId?: number;
   /** Ultimo messaggio /stato del bot (sostituito al prossimo /stato). */

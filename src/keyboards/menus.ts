@@ -139,14 +139,14 @@ export function vouchTosUrlKeyboard(tosWebAppUrl: string): InlineKeyboard {
   return new InlineKeyboard().url("📄 Leggi i Termini", tosWebAppUrl);
 }
 
-/** Gruppo: pin Mini App ToS (Accetta dentro la Mini App). */
-export function groupTosMiniAppKeyboard(tosDealUrl: string): InlineKeyboard {
-  return new InlineKeyboard().webApp("📄 Leggi e Accetta", tosDealUrl);
+/** Gruppo: pin Mini App ToS in sola lettura (niente Accetta). */
+export function groupTosMiniAppKeyboard(tosUrl: string): InlineKeyboard {
+  return new InlineKeyboard().webApp("📄 Leggi i Termini", tosUrl);
 }
 
 /** Fallback URL se il gruppo rifiuta `web_app`. */
-export function groupTosMiniAppUrlKeyboard(tosDealUrl: string): InlineKeyboard {
-  return new InlineKeyboard().url("📄 Leggi e Accetta", tosDealUrl);
+export function groupTosMiniAppUrlKeyboard(tosUrl: string): InlineKeyboard {
+  return new InlineKeyboard().url("📄 Leggi i Termini", tosUrl);
 }
 
 /** @deprecated Conferma ruolo rimossa: auto-bind su /avvia. */
@@ -155,21 +155,13 @@ export function counterpartConfirmKeyboard(dealId: string): InlineKeyboard {
 }
 
 /**
- * Card termini: Accetta (Mini App se URL) o callback fallback + Proponi i ToS.
- * Accetta nella Mini App quando `tosDealUrl` è impostato.
+ * Card termini: Accetta (callback `tosok`) + Proponi i ToS.
+ * Niente Mini App / web_app: il gruppo non dipende da Accetta in-app.
  */
-export function tosConfirmKeyboard(
-  dealId: string,
-  tosDealUrl?: string,
-): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  if (tosDealUrl) {
-    kb.webApp("✅ Accetta", tosDealUrl);
-  } else {
-    kb.text("✅ Accetta", `tosok:${dealId}`);
-  }
-  kb.text("✏️ Proponi i ToS", `tospropose:${dealId}`);
-  return kb;
+export function tosConfirmKeyboard(dealId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✅ Accetta", `tosok:${dealId}`)
+    .text("✏️ Proponi i ToS", `tospropose:${dealId}`);
 }
 
 /** @deprecated Dual-confirm importo rimosso; crypto amount dopo Accetto se manca. */

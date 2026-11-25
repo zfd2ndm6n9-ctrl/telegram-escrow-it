@@ -359,11 +359,11 @@ Nel frattempo (emergenza): crea un *gruppo privato* → aggiungi il bot come adm
       : "📄 Termini Escrowita: Mini App non ancora disponibile. Riprova tra poco.",
 
   /**
-   * Pin nel gruppo dopo bind controparte (prima di Accetta).
-   * Bottone → Mini App ToS; Accetta avviene nella Mini App.
+   * Pin nel gruppo dopo bind controparte.
+   * Bottone → Mini App ToS in sola lettura (niente Accetta).
    */
   groupTosMiniAppPin:
-    "📄 *ESCROWITA TOS* — leggi i termini nella Mini App, poi *Accetta* lì.",
+    "📄 *ESCROWITA TOS* — termini di servizio. Tocca per leggerli (opzionale).",
 
   /** Bot non admin: una sola riga. */
   needBotAdmin: "Per iniziare il deal il bot deve essere amministratore.",
@@ -463,7 +463,7 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
         deal.buyerId != null && isTermsProposer(deal, deal.buyerId)
           ? seller
           : buyer;
-      action = `${other}: apri *Accetta* (Mini App) o *Proponi i ToS*.`;
+      action = `${other}: *Accetta* o *Proponi i ToS*.`;
     } else {
       const who = mentionTermsProposer(deal, "proponente");
       const missing = missingEssentialTerms(deal);
@@ -610,7 +610,7 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
   },
 
   termsUseButtons:
-    "Usa *Accetta* (Mini App) o *Proponi i ToS* sulla card.",
+    "Usa *Accetta* o *Proponi i ToS* sulla card.",
 
   /** @deprecated Importo escrow fissato da Prezzo € (conversione automatica). */
   askEscrowAmount: (deal: Deal) => {
