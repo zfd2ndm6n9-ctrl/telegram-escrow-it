@@ -117,15 +117,19 @@ const baseDeal = {
   assert.ok(!cbs.includes("shipped"));
 }
 
-// disputed: stato + annulla — niente addr/paga/rimborsa/verifica/consegnato
+// disputed: Altre info + annulla — niente addr/paga/rimborsa/verifica/consegnato/stato
 {
   const cbs = callbacksOf(groupActionsKeyboard("disputed", baseDeal));
-  assert.deepEqual(cbs.sort(), ["dispute_cancel", "stato"].sort());
+  assert.deepEqual(cbs.sort(), ["altre_info", "dispute_cancel"].sort());
+  assert.ok(!cbs.includes("stato"));
   assert.ok(!cbs.includes("addr"));
   assert.ok(!cbs.includes("funded"));
   assert.ok(!cbs.includes("buyer_pay"));
   assert.ok(!cbs.includes("refund_buyer"));
   assert.ok(!cbs.includes("shipped"));
+  const labels = labelsOf(groupActionsKeyboard("disputed", baseDeal));
+  assert.ok(labels.includes("ℹ️ Altre info"));
+  assert.ok(labels.includes("↩️ Annulla disputa"));
 }
 
 // funded ship ask: Consegnato + Disputa + Altre info (rimborso via Disputa)
@@ -255,6 +259,30 @@ const baseDeal = {
   });
   assert.match(withCollab, /• Fee: \*5%\*/);
   assert.ok(!/2\.5%/.test(withCollab));
+}
+
+// Altre info / Stato in disputa: IN DISPUTA, niente deposito/importo/prezzo
+{
+  const disputed = {
+    ...baseDeal,
+    status: "disputed" as const,
+    priceEur: "50",
+  };
+  const info = it.altreInfoMenu(disputed);
+  assert.match(info, /IN DISPUTA/);
+  assert.match(info, /bloccate fino all'arrivo del supporto/i);
+  assert.ok(!/Deposito/i.test(info));
+  assert.ok(!/Importo/i.test(info));
+  assert.ok(!/Prezzo/i.test(info));
+  assert.ok(!/0\.1/.test(info));
+  assert.ok(!/Fee/i.test(info));
+  assert.equal(info, it.disputeInfoBlocked);
+
+  const stato = formatDepositStato(disputed);
+  assert.equal(stato, it.disputeInfoBlocked);
+  assert.ok(!/Deposito/i.test(stato));
+  assert.ok(!/Importo/i.test(stato));
+  assert.ok(!/Prezzo/i.test(stato));
 }
 
 // Altre info pre-deposito: niente Deposito / Supporto / «In attesa deposito»

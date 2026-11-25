@@ -211,7 +211,8 @@ export function groupActionsKeyboard(status: string, deal?: Deal): InlineKeyboar
   const kb = new InlineKeyboard();
 
   if (status === "disputed") {
-    kb.text("📄 Stato", "stato").row();
+    // Altre info → solo «IN DISPUTA» (niente deposito/importo/prezzo).
+    kb.text("ℹ️ Altre info", "altre_info").row();
     kb.text("↩️ Annulla disputa", "dispute_cancel");
     return kb;
   }
