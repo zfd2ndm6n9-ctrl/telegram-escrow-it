@@ -121,6 +121,25 @@ export function isAdminUser(userId: number): boolean {
 }
 
 /**
+ * Account supporto / helper MTProto (owner dei gruppi bot-created).
+ * Stesso set di `ADMIN_TELEGRAM_ID(S)` — mai buyer/seller di un deal.
+ */
+export function isSupportHelperUser(userId: number): boolean {
+  return isAdminUser(userId);
+}
+
+/**
+ * Può essere bindato come buyer/seller (join / /avvia / messaggio).
+ * Support/helper no, salvo se è già parte o creator del deal (edge: admin
+ * che apre un deal in proprio — lo slot creator è già assegnato a create).
+ */
+export function canBindAsDealParty(deal: Deal, userId: number): boolean {
+  if (isParty(deal, userId) || userId === deal.creatorId) return true;
+  if (isSupportHelperUser(userId)) return false;
+  return true;
+}
+
+/**
  * Force payout admin (`/payseller` / `/refundbuyer`): solo `ADMIN_TELEGRAM_IDS`
  * e solo se il deal è in `disputed` (audit: force OK in disputa; dual-confirm
  * resta il path normale fuori disputa).
@@ -579,6 +598,12 @@ export function assignJoiningParty(
       }
     }
     return Object.keys(patch).length ? patch : null;
+  }
+
+  // Support/helper (owner gruppo MTProto): mai riempire uno slot vuoto.
+  // Solo refresh se già parte (blocco sopra). Creator settato a create().
+  if (isSupportHelperUser(userId)) {
+    return null;
   }
 
   // Slot libero = ruolo opposto al creator se quel lato manca

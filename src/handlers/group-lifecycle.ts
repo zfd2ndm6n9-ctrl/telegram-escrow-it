@@ -6,10 +6,12 @@ import {
   amountConfirmed,
   assignJoiningParty,
   bothPartiesPresent,
+  canBindAsDealParty,
   isAdminUser,
   isAllowedHuman,
   isParty,
   isPreDepositSetup,
+  isSupportHelperUser,
   isTermsProposer,
   nextDmTermsStep,
   parseAmount,
@@ -96,8 +98,10 @@ function canRunAvvia(
 ): boolean {
   if (deal.creatorId === userId) return true;
   if (deal.buyerId === userId || deal.sellerId === userId) return true;
+  // Helper/support owner: osserva, non fa da controparte.
+  if (isSupportHelperUser(userId)) return false;
   // Controparte non ancora bound: buyer o seller slot libero → chiunque
-  // nel gruppo col deal collegato può /avvia (auto-bind userà runnerId).
+  // (non-helper) nel gruppo col deal collegato può /avvia (auto-bind).
   const missingBuyer = deal.buyerId == null;
   const missingSeller = deal.sellerId == null;
   return missingBuyer || missingSeller;
@@ -178,16 +182,20 @@ async function onHumanJoined(
   let current = trackSeenGroupUser(ctx.store, deal, userId);
 
   if (!bothPartiesPresent(current)) {
-    if (isAllowedHuman(current, userId) || userId === current.creatorId) {
+    // Già buyer/seller/creator: solo refresh username/display.
+    if (isParty(current, userId) || userId === current.creatorId) {
       const patch = assignJoiningParty(current, userId, username, displayName);
       if (patch) {
         current = ctx.store.update(current.id, patch) ?? current;
       }
-    } else if (
-      current.buyerId == null ||
-      current.sellerId == null
-    ) {
-      // Nuovo umano: prova bind immediato (niente attesa messaggio).
+      return;
+    }
+    // Helper/support (owner gruppo): resta, mai bind come controparte.
+    if (isSupportHelperUser(userId)) {
+      return;
+    }
+    if (current.buyerId == null || current.sellerId == null) {
+      // Nuovo umano (invite-link): prova bind immediato.
       const bind = await autoBindCounterpart(
         ctx.api,
         ctx.store,
@@ -224,8 +232,11 @@ async function onHumanJoined(
   }
 
   if (isAllowedHuman(current, userId)) {
-    const patch = assignJoiningParty(current, userId, username, displayName);
-    if (patch) ctx.store.update(current.id, patch);
+    // Parti: refresh meta. Admin/helper: restano senza bind.
+    if (canBindAsDealParty(current, userId)) {
+      const patch = assignJoiningParty(current, userId, username, displayName);
+      if (patch) ctx.store.update(current.id, patch);
+    }
     return;
   }
 
@@ -943,9 +954,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     let current = trackSeenGroupUser(ctx.store, deal, ctx.from.id);
 
     // Se ancora in attesa controparte: un messaggio può completare il bind
+    // (helper/support escluso — non è una parte invite-link).
     if (
       !bothPartiesPresent(current) &&
-      current.status === "awaiting_counterpart"
+      current.status === "awaiting_counterpart" &&
+      canBindAsDealParty(current, ctx.from.id)
     ) {
       const bind = await autoBindCounterpart(
         ctx.api,

@@ -10,6 +10,7 @@
 4. Bot promosso admin con diritti forti (incluso promote → demote parti)  
 5. DM con **due link invito** (`member_limit: 1`): creator + controparte  
 6. Parti entrano come **membri** → `/avvia` / auto-bind  
+7. Helper/support (`ADMIN_TELEGRAM_ID(S)`) **non** è mai buyer/seller — solo le due parti dei link
 
 `TELEGRAM_BOT_CREATES_GROUPS` è **on** di default. Imposta `0` solo per forzare il path manuale legacy.
 
