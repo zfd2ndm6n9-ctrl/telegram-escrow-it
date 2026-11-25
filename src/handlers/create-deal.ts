@@ -680,7 +680,7 @@ async function finishDealReady(
       );
 
       // DM: solo link creator → «Il tuo gruppo è stato creato».
-      // Link buyer/seller: posta il bot nel gruppo (card «Invita il …»).
+      // Link buyer/seller: posta il bot nel gruppo (card «Entra come …»).
       const creatorLink = created.creatorInviteLink;
       const kb = groupInviteKeyboard(creatorLink, config.tosWebAppUrl);
 

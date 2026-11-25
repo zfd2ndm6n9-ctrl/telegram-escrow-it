@@ -9,7 +9,6 @@ import { it } from "../messages/it.js";
 import {
   buyerAfterShipKeyboard,
   groupActionsKeyboard,
-  inviteMissingPartyKeyboard,
   shipAskKeyboard,
   tosConfirmKeyboard,
 } from "../keyboards/menus.js";
@@ -127,7 +126,7 @@ export async function ensureEscrowitaGroupPhoto(
 
 /**
  * Keyboard della card setup:
- * - awaiting counterpart (helper): URL «Invita il buyer/seller»
+ * - awaiting counterpart (helper): nessun bottone — «Entra come …» + link nel testo
  * - Accetta / Proponi a proposta completa
  */
 export function setupCardKeyboard(deal: Deal): InlineKeyboard {
@@ -136,10 +135,8 @@ export function setupCardKeyboard(deal: Deal): InlineKeyboard {
     deal.groupCreatedVia === "helper" &&
     deal.counterpartInviteLink
   ) {
-    return inviteMissingPartyKeyboard(
-      deal.creatorRole,
-      deal.counterpartInviteLink,
-    );
+    // Niente «Invita» / URL button: link inoltrabile solo nel testo della card.
+    return new InlineKeyboard();
   }
   if (
     deal.status === "awaiting_tos_confirm" &&

@@ -306,21 +306,15 @@ Poi invita l'altra parte.`;
     creatorInvited: boolean,
   ) => {
     void links.counterpartLink; // invito buyer/seller → messaggio nel gruppo
-    const missing =
-      deal.creatorRole === "seller" ? "buyer" : "seller";
     return `✅ *Il tuo gruppo è stato creato*
 
 Deal *#${deal.id}* · ruolo *${deal.creatorRole}* · *${deal.asset}*
-(gestito da Escrowita)
 
 ${
   creatorInvited
     ? "Ti ho già aggiunto — apri il gruppo dal pulsante sotto."
     : `Apri il gruppo dal pulsante sotto (link solo tuo):\n${links.creatorLink}`
-}
-
-Nel gruppo trovi *Invita il ${missing}* da inoltrare all'altra parte.
-Poi Accetta → wallet → deposito. Verifica sempre l'indirizzo escrow nei messaggi del bot.`;
+}`;
   },
 
   groupCreateFailed: (deal: Deal, detail: string) =>
@@ -398,14 +392,14 @@ Nel frattempo (emergenza): crea un *gruppo privato* → aggiungi il bot come adm
 
     if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
       const missingRole = deal.creatorRole === "seller" ? "buyer" : "seller";
-      // Helper-owned: link invito dedicato (niente «controparte entra / scrivi»).
+      // Helper-owned: «Entra come …» + link in testo (inoltrabile); niente bottone Invita.
       if (
         deal.groupCreatedVia === "helper" &&
         deal.counterpartInviteLink
       ) {
         return `${header}
 
-Invita il *${missingRole}*:
+Entra come *${missingRole}*:
 ${deal.counterpartInviteLink}`;
       }
       // Manuale (emergenza): role-aware, senza la parola «controparte».
@@ -478,8 +472,8 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
     "Troppi membri. Solo *buyer*, *seller* e il bot. Rimuovi gli altri, poi /avvia.",
 
   /**
-   * Role-aware: opener seller → invita buyer; opener buyer → invita seller.
-   * Helper path: link; manual: entra/scrivi (mai la parola «controparte»).
+   * Role-aware: opener seller → entra come buyer; opener buyer → entra come seller.
+   * Helper path: link in testo (inoltrabile); manual: entra/scrivi (mai «controparte»).
    */
   counterpartAsk: (
     deal: Pick<
@@ -489,7 +483,7 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
   ) => {
     const missingRole = deal.creatorRole === "seller" ? "buyer" : "seller";
     if (deal.groupCreatedVia === "helper" && deal.counterpartInviteLink) {
-      return `Invita il *${missingRole}*:\n${deal.counterpartInviteLink}`;
+      return `Entra come *${missingRole}*:\n${deal.counterpartInviteLink}`;
     }
     const label = missingRole === "buyer" ? "Buyer" : "Seller";
     return `${label}: entra o scrivi un messaggio nel gruppo.`;
@@ -497,7 +491,7 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
 
   /**
    * Fallback status se la living card non è disponibile.
-   * Con card presente: non inviare — un solo prompt invite / entra.
+   * Con card presente: non inviare — un solo prompt entra come / entra.
    */
   avviaAwaitingCounterpart: (
     deal: Pick<
@@ -508,7 +502,7 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
     const missingRole = deal.creatorRole === "seller" ? "buyer" : "seller";
     if (deal.groupCreatedVia === "helper" && deal.counterpartInviteLink) {
       return (
-        `Deal *#${deal.id}* — invita il *${missingRole}*:\n` +
+        `Deal *#${deal.id}* — entra come *${missingRole}*:\n` +
         deal.counterpartInviteLink
       );
     }

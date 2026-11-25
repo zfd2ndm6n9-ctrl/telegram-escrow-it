@@ -17,19 +17,29 @@ export function mainMenuKeyboard(): InlineKeyboard {
     .text(MAIN_MENU_MIEI_LABEL, MAIN_MENU_MIEI_CB);
 }
 
-/** Ruolo mancante da invitare (opposto al creator del wizard). */
+/** Ruolo mancante (opposto al creator del wizard). */
 export function missingPartyRole(creatorRole: PartyRole): PartyRole {
   return creatorRole === "seller" ? "buyer" : "seller";
 }
 
-/** Bottone URL gruppo: «Invita il buyer» / «Invita il seller». */
+/** Label CTA dal ruolo mancante: «Entra come buyer» / «Entra come seller». */
+export function entraComeMissingPartyLabel(creatorRole: PartyRole): string {
+  const role = missingPartyRole(creatorRole);
+  return role === "buyer" ? "Entra come buyer" : "Entra come seller";
+}
+
+/**
+ * Bottone URL gruppo: «Entra come buyer/seller» (no «Invita il …»).
+ * Il link resta anche nel testo della card (inoltrabile).
+ */
 export function inviteMissingPartyKeyboard(
   creatorRole: PartyRole,
   inviteLink: string,
 ): InlineKeyboard {
-  const role = missingPartyRole(creatorRole);
-  const label = role === "buyer" ? "Invita il buyer" : "Invita il seller";
-  return new InlineKeyboard().url(label, inviteLink);
+  return new InlineKeyboard().url(
+    entraComeMissingPartyLabel(creatorRole),
+    inviteLink,
+  );
 }
 
 /** Invito opzionale su /crea: niente `/skip` tappable nel testo. */
@@ -94,7 +104,7 @@ export function afterAmountKeyboard(
 
 /**
  * DM dopo creazione helper: link clickable nel gruppo del creator.
- * Il link per buyer/seller manca qui — lo posta il bot nel gruppo («Invita il …»).
+ * Il link per buyer/seller manca qui — lo posta il bot nel gruppo («Entra come …»).
  */
 export function groupInviteKeyboard(
   inviteLink: string,

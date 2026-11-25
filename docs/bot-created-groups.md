@@ -9,7 +9,7 @@
 3. Helper = **owner** (account supporto di Francesco, non una parte)  
 4. Bot promosso admin con diritti forti (incluso promote → demote parti)  
 5. DM creator: «Il tuo gruppo è stato creato» + link clickable (`member_limit: 1`)  
-6. Nel gruppo: bottone/link **Invita il buyer** o **Invita il seller** (ruolo opposto al wizard)  
+6. Nel gruppo: testo **Entra come buyer** / **Entra come seller** + invite link (ruolo opposto al wizard; niente bottone Invita)  
 7. Parti entrano come **membri** → auto-bind / `/avvia`  
 8. Helper/support (`ADMIN_TELEGRAM_ID(S)`) **non** è mai buyer/seller — solo le due parti dei link
 
