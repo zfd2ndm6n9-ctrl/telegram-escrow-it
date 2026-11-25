@@ -150,12 +150,19 @@ assert.match(fail, /helper MTProto/i);
 const demoted = it.partyAdminDemoted("@alice");
 assert.match(demoted, /membro/);
 
-const kb = groupInviteKeyboard("https://t.me/+a", undefined);
-const urls = kb.inline_keyboard.flat().map((b) => ("url" in b ? b.url : ""));
-assert.ok(urls.includes("https://t.me/+a"));
-const entraBtn = kb.inline_keyboard[0]?.[0];
-assert.ok(entraBtn && "text" in entraBtn);
-assert.match(entraBtn.text, /Entra nel gruppo/i);
+const kb = groupInviteKeyboard("https://t.me/+a", "https://example.com/tos");
+const flat = kb.inline_keyboard.flat();
+assert.equal(flat.length, 1, "group-ready DM: solo ← Indietro");
+const backBtn = flat[0];
+assert.ok(backBtn && "text" in backBtn && "callback_data" in backBtn);
+assert.equal(backBtn.text, "← Indietro");
+assert.equal(backBtn.callback_data, "group_ready_back");
+assert.ok(!("url" in backBtn), "no Entra nel gruppo URL button");
+assert.ok(!("web_app" in backBtn), "no Leggi i Termini web_app button");
+assert.ok(
+  !flat.some((b) => "text" in b && /Entra nel gruppo|Leggi i Termini/i.test(b.text)),
+  "no Entra / Leggi Termini labels",
+);
 
 assert.equal(entraComeMissingPartyLabel("seller"), "Entra come buyer");
 assert.equal(entraComeMissingPartyLabel("buyer"), "Entra come seller");

@@ -9,6 +9,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   assetKeyboard,
+  GROUP_READY_BACK_CB,
+  groupInviteKeyboard,
   MAIN_MENU_CREA_CB,
   MAIN_MENU_CREA_LABEL,
   MAIN_MENU_MIEI_CB,
@@ -102,6 +104,30 @@ assert.match(creaSrc, /creatingMsgId/);
 assert.match(creaSrc, /replyCreatorInviteDm/);
 assert.match(creaSrc, /postHelperCounterpartInvite/);
 assert.match(creaSrc, /finally/);
+
+// Group-ready DM: ← Indietro only (no Entra / Leggi Termini buttons)
+const readyKb = groupInviteKeyboard("https://t.me/+x", "https://example.com/tos");
+assert.equal(readyKb.inline_keyboard?.flat().length, 1);
+assert.equal(readyKb.inline_keyboard?.[0]?.[0]?.text, "← Indietro");
+assert.equal(
+  readyKb.inline_keyboard?.[0]?.[0]?.callback_data,
+  GROUP_READY_BACK_CB,
+);
+assert.match(creaSrc, /GROUP_READY_BACK_CB/);
+assert.match(creaSrc, /editMessageReplyMarkup/);
+{
+  const m = menusSrc.match(
+    /export function groupInviteKeyboard\([\s\S]*?\n\}/,
+  );
+  assert.ok(m, "groupInviteKeyboard body");
+  const body = m[0];
+  assert.match(body, /← Indietro/);
+  assert.match(body, /GROUP_READY_BACK_CB/);
+  assert.doesNotMatch(body, /Entra nel gruppo/);
+  assert.doesNotMatch(body, /Leggi i Termini/);
+  assert.doesNotMatch(body, /\.url\(/);
+  assert.doesNotMatch(body, /\.webApp\(/);
+}
 
 // No strip / ghost carrier — replyWithMainMenu attaches inline only
 assert.doesNotMatch(hygieneSrc, /stripPersistentReplyKeyboard/);
