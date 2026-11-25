@@ -120,9 +120,29 @@ async function cancelUnboundDraft(
 }
 
 /**
+ * Cancella notice «deal scaduto» (group-bind TTL) del creator, se tracciato.
+ */
+export async function clearExpiredGroupBindNotices(
+  ctx: BotContext,
+): Promise<void> {
+  if (!ctx.chat || ctx.chat.type !== "private" || !ctx.from) return;
+
+  for (const deal of ctx.store.listForUser(ctx.from.id)) {
+    if (deal.creatorId !== ctx.from.id) continue;
+    const noticeId = deal.dmGroupBindExpiredMessageId;
+    if (noticeId == null) continue;
+    await deleteMessageSafe(ctx.api, ctx.chat.id, noticeId);
+    ctx.store.update(deal.id, {
+      dmGroupBindExpiredMessageId: undefined,
+    });
+  }
+}
+
+/**
  * Nuovo /crea: pulisci /miei + qualsiasi bozza unbound del creator
  * (mid-wizard *o* istruzioni «aggiungi bot» ancora senza gruppo).
  * Evita stack e resume orfano via findOpenTermsDeal.
+ * Cancella anche eventuali notice «deal scaduto» da TTL group-bind.
  */
 export async function cancelLeftoverCreaForNewFlow(
   ctx: BotContext,
@@ -131,6 +151,7 @@ export async function cancelLeftoverCreaForNewFlow(
 
   await clearMieiUi(ctx);
   await cancelMidCreaBeforeGroupBind(ctx);
+  await clearExpiredGroupBindNotices(ctx);
 
   for (const deal of ctx.store.listForUser(ctx.from.id)) {
     if (deal.creatorId !== ctx.from.id) continue;
