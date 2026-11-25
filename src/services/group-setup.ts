@@ -29,6 +29,10 @@ import {
   syncDealLiveChatId,
 } from "./group-chat-remap.js";
 import {
+  demoteNonOwnerHumanAdmins,
+  hardenGroupPermissions,
+} from "./group-creator.js";
+import {
   clearEphemeralReplies,
   clearRoleError,
   deleteMessageSafe,
@@ -528,6 +532,10 @@ export async function bindGroupToDeal(
       groupChatId: liveId,
       status: nextStatus,
       awaitingGroupExpiresAt: undefined,
+      // Helper path already sets groupCreatedVia; first manual bind → mark risk.
+      ...(deal.groupCreatedVia
+        ? {}
+        : { groupCreatedVia: "manual" as const }),
       ...(groupPhotoSetAt && groupPhotoSetAt !== deal.groupPhotoSetAt
         ? { groupPhotoSetAt }
         : {}),
@@ -863,6 +871,12 @@ export async function startDealInGroup(
   // Dopo setChatPhoto Telegram può migrare group→supergroup:
   // usa sempre l'id live (bound), non l'id dello update originale.
   const liveChatId = bound.groupChatId ?? chatId;
+
+  // Helper-owned: harden + strip party admin rights (bot cannot be owner).
+  if (bound.groupCreatedVia === "helper") {
+    await hardenGroupPermissions(api, liveChatId);
+    await demoteNonOwnerHumanAdmins(api, liveChatId);
+  }
 
   let current = trackSeenGroupUser(store, bound, bound.creatorId);
   if (opts?.runnerId != null) {

@@ -300,21 +300,39 @@ Poi invita l'altra parte.`;
   groupBindExpired: (deal: Deal) =>
     `⏱ Deal *#${deal.id}* annullato: setup gruppo non completato entro *10 minuti*.\nUsa /crea per ricominciare.`,
 
-  groupReady: (deal: Deal, inviteLink: string, creatorInvited: boolean) =>
-    `✅ Gruppo escrow pronto per deal *#${deal.id}*.
+  groupReady: (
+    deal: Deal,
+    links: { creatorLink: string; counterpartLink: string },
+    creatorInvited: boolean,
+  ) =>
+    `✅ Gruppo escrow creato per deal *#${deal.id}* (gestito da Escrowita).
 
-${creatorInvited ? "Ti ho già aggiunto al gruppo.\n" : ""}*Link invito* (max 2 — condividilo con l'altra parte):
-${inviteLink}
+${creatorInvited ? "Ti ho già aggiunto al gruppo.\n" : `*Il tuo link* (solo tu):\n${links.creatorLink}\n\n`}*Link per l'altra parte* (inoltralo solo a lei):
+${links.counterpartLink}
 
-Nel gruppo: /avvia (buyer o seller) → Accetta → wallet → deposito.
+Entrate nel gruppo → /avvia → Accetta → wallet → deposito.
 Verifica sempre l'indirizzo escrow nei messaggi del bot.`,
 
   groupCreateFailed: (deal: Deal, detail: string) =>
-    `⚠️ Deal *#${deal.id}* pronto, ma la creazione automatica del gruppo non è riuscita.
+    `⚠️ Deal *#${deal.id}* pronto, ma *non* sono riuscito a creare il gruppo (richiesto).
 
 \`${escMd(detail)}\`
 
-Usa il percorso manuale: crea un gruppo privato → aggiungi il bot → /avvia.`,
+La Bot API di Telegram *non* può creare gruppi da sola: serve l'account helper MTProto.
+Path di emergenza (meno sicuro — tu resti owner): crea un gruppo privato → aggiungi il bot admin → /avvia.`,
+
+  /** Helper assente: avviso chiaro + istruzioni manuali degradata. */
+  groupCreateHelperMissing: (deal: Deal) =>
+    `⚠️ Deal *#${deal.id}*: creazione gruppo automatica non configurata.
+
+Telegram non permette ai bot di creare gruppi (limite Bot API). Serve \`TELEGRAM_HELPER_SESSION\`.
+
+Nel frattempo (emergenza): crea un *gruppo privato* → aggiungi il bot come admin → /avvia.
+⚠️ In quel caso *tu* resti owner e puoi ancora kickare/cancellare — non è il path sicuro.`,
+
+  /** Parte promossa admin su gruppo helper: demote + avviso corto. */
+  partyAdminDemoted: (who: string) =>
+    `${escMd(who)}: in questo gruppo escrow resti *membro* (niente admin).`,
 
   /**
    * Fallback corto se Mini App non disponibile (manca PUBLIC_BASE_URL).

@@ -68,8 +68,9 @@ const MENU_TEXTS = new Set([
 /** Solo voci menu principali: lasciano passare i `hears` registrati dopo. */
 const MAIN_MENU_TEXTS = new Set(["➕ Crea escrow", "📋 I miei deal"]);
 
-function botCreatesGroupsEnabled(): boolean {
-  return config.telegramBotCreatesGroups && groupCreatorReady();
+/** Prefer helper create whenever gate is on (default) and MTProto ready. */
+function preferBotCreatedGroups(): boolean {
+  return config.telegramBotCreatesGroups;
 }
 
 function botUsername(ctx: BotContext): string {
@@ -635,8 +636,17 @@ async function finishDealReady(
 
   let current = await clearDmTermsUi(ctx.api, ctx.store, deal, ctx.chat.id);
 
-  // Opzionale: TELEGRAM_BOT_CREATES_GROUPS=1 + helper MTProto.
-  if (botCreatesGroupsEnabled()) {
+  // Path preferito: servizio crea il gruppo (helper MTProto). Bot API non può.
+  if (preferBotCreatedGroups()) {
+    if (!groupCreatorReady()) {
+      current = await sendGroupBindInstructions(ctx, current);
+      await ctx.reply(it.groupCreateHelperMissing(current), {
+        parse_mode: "Markdown",
+        reply_markup: mainMenuKeyboard(),
+      });
+      return;
+    }
+
     const created = await createEscrowGroup({
       deal: current,
       botApi: ctx.api,
@@ -648,7 +658,9 @@ async function finishDealReady(
       const withGroup =
         ctx.store.update(current.id, {
           groupChatId: created.chatId,
-          groupInviteLink: created.inviteLink,
+          groupInviteLink: created.creatorInviteLink,
+          counterpartInviteLink: created.counterpartInviteLink,
+          groupCreatedVia: "helper",
           awaitingGroupExpiresAt: undefined,
           dmGroupInstructionsMessageId: undefined,
         }) ?? current;
@@ -660,34 +672,38 @@ async function finishDealReady(
         created.chatId,
       );
 
+      const links = {
+        creatorLink: created.creatorInviteLink,
+        counterpartLink: created.counterpartInviteLink,
+      };
+      const kb = groupInviteKeyboard(
+        created.creatorInvited
+          ? created.counterpartInviteLink
+          : created.creatorInviteLink,
+        config.tosWebAppUrl,
+        {
+          counterpartLink: created.creatorInvited
+            ? undefined
+            : created.counterpartInviteLink,
+        },
+      );
+
       if (!perms.ok) {
         await ctx.reply(
           it.missingBotPerms(perms.missing, { notAdmin: perms.notAdmin }),
-          {
-            parse_mode: "Markdown",
-            reply_markup: groupInviteKeyboard(
-              created.inviteLink,
-              config.tosWebAppUrl,
-            ),
-          },
+          { parse_mode: "Markdown", reply_markup: kb },
         );
         return;
       }
 
       await ctx.reply(
-        it.groupReady(started, created.inviteLink, created.creatorInvited),
-        {
-          parse_mode: "Markdown",
-          reply_markup: groupInviteKeyboard(
-            created.inviteLink,
-            config.tosWebAppUrl,
-          ),
-        },
+        it.groupReady(started, links, created.creatorInvited),
+        { parse_mode: "Markdown", reply_markup: kb },
       );
       return;
     }
 
-    // Soft-fallback: istruzioni manuali se create automatica fallisce.
+    // Create fallita: emergenza manuale + errore chiaro.
     current = await sendGroupBindInstructions(ctx, current);
     await ctx.reply(it.groupCreateFailed(current, created.error), {
       parse_mode: "Markdown",
@@ -696,7 +712,7 @@ async function finishDealReady(
     return;
   }
 
-  // Path felice (default): gruppo manuale — importo si fissa nel gruppo.
+  // Opt-out esplicito (TELEGRAM_BOT_CREATES_GROUPS=0): gruppo manuale legacy.
   await sendGroupBindInstructions(ctx, current);
 }
 
