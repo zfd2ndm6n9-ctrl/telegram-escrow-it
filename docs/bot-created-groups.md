@@ -8,9 +8,10 @@
 2. **Helper MTProto** crea un megagroup privato (la Bot API **non** può creare gruppi)  
 3. Helper = **owner** (account supporto di Francesco, non una parte)  
 4. Bot promosso admin con diritti forti (incluso promote → demote parti)  
-5. DM con **due link invito** (`member_limit: 1`): creator + controparte  
-6. Parti entrano come **membri** → `/avvia` / auto-bind  
-7. Helper/support (`ADMIN_TELEGRAM_ID(S)`) **non** è mai buyer/seller — solo le due parti dei link
+5. DM creator: «Il tuo gruppo è stato creato» + link clickable (`member_limit: 1`)  
+6. Nel gruppo: bottone/link **Invita il buyer** o **Invita il seller** (ruolo opposto al wizard)  
+7. Parti entrano come **membri** → auto-bind / `/avvia`  
+8. Helper/support (`ADMIN_TELEGRAM_ID(S)`) **non** è mai buyer/seller — solo le due parti dei link
 
 `TELEGRAM_BOT_CREATES_GROUPS` è **on** di default. Imposta `0` solo per forzare il path manuale legacy.
 

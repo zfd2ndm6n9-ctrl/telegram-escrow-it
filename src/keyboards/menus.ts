@@ -1,5 +1,5 @@
 import { InlineKeyboard, Keyboard } from "grammy";
-import type { Deal } from "../types.js";
+import type { Deal, PartyRole } from "../types.js";
 
 export function mainMenuKeyboard(): Keyboard {
   return new Keyboard()
@@ -7,6 +7,26 @@ export function mainMenuKeyboard(): Keyboard {
     .text("📋 I miei deal")
     .resized()
     .persistent();
+}
+
+/** Telegram reply-keyboard wipe (cannot combine with InlineKeyboard). */
+export function removeReplyKeyboard(): { remove_keyboard: true } {
+  return { remove_keyboard: true };
+}
+
+/** Ruolo mancante da invitare (opposto al creator del wizard). */
+export function missingPartyRole(creatorRole: PartyRole): PartyRole {
+  return creatorRole === "seller" ? "buyer" : "seller";
+}
+
+/** Bottone URL gruppo: «Invita il buyer» / «Invita il seller». */
+export function inviteMissingPartyKeyboard(
+  creatorRole: PartyRole,
+  inviteLink: string,
+): InlineKeyboard {
+  const role = missingPartyRole(creatorRole);
+  const label = role === "buyer" ? "Invita il buyer" : "Invita il seller";
+  return new InlineKeyboard().url(label, inviteLink);
 }
 
 /** Invito opzionale su /crea: niente `/skip` tappable nel testo. */
@@ -69,16 +89,17 @@ export function afterAmountKeyboard(
   return kb;
 }
 
-/** DM con link invito gruppo (creator e/o controparte). */
+/**
+ * DM dopo creazione helper: link clickable nel gruppo del creator.
+ * Il link per buyer/seller manca qui — lo posta il bot nel gruppo («Invita il …»).
+ */
 export function groupInviteKeyboard(
   inviteLink: string,
   tosWebAppUrl?: string,
-  opts?: { counterpartLink?: string },
+  _opts?: { counterpartLink?: string },
 ): InlineKeyboard {
+  void _opts;
   const kb = new InlineKeyboard().url("🔗 Entra nel gruppo", inviteLink).row();
-  if (opts?.counterpartLink && opts.counterpartLink !== inviteLink) {
-    kb.url("🔗 Link per l'altra parte", opts.counterpartLink).row();
-  }
   if (tosWebAppUrl) {
     kb.webApp("📄 Leggi i Termini", tosWebAppUrl);
   } else {

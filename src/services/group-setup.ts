@@ -9,6 +9,7 @@ import { it } from "../messages/it.js";
 import {
   buyerAfterShipKeyboard,
   groupActionsKeyboard,
+  inviteMissingPartyKeyboard,
   shipAskKeyboard,
   tosConfirmKeyboard,
 } from "../keyboards/menus.js";
@@ -124,8 +125,22 @@ export async function ensureEscrowitaGroupPhoto(
   }
 }
 
-/** Keyboard della card setup (Accetta / Proponi a proposta completa). */
+/**
+ * Keyboard della card setup:
+ * - awaiting counterpart (helper): URL «Invita il buyer/seller»
+ * - Accetta / Proponi a proposta completa
+ */
 export function setupCardKeyboard(deal: Deal): InlineKeyboard {
+  if (
+    (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") &&
+    deal.groupCreatedVia === "helper" &&
+    deal.counterpartInviteLink
+  ) {
+    return inviteMissingPartyKeyboard(
+      deal.creatorRole,
+      deal.counterpartInviteLink,
+    );
+  }
   if (
     deal.status === "awaiting_tos_confirm" &&
     termsReadyForConfirm(deal) &&
@@ -768,12 +783,15 @@ export type StartDealResult = {
 
 /**
  * Testo italiano da mostrare dopo /avvia se l'auto-bind non chiude i ruoli.
- * `too_many` → troppi membri; altrimenti status «aspetta controparte».
+ * `too_many` → troppi membri; altrimenti invite buyer/seller (helper) o entra/scrivi.
  * Pure: usata da handler + smoke check.
  */
 export function avviaAutoBindReply(
   reason: AutoBindFailure,
-  deal: Pick<Deal, "id" | "creatorRole">,
+  deal: Pick<
+    Deal,
+    "id" | "creatorRole" | "groupCreatedVia" | "counterpartInviteLink"
+  >,
 ): string {
   if (reason === "too_many") return it.autoBindTooMany;
   return it.avviaAwaitingCounterpart(deal);
@@ -796,7 +814,7 @@ export function shouldSendAvviaAutoBindStatus(
   afterSetupMessageId: number | undefined,
 ): boolean {
   if (reason === "too_many") return true;
-  // Card vivente = unico prompt «entra o scrivi»; non stackare «già avviato».
+  // Card vivente = unico prompt invite / entra; non stackare status.
   if (afterSetupMessageId != null) return false;
   return true;
 }
