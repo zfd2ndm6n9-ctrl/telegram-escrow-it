@@ -202,7 +202,21 @@ export class DealLogStore {
   }
 
   /**
-   * Transcript per admin `/log` / `/deal`: messaggi umani + eventi chiave.
+   * Solo messaggi utente cancellati/cleared dal bot (igiene).
+   * Usato da admin `/deal` — niente dump chat completa.
+   */
+  getDeletedEntries(dealId: string, opts?: { limit?: number }): DealLogEntry[] {
+    const deleted = this.getEntries(dealId).filter(
+      (e) => e.kind === "user" && e.deletedByBot === true,
+    );
+    if (opts?.limit != null && opts.limit > 0 && deleted.length > opts.limit) {
+      return deleted.slice(-opts.limit);
+    }
+    return deleted;
+  }
+
+  /**
+   * Transcript per admin `/log`: messaggi umani + eventi chiave.
    * Include chat libera buyer↔seller (non solo reply al bot).
    * `[del]` = cancellato dal bot (igiene). Bot API non vede delete utente:
    * tratteniamo la copia locale al receive.
@@ -214,7 +228,23 @@ export class DealLogStore {
   ): string | null {
     const entries = this.getEntries(dealId, opts);
     if (entries.length === 0) return null;
+    return this.formatEntryLines(entries);
+  }
 
+  /**
+   * Log cancellazioni per admin `/deal` (solo `[del]`).
+   * Chat viva → gruppo Telegram (Archiviati sul helper); qui solo cleared.
+   */
+  formatDeletedTranscript(
+    dealId: string,
+    opts?: { limit?: number },
+  ): string | null {
+    const entries = this.getDeletedEntries(dealId, opts);
+    if (entries.length === 0) return null;
+    return this.formatEntryLines(entries);
+  }
+
+  private formatEntryLines(entries: DealLogEntry[]): string {
     const lines: string[] = [];
     for (const e of entries) {
       const time = e.at.slice(11, 19); // HH:MM:SS UTC

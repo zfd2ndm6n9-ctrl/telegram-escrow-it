@@ -78,8 +78,8 @@ async function main(): Promise<void> {
   }
   console.log(
     config.disputeAdminNotify
-      ? "Dispute admin DM: ON (DISPUTE_ADMIN_NOTIFY=1)."
-      : "Dispute admin DM: OFF (default). Critici kick/delete restano ON.",
+      ? "Dispute admin DM: ON (default; DISPUTE_ADMIN_NOTIFY=0 per off)."
+      : "Dispute admin DM: OFF (DISPUTE_ADMIN_NOTIFY=0). Critici kick/delete restano ON.",
   );
   if (config.updatesChannelId != null) {
     console.log(

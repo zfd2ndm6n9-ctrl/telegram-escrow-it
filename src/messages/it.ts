@@ -1005,20 +1005,27 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     `Log deal #${dealId} (${n} voci)\n` +
     `_Messaggi parte + eventi. Cap dimensione/età. Solo supporto dispute._`,
 
-  /** Admin DM `/deal <id>`: fatti card + transcript chat (anche [del]). */
+  /** Admin DM `/deal <id>`: fatti card + solo messaggi cancellati (igiene). */
   dealAdminUsage:
-    "Uso: `/deal 250538a0` (solo admin, in privato).",
+    "Uso: `/deal 250538a0` (solo admin, in privato).\nMostra fatti + messaggi cancellati. Transcript completo: `/log`.",
 
   dealAdminUnknown: (dealId: string) =>
     `Deal #${dealId} non trovato nello store.`,
 
-  dealAdminHeader: (dealId: string, logN: number) =>
-    `Deal #${dealId} — chat + eventi (${logN} voci)` +
-    (logN > 0 ? ` · anche \`/log ${dealId}\`` : ""),
+  dealAdminHeader: (dealId: string, deletedN: number) =>
+    `Deal #${dealId} — messaggi cancellati (${deletedN})` +
+    ` · transcript completo: \`/log ${dealId}\`` +
+    `\n_Cerca il gruppo in Archiviati Telegram col codice #${dealId}._`,
 
   dealAdminFactsTitle: "— Fatti deal (card) —",
 
-  dealAdminChatTitle: "— Chat parti + eventi —",
+  /** @deprecated prefer dealAdminDeletedTitle */
+  dealAdminChatTitle: "— Messaggi cancellati (igiene) —",
+
+  dealAdminDeletedTitle: "— Messaggi cancellati (igiene) —",
+
+  dealAdminNoDeleted: (dealId: string) =>
+    `Nessun messaggio cancellato trattenuto per #${dealId}.\nChat viva: Archiviati Telegram (cerca #${dealId}). Transcript completo: \`/log ${dealId}\`.`,
 
   /** Admin digita /payseller fuori disputa. */
   adminForceOnlyDisputed:
@@ -1239,11 +1246,12 @@ Da: ${fromUsername ? `@${fromUsername}` : fromId} (${fromId})
 Importo: ${deal.amount || "n/d"} ${deal.asset}
 Escrow: ${deal.escrowAddress}
 Stato: ${deal.status}
-Gruppo: ${deal.groupChatId ?? "n/d"}
+Gruppo chat id: ${deal.groupChatId ?? "n/d"}
 ${link ? `Link one-time admin:\n${link}` : "Nessun link (bot senza permesso invita)."}
 
-In gruppo (disputa): \`/payseller\` o \`/refundbuyer\` → force on-chain.
-DM: \`/deal ${deal.id}\` fatti card + chat (anche messaggi cancellati).`,
+Cerca in *Archiviati* Telegram: #${deal.id} (sei owner).
+DM bot: \`/deal ${deal.id}\` → fatti + messaggi cancellati; \`/log ${deal.id}\` → transcript.
+In gruppo (disputa): \`/payseller\` o \`/refundbuyer\` → force on-chain.`,
 
   /**
    * DM admin fallita: niente vicolo cieco — invite gruppo + deep-link /deal.

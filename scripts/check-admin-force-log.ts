@@ -135,7 +135,7 @@ const base: Deal = {
     assert.match(body!, /\[del\]/);
     assert.match(body!, /Admin force/);
 
-    // Free chat (non-command) is retained like commands — evidence for /deal dump.
+    // Free chat (non-command) is retained like commands — full dump via /log.
     logs.appendUserMessage(id, {
       text: "ok ti mando il file stasera",
       fromId: SELLER,
@@ -146,6 +146,15 @@ const base: Deal = {
     const full = logs.formatTranscript(id);
     assert.match(full!, /ok ti mando il file stasera/);
     assert.match(full!, /ciao seller/);
+
+    // /deal: only deleted/cleared msgs (not full chat).
+    const deletedOnly = logs.formatDeletedTranscript(id);
+    assert.ok(deletedOnly);
+    assert.match(deletedOnly!, /payseller/);
+    assert.match(deletedOnly!, /\[del\]/);
+    assert.doesNotMatch(deletedOnly!, /ok ti mando il file stasera/);
+    assert.doesNotMatch(deletedOnly!, /ciao seller/);
+    assert.equal(logs.getDeletedEntries(id).length, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -187,7 +196,7 @@ const base: Deal = {
   assert.match(pendingFacts, /Importo SOL: \*—\*/);
 }
 
-// ——— /deal dumps full chat (no 40-cap) + hygiene logs all humans ———
+// ——— /deal = facts + deleted only; hygiene logs all humans ———
 {
   const root = resolve(import.meta.dirname, "..");
   const startSrc = readFileSync(resolve(root, "src/handlers/start.ts"), "utf8");
@@ -203,8 +212,28 @@ const base: Deal = {
   );
   assert.match(
     startSrc,
-    /formatTranscript\(dealId\)/,
-    "/deal dumps full transcript",
+    /formatDeletedTranscript\(dealId\)/,
+    "/deal shows deleted transcript only",
+  );
+  assert.match(
+    startSrc,
+    /getDeletedEntries\(dealId\)/,
+    "/deal counts deleted entries",
+  );
+  // Full transcript remains on /log only (not inside replyAdminDealDm).
+  const dealDm = startSrc.slice(
+    startSrc.indexOf("async function replyAdminDealDm"),
+    startSrc.indexOf("export function registerStartHandlers"),
+  );
+  assert.doesNotMatch(
+    dealDm,
+    /formatTranscript\(/,
+    "/deal DM must not dump full chat transcript",
+  );
+  assert.match(
+    startSrc,
+    /bot\.command\("log"[\s\S]*?formatTranscript\(dealId\)/,
+    "/log keeps full transcript",
   );
 
   const hygieneSrc = readFileSync(

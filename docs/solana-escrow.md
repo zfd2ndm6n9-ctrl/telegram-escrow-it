@@ -165,7 +165,7 @@ Persistenza: `DATA_DIR/invites.json`.
   - Parole nude `payseller` / `refundbuyer` idem
   - Non-admin: messaggio cancellato, nessun effetto
   - Fuori disputa: rifiuto corto — dual-confirm resta il path delle parti (audit: force OK in disputa)
-- DM: `/deal <hex8>` → fatti card (prodotto/prezzo/condizioni/parti/SOL/invito/ToS) + dump chat (anche `[del]`); `/log #id` → transcript
+- DM: `/deal <hex8>` → fatti card + solo messaggi cancellati (`[del]`); `/log #id` → transcript completo; chat viva in Archiviati helper
 - Emergenza: `/depositato force` (solo admin) marca `funded` senza saldo (non crea SOL)
 - `/ripristina` · `/admin_payout` — recovery orfani (solo admin)
 - `/codice` · `/codici` · `/fee` — inviti e fee summary
