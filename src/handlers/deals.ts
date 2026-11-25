@@ -1,8 +1,15 @@
 import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { it, statusLabel } from "../messages/it.js";
-import { mainMenuKeyboard } from "../keyboards/menus.js";
-import { cancelMidCreaBeforeGroupBind } from "../services/dm-hygiene.js";
+import {
+  MAIN_MENU_MIEI_CB,
+  MAIN_MENU_MIEI_LABEL,
+  mainMenuKeyboard,
+} from "../keyboards/menus.js";
+import {
+  cancelMidCreaBeforeGroupBind,
+  stripPersistentReplyKeyboard,
+} from "../services/dm-hygiene.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
 import { dismissInviteStep } from "../services/invite-step.js";
 
@@ -69,6 +76,7 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
       }
     }
 
+    await stripPersistentReplyKeyboard(ctx);
     const msg = await ctx.reply(text, {
       parse_mode,
       reply_markup: mainMenuKeyboard(),
@@ -77,5 +85,10 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
   };
 
   bot.command("miei", listDeals);
-  bot.hears("📋 I miei deal", listDeals);
+  bot.callbackQuery(MAIN_MENU_MIEI_CB, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await listDeals(ctx);
+  });
+  // Legacy reply-keyboard label (pre-inline clients)
+  bot.hears(MAIN_MENU_MIEI_LABEL, listDeals);
 }

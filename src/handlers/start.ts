@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import type { BotContext } from "../context.js";
 import { isAdminUser } from "../services/deal-logic.js";
 import { formatDealEvidenceFacts, it } from "../messages/it.js";
-import { mainMenuKeyboard } from "../keyboards/menus.js";
+import { replyWithMainMenu } from "../services/dm-hygiene.js";
 import { publishIscrittiCount } from "../services/public-count.js";
 import { registerHandleFromMessage } from "../services/registration.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
@@ -181,10 +181,7 @@ async function completeStart(ctx: BotContext): Promise<void> {
     : it.registeredOk(result.member.username);
 
   if (vouch.ok && vouch.member) {
-    await ctx.reply(welcome, {
-      parse_mode: "Markdown",
-      reply_markup: mainMenuKeyboard(),
-    });
+    await replyWithMainMenu(ctx, welcome, { parse_mode: "Markdown" });
     // Deep-link /start crea → wizard (invito chiesto lì)
     if (ctx.session.pendingCrea) {
       ctx.session.pendingCrea = undefined;
@@ -305,12 +302,10 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
         // ok
       }
       const member = ctx.members.touch(ctx.from.id, ctx.from.username);
-      await ctx.reply(
+      await replyWithMainMenu(
+        ctx,
         `${it.vouchJoinedOk}\n\n${it.welcomeBack(member.username)}`,
-        {
-          parse_mode: "Markdown",
-          reply_markup: mainMenuKeyboard(),
-        },
+        { parse_mode: "Markdown" },
       );
       // pendingInviteCode resta per il prossimo /crea
       if (ctx.session.pendingCrea && ctx.members.isRegistered(ctx.from.id)) {
@@ -802,9 +797,8 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    await ctx.reply(it.welcomeBack(result.username), {
+    await replyWithMainMenu(ctx, it.welcomeBack(result.username), {
       parse_mode: "Markdown",
-      reply_markup: mainMenuKeyboard(),
     });
   });
 }

@@ -1,42 +1,56 @@
+import type { Api } from "grammy";
 import type { BotContext } from "../context.js";
 import { mainMenuKeyboard, removeReplyKeyboard } from "../keyboards/menus.js";
 import { clearDmTermsUi } from "./dm-terms.js";
 import { dismissInviteStep } from "./invite-step.js";
 import { deleteMessageSafe } from "./prompt-cleanup.js";
 
+/** Clients often ignore remove_keyboard if the carrier message is deleted instantly. */
+const REPLY_KEYBOARD_STRIP_DELETE_MS = 1600;
+
 /**
- * Toglie la reply keyboard persistente (Crea / I miei deal) sotto la tastiera
- * telefono. Telegram non permette remove_keyboard + InlineKeyboard insieme:
- * messaggio invisibile poi cancellato.
+ * Toglie una reply keyboard residua (deploy precedenti: Crea / I miei sopra il
+ * telefono). Telegram non permette remove_keyboard + InlineKeyboard insieme:
+ * messaggio carrier, delete ritardata così i client applicano lo strip.
  */
 export async function stripPersistentReplyKeyboard(
   ctx: BotContext,
 ): Promise<void> {
   if (!ctx.chat || ctx.chat.type !== "private") return;
+  await stripPersistentReplyKeyboardChat(ctx.api, ctx.chat.id);
+}
+
+/** Stesso strip via Api (expiry watcher / no BotContext). */
+export async function stripPersistentReplyKeyboardChat(
+  api: Api,
+  chatId: number,
+): Promise<void> {
   try {
-    const msg = await ctx.reply("\u2060", {
+    const msg = await api.sendMessage(chatId, "\u2060", {
       reply_markup: removeReplyKeyboard(),
     });
-    await deleteMessageSafe(ctx.api, ctx.chat.id, msg.message_id);
+    setTimeout(() => {
+      void deleteMessageSafe(api, chatId, msg.message_id);
+    }, REPLY_KEYBOARD_STRIP_DELETE_MS);
   } catch {
     // ok — best-effort
   }
 }
 
 /**
- * Ripristina Crea / I miei deal dopo i passi solo-bottone del /crea
- * (o a fine wizard / annulla). Stesso trucco messaggio invisibile.
+ * Risposta DM con menu inline (Crea / I miei). Strip reply KB residua prima,
+ * perché non si può combinare remove_keyboard con InlineKeyboard.
  */
-export async function restoreMainMenuKeyboard(ctx: BotContext): Promise<void> {
-  if (!ctx.chat || ctx.chat.type !== "private") return;
-  try {
-    const msg = await ctx.reply("\u2060", {
-      reply_markup: mainMenuKeyboard(),
-    });
-    await deleteMessageSafe(ctx.api, ctx.chat.id, msg.message_id);
-  } catch {
-    // ok — best-effort
-  }
+export async function replyWithMainMenu(
+  ctx: BotContext,
+  text: string,
+  extra?: { parse_mode?: "Markdown" | "HTML" },
+): Promise<{ message_id: number }> {
+  await stripPersistentReplyKeyboard(ctx);
+  return ctx.reply(text, {
+    ...extra,
+    reply_markup: mainMenuKeyboard(),
+  });
 }
 
 /** Igiene: cancella messaggi effimeri del wizard /crea (ruolo, crypto, risposte). */
