@@ -19,30 +19,35 @@ export function openBotDmKeyboard(botUrl: string): InlineKeyboard {
   return new InlineKeyboard().url("Apri il bot", botUrl);
 }
 
+/** @deprecated Prefer inline `crea_cancel` on role/asset prompts. */
 export function cancelKeyboard(): Keyboard {
   return new Keyboard().text("❌ Annulla").resized().oneTime();
 }
 
-export function roleKeyboard(): Keyboard {
-  return new Keyboard()
-    .text("🛒 Sono il buyer")
-    .text("🏪 Sono il seller")
+/**
+ * /crea ruolo: inline so buttons stay when the phone keyboard opens.
+ * Callbacks: `crea_role:buyer` | `crea_role:seller` | `crea_cancel`.
+ */
+export function roleKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🛒 Sono il buyer", "crea_role:buyer")
+    .text("🏪 Sono il seller", "crea_role:seller")
     .row()
-    .text("❌ Annulla")
-    .resized()
-    .oneTime();
+    .text("❌ Annulla", "crea_cancel");
 }
 
-/** Crypto step: SOL live; ETH/LTC shown for UX, labeled coming soon. */
-export function assetKeyboard(): Keyboard {
-  return new Keyboard()
-    .text("◎ SOL")
-    .text("ETH (presto)")
-    .text("LTC (presto)")
+/**
+ * Crypto step: SOL live; ETH/LTC shown for UX, labeled coming soon.
+ * Inline so free text / phone keyboard does not hide choices.
+ * Callbacks: `crea_asset:SOL` | `crea_asset:ETH` | `crea_asset:LTC` | `crea_cancel`.
+ */
+export function assetKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("◎ SOL", "crea_asset:SOL")
+    .text("ETH (presto)", "crea_asset:ETH")
+    .text("LTC (presto)", "crea_asset:LTC")
     .row()
-    .text("❌ Annulla")
-    .resized()
-    .oneTime();
+    .text("❌ Annulla", "crea_cancel");
 }
 
 /**

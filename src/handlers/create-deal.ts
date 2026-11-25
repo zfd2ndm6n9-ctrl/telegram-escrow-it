@@ -203,15 +203,10 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
   });
 
   bot.hears("❌ Annulla", async (ctx) => {
-    if (ctx.chat?.type !== "private") return;
-    // Stesso cleanup di un nuovo /crea (bozza + termini + errori), poi menu.
-    await cancelLeftoverCreaForNewFlow(ctx);
-    if (ctx.message?.message_id != null) {
-      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
-    }
-    await ctx.reply(it.cancelled, { reply_markup: mainMenuKeyboard() });
+    await cancelCreateWizard(ctx, { userMessageId: ctx.message?.message_id });
   });
 
+  /** Legacy reply-keyboard taps (pre-inline); same gates as callbacks. */
   bot.hears("🛒 Sono il buyer", async (ctx) => {
     await pickRole(ctx, "buyer");
   });
@@ -230,6 +225,52 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
 
   bot.hears("LTC (presto)", async (ctx) => {
     await assetComingSoon(ctx, "LTC");
+  });
+
+  bot.callbackQuery(/^crea_role:(buyer|seller)$/, async (ctx) => {
+    const role = ctx.match[1] as PartyRole;
+    if (ctx.chat?.type !== "private" || !ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (ctx.session.creating?.step !== "role") {
+      await ctx.answerCallbackQuery({ text: "Passo non attivo" });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await pickRole(ctx, role);
+  });
+
+  bot.callbackQuery(/^crea_asset:(SOL|ETH|LTC)$/, async (ctx) => {
+    const asset = ctx.match[1] as Asset;
+    if (ctx.chat?.type !== "private" || !ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (ctx.session.creating?.step !== "asset") {
+      await ctx.answerCallbackQuery({ text: "Passo non attivo" });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    if (asset === "SOL") {
+      await pickAsset(ctx, asset);
+      return;
+    }
+    await assetComingSoon(ctx, asset);
+  });
+
+  bot.callbackQuery("crea_cancel", async (ctx) => {
+    if (ctx.chat?.type !== "private") {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    const step = ctx.session.creating?.step;
+    if (step !== "role" && step !== "asset") {
+      await ctx.answerCallbackQuery({ text: "Niente da annullare" });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await cancelCreateWizard(ctx);
   });
 
   bot.callbackQuery("tos", async (ctx) => {
@@ -302,8 +343,9 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
         return;
       }
 
-      // Testo non-codice: cancella solo la risposta; tieni il prompt
-      await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+      // Testo non-codice: ignora — cancella echo e ripropone inline «Nessun codice»
+      // così i bottoni restano in fondo anche dopo apertura tastiera telefono.
+      await repromptInviteStep(ctx);
       return;
     }
 
@@ -323,9 +365,9 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
+    // Pre-«aggiungi bot» button steps: free text must not advance/break flow.
     if (creating.step === "invite") {
-      // awaitingInviteCode già gestito sopra; se stale, riprompt
-      await askInviteOptional(ctx);
+      await repromptInviteStep(ctx);
       return;
     }
 
@@ -345,6 +387,29 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
 
     await next();
   });
+}
+
+/** Annulla wizard /crea (hears ❌ o callback crea_cancel). */
+async function cancelCreateWizard(
+  ctx: BotContext,
+  opts?: { userMessageId?: number },
+): Promise<void> {
+  if (ctx.chat?.type !== "private") return;
+  await cancelLeftoverCreaForNewFlow(ctx);
+  const userMsgId = opts?.userMessageId;
+  if (userMsgId != null) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, userMsgId);
+  }
+  await ctx.reply(it.cancelled, { reply_markup: mainMenuKeyboard() });
+}
+
+/** Free text mid-invite: delete user echo + re-send prompt with inline skip. */
+async function repromptInviteStep(ctx: BotContext): Promise<void> {
+  if (ctx.chat?.type !== "private") return;
+  if (ctx.message?.message_id != null) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+  }
+  await askInviteOptional(ctx);
 }
 
 async function handlePrivateTermsReply(
