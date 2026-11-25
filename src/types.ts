@@ -124,6 +124,17 @@ export interface Deal {
    */
   groupPhotoSetAt?: string;
   groupInviteLink?: string;
+  /**
+   * Secondo link invito (controparte) quando il gruppo è creato dall'helper.
+   * `groupInviteLink` resta il link del creator (member_limit 1 ciascuno).
+   */
+  counterpartInviteLink?: string;
+  /**
+   * Chi ha creato il gruppo Telegram:
+   * - `helper` = MTProto service account (parti non owner)
+   * - `manual` = una parte ha creato il gruppo (owner umano = rischio kick/delete)
+   */
+  groupCreatedVia?: "helper" | "manual";
   adminInviteLink?: string;
   /** Voti per /pay_seller */
   releaseVotes: number[];

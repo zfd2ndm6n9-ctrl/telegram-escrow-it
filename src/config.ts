@@ -97,11 +97,12 @@ export const config = {
   telegramApiHash: process.env.TELEGRAM_API_HASH?.trim() || undefined,
   telegramHelperSession: process.env.TELEGRAM_HELPER_SESSION?.trim() || undefined,
   /**
-   * Se `1`/`true` e helper MTProto configurato, dopo /crea il bot tenta di creare il gruppo.
-   * Default off: UX = crea gruppo privato → aggiungi bot admin → /avvia.
+   * Preferisci creazione gruppo via helper MTProto dopo /crea.
+   * Default **on** (Bot API non può creare gruppi; serve helper).
+   * Imposta `0`/`false`/`no` solo per forzare il path manuale legacy.
    */
-  telegramBotCreatesGroups: ["1", "true", "yes"].includes(
-    (process.env.TELEGRAM_BOT_CREATES_GROUPS?.trim() || "").toLowerCase(),
+  telegramBotCreatesGroups: !["0", "false", "no"].includes(
+    (process.env.TELEGRAM_BOT_CREATES_GROUPS?.trim() || "1").toLowerCase(),
   ),
   /**
    * Canale pubblico aggiornamenti (CoinXpert-style «N iscritti»).

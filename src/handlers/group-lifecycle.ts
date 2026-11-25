@@ -23,7 +23,10 @@ import {
   startProposeTermsWizard,
 } from "../services/dm-terms.js";
 import { convertPriceEurToSol } from "../services/fx/sol-eur.js";
-import { hardenGroupPermissions } from "../services/group-creator.js";
+import {
+  demoteIfPartyPromoted,
+  hardenGroupPermissions,
+} from "../services/group-creator.js";
 import { groupBindExpiresAtIso } from "../services/group-bind-expiry.js";
 import {
   findDealForGroupChat,
@@ -1199,6 +1202,25 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     if (user.is_bot) {
       await kickUnauthorizedBot(ctx, chat.id, user);
       return;
+    }
+
+    // Helper-owned groups: parties must stay members (no destructive admin).
+    if (member.status === "administrator") {
+      const deal = ctx.store.findByGroupChatId(chat.id);
+      if (deal?.groupCreatedVia === "helper") {
+        const demoted = await demoteIfPartyPromoted(ctx.api, chat.id, user.id);
+        if (demoted) {
+          await ctx.api
+            .sendMessage(
+              chat.id,
+              it.partyAdminDemoted(
+                user.username ? `@${user.username}` : String(user.id),
+              ),
+              { parse_mode: "Markdown" },
+            )
+            .catch(() => undefined);
+        }
+      }
     }
 
     await onHumanJoined(

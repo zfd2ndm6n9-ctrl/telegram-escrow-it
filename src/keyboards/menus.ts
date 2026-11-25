@@ -69,12 +69,16 @@ export function afterAmountKeyboard(
   return kb;
 }
 
-/** DM con link invito gruppo. */
+/** DM con link invito gruppo (creator e/o controparte). */
 export function groupInviteKeyboard(
   inviteLink: string,
   tosWebAppUrl?: string,
+  opts?: { counterpartLink?: string },
 ): InlineKeyboard {
-  const kb = new InlineKeyboard().url("🔗 Apri il gruppo", inviteLink).row();
+  const kb = new InlineKeyboard().url("🔗 Entra nel gruppo", inviteLink).row();
+  if (opts?.counterpartLink && opts.counterpartLink !== inviteLink) {
+    kb.url("🔗 Link per l'altra parte", opts.counterpartLink).row();
+  }
   if (tosWebAppUrl) {
     kb.webApp("📄 Leggi i Termini", tosWebAppUrl);
   } else {

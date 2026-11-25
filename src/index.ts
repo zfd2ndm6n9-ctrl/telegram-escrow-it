@@ -137,20 +137,23 @@ async function main(): Promise<void> {
     if (isMtprotoHelperConfigured()) {
       try {
         await getMtprotoHelper();
+        console.log(
+          "Creazione gruppi ON: helper MTProto pronto (path preferito dopo /crea).",
+        );
       } catch (err) {
         console.warn(
-          "TELEGRAM_BOT_CREATES_GROUPS=1 ma helper MTProto non disponibile (soft-fallback a gruppo manuale):",
+          "Creazione gruppi ON ma helper MTProto non disponibile (fallback manuale degradato):",
           err instanceof Error ? err.message : err,
         );
       }
     } else {
       console.warn(
-        "TELEGRAM_BOT_CREATES_GROUPS=1 ma mancano TELEGRAM_API_ID/HASH/HELPER_SESSION: path felice = gruppo manuale + /avvia.",
+        "Creazione gruppi ON ma mancano TELEGRAM_API_ID/HASH/HELPER_SESSION: Bot API non può creare gruppi — serve helper. Fallback = manuale (owner umano).",
       );
     }
   } else {
     console.log(
-      "Creazione automatica gruppi OFF (default). Path felice: gruppo privato → bot admin → /avvia. Gate: TELEGRAM_BOT_CREATES_GROUPS=1.",
+      "Creazione automatica gruppi OFF (TELEGRAM_BOT_CREATES_GROUPS=0). Path legacy: gruppo privato → bot admin → /avvia.",
     );
   }
 
