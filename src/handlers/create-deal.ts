@@ -29,8 +29,10 @@ import {
   groupCreatorReady,
 } from "../services/group-creator.js";
 import {
+  postHelperCounterpartInvite,
   refreshGroupSetupCard,
   startDealInGroup,
+  type RequiredBotPerm,
 } from "../services/group-setup.js";
 import {
   getDealEscrowAddress,
@@ -82,6 +84,68 @@ function botUsername(ctx: BotContext): string {
 
 function startGroupUrlForDeal(dealId: string, ctx: BotContext): string {
   return `https://t.me/${botUsername(ctx)}?startgroup=${startGroupPayload(dealId)}`;
+}
+
+/**
+ * DM post-create: Entra + (opz.) Mini App ToS.
+ * Fallback se web_app / Markdown falliscono — il link deve arrivare sempre.
+ */
+async function replyCreatorInviteDm(
+  ctx: BotContext,
+  text: string,
+  creatorLink: string,
+): Promise<void> {
+  if (!ctx.chat || ctx.chat.type !== "private") return;
+
+  const attempts: Array<{
+    parse_mode?: "Markdown";
+    reply_markup: ReturnType<typeof groupInviteKeyboard>;
+  }> = [
+    {
+      parse_mode: "Markdown",
+      reply_markup: groupInviteKeyboard(creatorLink, config.tosWebAppUrl),
+    },
+    // web_app rifiutato (dominio / PUBLIC_BASE_URL): callback ToS.
+    {
+      parse_mode: "Markdown",
+      reply_markup: groupInviteKeyboard(creatorLink, undefined),
+    },
+  ];
+
+  for (const extra of attempts) {
+    try {
+      await ctx.reply(text, extra);
+      return;
+    } catch (err) {
+      console.warn(
+        "creator invite DM attempt failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  // Ultimo: niente parse_mode (link grezzo ok) + solo URL Entra.
+  try {
+    await ctx.reply(text.replace(/\\([_*`\[])/g, "$1"), {
+      reply_markup: groupInviteKeyboard(creatorLink, undefined),
+    });
+  } catch (err) {
+    console.error(
+      "creator invite DM all attempts failed:",
+      err instanceof Error ? err.message : err,
+    );
+    try {
+      await ctx.reply(
+        `✅ Gruppo creato.\nEntra e invita l'altra parte:\n${creatorLink}`,
+        { reply_markup: groupInviteKeyboard(creatorLink, undefined) },
+      );
+    } catch (lastErr) {
+      console.error(
+        "creator invite DM plain fallback failed:",
+        lastErr instanceof Error ? lastErr.message : lastErr,
+      );
+    }
+  }
 }
 
 /** Deep link DM: apre il bot e (opz.) avvia /crea dopo /start. */
@@ -654,7 +718,7 @@ async function finishDealReady(
       return;
     }
 
-    // Effimero «Sto creando…» → cancellato quando arriva il DM col link.
+    // Effimero «Sto creando…» → cancellato in finally (link DM o errore).
     let creatingMsgId: number | undefined;
     try {
       const creatingMsg = await ctx.reply(it.creatingGroup);
@@ -663,69 +727,102 @@ async function finishDealReady(
       // Soft-fail: procedi senza l'effimero.
     }
 
-    const created = await createEscrowGroup({
-      deal: current,
-      botApi: ctx.api,
-      creatorId: ctx.from.id,
-      creatorUsername: ctx.from.username,
-    });
+    try {
+      const created = await createEscrowGroup({
+        deal: current,
+        botApi: ctx.api,
+        creatorId: ctx.from.id,
+        creatorUsername: ctx.from.username,
+      });
 
-    if (created.ok) {
-      const withGroup =
-        ctx.store.update(current.id, {
-          groupChatId: created.chatId,
-          groupInviteLink: created.creatorInviteLink,
-          counterpartInviteLink: created.counterpartInviteLink,
-          groupCreatedVia: "helper",
-          awaitingGroupExpiresAt: undefined,
-          dmGroupInstructionsMessageId: undefined,
-        }) ?? current;
+      if (created.ok) {
+        const withGroup =
+          ctx.store.update(current.id, {
+            groupChatId: created.chatId,
+            groupInviteLink: created.creatorInviteLink,
+            counterpartInviteLink: created.counterpartInviteLink,
+            groupCreatedVia: "helper",
+            awaitingGroupExpiresAt: undefined,
+            dmGroupInstructionsMessageId: undefined,
+          }) ?? current;
 
-      const { deal: started, perms } = await startDealInGroup(
-        ctx.api,
-        ctx.store,
-        withGroup,
-        created.chatId,
-      );
+        // Setup gruppo (invite A+B) non deve bloccare il DM col link creator.
+        let started = withGroup;
+        let permsOk = true;
+        let missingPerms: RequiredBotPerm[] = [];
+        let notAdmin = false;
+        try {
+          const result = await startDealInGroup(
+            ctx.api,
+            ctx.store,
+            withGroup,
+            created.chatId,
+          );
+          started = result.deal;
+          permsOk = result.perms.ok;
+          if (!result.perms.ok) {
+            missingPerms = result.perms.missing;
+            notAdmin = result.perms.notAdmin;
+          }
+        } catch (err) {
+          console.error(
+            `startDealInGroup after helper create #${withGroup.id}:`,
+            err instanceof Error ? err.message : err,
+          );
+          // Best-effort: posta comunque i due messaggi invite nel gruppo.
+          try {
+            started = await postHelperCounterpartInvite(
+              ctx.api,
+              ctx.store,
+              withGroup,
+            );
+          } catch (postErr) {
+            console.warn(
+              `postHelperCounterpartInvite fallback #${withGroup.id}:`,
+              postErr instanceof Error ? postErr.message : postErr,
+            );
+          }
+        }
 
-      // DM: link creator + «entra nel gruppo e invita il buyer/seller».
-      // Nel gruppo: due messaggi (A link controparte, B «Invita il …»).
-      const creatorLink = created.creatorInviteLink;
-      const kb = groupInviteKeyboard(creatorLink, config.tosWebAppUrl);
+        // DM: link creator + «entra nel gruppo e invita il buyer/seller».
+        const creatorLink = created.creatorInviteLink;
+        if (!permsOk) {
+          await replyCreatorInviteDm(
+            ctx,
+            it.missingBotPerms(missingPerms, { notAdmin }),
+            creatorLink,
+          );
+          return;
+        }
 
-      if (creatingMsgId != null) {
-        await deleteMessageSafe(ctx.api, ctx.chat.id, creatingMsgId);
-      }
-
-      if (!perms.ok) {
-        await ctx.reply(
-          it.missingBotPerms(perms.missing, { notAdmin: perms.notAdmin }),
-          { parse_mode: "Markdown", reply_markup: kb },
+        await replyCreatorInviteDm(
+          ctx,
+          it.groupReady(
+            started,
+            {
+              creatorLink,
+              counterpartLink: created.counterpartInviteLink,
+            },
+            created.creatorInvited,
+          ),
+          creatorLink,
         );
         return;
       }
 
-      await ctx.reply(
-        it.groupReady(
-          started,
-          { creatorLink, counterpartLink: created.counterpartInviteLink },
-          created.creatorInvited,
-        ),
-        { parse_mode: "Markdown", reply_markup: kb },
+      // Create fallita: emergenza manuale + errore chiaro.
+      current = await sendGroupBindInstructions(ctx, current);
+      await replyWithMainMenu(
+        ctx,
+        it.groupCreateFailed(current, created.error),
+        { parse_mode: "Markdown" },
       );
       return;
+    } finally {
+      if (creatingMsgId != null && ctx.chat?.type === "private") {
+        await deleteMessageSafe(ctx.api, ctx.chat.id, creatingMsgId);
+      }
     }
-
-    if (creatingMsgId != null) {
-      await deleteMessageSafe(ctx.api, ctx.chat.id, creatingMsgId);
-    }
-
-    // Create fallita: emergenza manuale + errore chiaro.
-    current = await sendGroupBindInstructions(ctx, current);
-    await replyWithMainMenu(ctx, it.groupCreateFailed(current, created.error), {
-      parse_mode: "Markdown",
-    });
-    return;
   }
 
   // Opt-out esplicito (TELEGRAM_BOT_CREATES_GROUPS=0): gruppo manuale legacy.

@@ -312,12 +312,14 @@ Poi invita l'altra parte.`;
     void _creatorInvited; // mai «ti ho già aggiunto» — sempre entra + invita
     const missing =
       deal.creatorRole === "seller" ? "buyer" : "seller";
+    // escMd: i link t.me/+… spesso contengono `_` → senza escape Telegram
+    // rifiuta parse_mode Markdown e il DM invito non parte (regressione #84).
     return `✅ *Il tuo gruppo è stato creato*
 
-Deal *#${deal.id}* · ruolo *${deal.creatorRole}* · *${deal.asset}*
+Deal *#${escMd(deal.id)}* · ruolo *${deal.creatorRole}* · *${deal.asset}*
 
 Entra nel gruppo e invita il *${missing}*:
-${links.creatorLink}`;
+${escMd(links.creatorLink)}`;
   },
 
   /** Messaggio (B) gruppo helper: hint corto ruolo da invitare. */
@@ -516,13 +518,13 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
     const missingRole = deal.creatorRole === "seller" ? "buyer" : "seller";
     if (deal.groupCreatedVia === "helper" && deal.counterpartInviteLink) {
       return (
-        `Deal *#${deal.id}* — invita il *${missingRole}*:\n` +
-        deal.counterpartInviteLink
+        `Deal *#${escMd(deal.id)}* — invita il *${missingRole}*:\n` +
+        escMd(deal.counterpartInviteLink)
       );
     }
     const label = missingRole === "buyer" ? "Buyer" : "Seller";
     return (
-      `Deal *#${deal.id}* già avviato — in attesa.\n` +
+      `Deal *#${escMd(deal.id)}* già avviato — in attesa.\n` +
       `${label}: entra o scrivi un messaggio nel gruppo.`
     );
   },
