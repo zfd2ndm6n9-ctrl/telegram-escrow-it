@@ -16,7 +16,9 @@ import {
   amountConfirmed,
   assignJoiningParty,
   bothPartiesPresent,
+  canBindAsDealParty,
   isPreDepositSetup,
+  isSupportHelperUser,
   rememberSeenUser,
   termsReadyForConfirm,
   tosAccepted,
@@ -297,6 +299,8 @@ export async function discoverOtherHumans(
     last_name?: string;
   }) => {
     if (user.is_bot || user.id === botId || user.id === openerId) return;
+    // Helper/support owner non è una controparte candidata.
+    if (isSupportHelperUser(user.id)) return;
     byId.set(user.id, {
       id: user.id,
       username: user.username,
@@ -382,9 +386,11 @@ export async function autoBindCounterpart(
   }
 
   // Controparte attiva (messaggio / /avvia / join): bind immediato.
+  // Mai il helper/support (owner MTProto) — solo le due parti invite-link.
   if (
     opts?.runnerId != null &&
     opts.runnerId !== openerId &&
+    canBindAsDealParty(current, opts.runnerId) &&
     !bothPartiesPresent(current)
   ) {
     const patch = assignJoiningParty(
@@ -420,12 +426,15 @@ export async function autoBindCounterpart(
     current.seenGroupUserIds ?? [],
     [
       ...knownPartyIds,
-      ...(opts?.runnerId != null ? [opts.runnerId] : []),
+      ...(opts?.runnerId != null && canBindAsDealParty(current, opts.runnerId)
+        ? [opts.runnerId]
+        : []),
     ],
   );
 
-  // > buyer + seller + bot
-  if (memberCount > 3) {
+  // Manuale: bot + buyer + seller (=3). Helper-owned: + owner supporto (=4).
+  const maxMembers = current.groupCreatedVia === "helper" ? 4 : 3;
+  if (memberCount > maxMembers) {
     return { ok: false, reason: "too_many", deal: current };
   }
 
@@ -436,11 +445,14 @@ export async function autoBindCounterpart(
   if (others.length === 0) {
     // Membri presenti ma non ancora risolvibili via Bot API
     const reason: AutoBindFailure =
-      memberCount >= 3 ? "need_message" : "none";
+      memberCount >= maxMembers ? "need_message" : "none";
     return { ok: false, reason, deal: current };
   }
 
   const other = others[0]!;
+  if (!canBindAsDealParty(current, other.id)) {
+    return { ok: false, reason: "need_message", deal: current };
+  }
   // Già in gruppo ma non ha scritto: non bind da discovery — chiedi un messaggio.
   if (opts?.runnerId == null || other.id !== opts.runnerId) {
     return { ok: false, reason: "need_message", deal: current };
