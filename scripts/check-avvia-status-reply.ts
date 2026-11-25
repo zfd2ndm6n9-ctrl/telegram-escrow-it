@@ -1,5 +1,6 @@
 /**
  * Smoke: /avvia awaiting-counterpart copy + dedupe vs living card.
+ * Helper path → «Invita il buyer/seller» + link; manual → entra/scrivi (no «controparte»).
  * npm exec tsx scripts/check-avvia-status-reply.ts
  */
 import {
@@ -7,19 +8,33 @@ import {
   shouldSendAvviaAutoBindStatus,
 } from "../src/services/group-setup.js";
 import { it } from "../src/messages/it.js";
+import { inviteMissingPartyKeyboard } from "../src/keyboards/menus.js";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);
 }
 
-const dealSeller = { id: "2b5f532b", creatorRole: "seller" as const };
-const dealBuyer = { id: "abc12345", creatorRole: "buyer" as const };
+const dealSellerManual = { id: "2b5f532b", creatorRole: "seller" as const };
+const dealBuyerManual = { id: "abc12345", creatorRole: "buyer" as const };
+const dealSellerHelper = {
+  id: "2b5f532b",
+  creatorRole: "seller" as const,
+  groupCreatedVia: "helper" as const,
+  counterpartInviteLink: "https://t.me/+buyerInvite",
+};
+const dealBuyerHelper = {
+  id: "abc12345",
+  creatorRole: "buyer" as const,
+  groupCreatedVia: "helper" as const,
+  counterpartInviteLink: "https://t.me/+sellerInvite",
+};
 
 for (const reason of ["none", "need_message", "too_many"] as const) {
-  for (const deal of [dealSeller, dealBuyer]) {
+  for (const deal of [dealSellerManual, dealBuyerManual]) {
     const text = avviaAutoBindReply(reason, deal);
     assert(typeof text === "string" && text.trim().length > 0, `${reason} empty`);
     assert(!/undefined|null/i.test(text), `${reason} placeholder leak`);
+    assert(!/controparte/i.test(text), `${reason} must not say controparte`);
     if (reason === "too_many") {
       assert(text === it.autoBindTooMany, "too_many copy mismatch");
       assert(/Troppi membri/i.test(text), "too_many missing hint");
@@ -33,16 +48,50 @@ for (const reason of ["none", "need_message", "too_many"] as const) {
       );
       assert(
         /entra o scrivi un messaggio/i.test(text),
-        `${reason} missing next-step invite`,
+        `${reason} missing next-step invite (manual)`,
       );
     }
   }
 }
 
-// Direct message helper stays aligned with digital-services /avvia UX.
-const direct = it.avviaAwaitingCounterpart(dealSeller);
+for (const reason of ["none", "need_message"] as const) {
+  for (const deal of [dealSellerHelper, dealBuyerHelper]) {
+    const text = avviaAutoBindReply(reason, deal);
+    assert(!/controparte/i.test(text), `helper ${reason} must not say controparte`);
+    assert(!/entra o scrivi/i.test(text), `helper ${reason} must not ask entra/scrivi`);
+    const expected = deal.creatorRole === "seller" ? "buyer" : "seller";
+    assert(
+      new RegExp(`invita il \\*?${expected}`, "i").test(text),
+      `helper ${reason} expected Invita il ${expected}`,
+    );
+    assert(
+      text.includes(deal.counterpartInviteLink),
+      `helper ${reason} missing invite link`,
+    );
+  }
+}
+
+// Direct message helper stays aligned.
+const direct = it.avviaAwaitingCounterpart(dealSellerManual);
 assert(direct.includes("2b5f532b"), "direct missing id");
 assert(direct.includes("Buyer"), "seller opener → ask Buyer");
+assert(!/controparte/i.test(direct), "direct must not say controparte");
+
+const helperAsk = it.counterpartAsk(dealBuyerHelper);
+assert(/Invita il \*seller\*/i.test(helperAsk), "counterpartAsk helper → Invita il seller");
+assert(helperAsk.includes("https://t.me/+sellerInvite"), "counterpartAsk helper link");
+
+const inviteKb = inviteMissingPartyKeyboard("buyer", "https://t.me/+x");
+const btn = inviteKb.inline_keyboard[0]?.[0];
+assert(btn && "text" in btn && btn.text === "Invita il seller", "keyboard seller label");
+assert(btn && "url" in btn && btn.url === "https://t.me/+x", "keyboard url");
+
+const inviteKbBuyer = inviteMissingPartyKeyboard("seller", "https://t.me/+y");
+const btnB = inviteKbBuyer.inline_keyboard[0]?.[0];
+assert(
+  btnB && "text" in btnB && btnB.text === "Invita il buyer",
+  "keyboard buyer label",
+);
 
 // Living card is the single identify-counterpart prompt — never stack status.
 assert(

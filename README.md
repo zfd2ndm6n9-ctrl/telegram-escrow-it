@@ -84,18 +84,19 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 ### In privato
 
 1. `/start` → iscrizione (anche senza `@`: «utente» + soft remind) → entra nel **canale reviews** (hard gate) → `/crea`
-2. Ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) — **niente wallet in DM**
-3. Chi apre (`/crea`) risponde alle **3 domande** termini in DM (Prodotto/servizio → Prezzo € → Condizioni), poi istruzioni gruppo → bot admin → `/avvia`
+2. Invito opzionale → ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) — solo **inline buttons** (niente reply keyboard Crea/I miei sotto la tastiera telefono) — **niente wallet in DM**
+3. Chi apre (`/crea`) risponde alle **3 domande** termini in DM (Prodotto/servizio → Prezzo € → Condizioni)
+4. **Path preferito (helper MTProto):** il servizio crea il gruppo → DM «Il tuo gruppo è stato creato» + link → nel gruppo *Invita il buyer/seller* → join → auto-bind / `/avvia`. Path manuale (crea gruppo tu → bot admin → `/avvia`) solo emergenza / `TELEGRAM_BOT_CREATES_GROUPS=0`.
 
 ### Nel gruppo
 
-4. `/avvia` → chiede *Buyer* o *Seller* (ruolo mancante) di entrare/scrivere. Soft `@` + canale vouch solo per chi apre (`/crea`); controparte: Accetta / `/wallet` / release senza `/start`
-5. *ToS*: card con *Accetta* o *Proponi i ToS* (la controparte). Proponi → stesse 3 domande *nel gruppo* (igiene Q+A); si scambiano finché uno Accetta (lock €→SOL)
-6. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
-7. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
-8. Rilevamento automatico → seller *Consegnato* → buyer *Paga* (dual-confirm). In parallelo: *Rimborsa buyer* (dual-confirm buyer+seller; anche pre-consegna da stato / ship ask)
-9. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (solo Prezzo + review @; niente prodotto/condizioni) → «Grazie per la vostra valutazione.» → release on-chain (seller 95% + fee 5%) + Hash. Refund 2/2: payout immediato 100% → buyer (0 fee servizio), senza review; stato `refunded` / «rimborsato» in `/miei`. ~30 min dopo closed: tentativo `deleteChat` (se creator/admin con diritti), altrimenti leave + avviso corto (soft-fail).
-10. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; in disputa admin forza release/refund con `/payseller` o `/refundbuyer` (salta dual-confirm e review)
+5. Helper: card con *Invita il buyer* o *Invita il seller* (link). Soft `@` + canale vouch solo per chi apre (`/crea`); l'altra parte: Accetta / `/wallet` / release senza `/start`
+6. *ToS*: card con *Accetta* o *Proponi i ToS* (l'altra parte). Proponi → stesse 3 domande *nel gruppo* (igiene Q+A); si scambiano finché uno Accetta (lock €→SOL)
+7. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
+8. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
+9. Rilevamento automatico → seller *Consegnato* → buyer *Paga* (dual-confirm). In parallelo: *Rimborsa buyer* (dual-confirm buyer+seller; anche pre-consegna da stato / ship ask)
+10. Dopo 2/2 **paga-seller** (non rimborso): review breve seller → buyer → **un** post vouch (solo Prezzo + review @; niente prodotto/condizioni) → «Grazie per la vostra valutazione.» → release on-chain (seller 95% + fee 5%) + Hash. Refund 2/2: payout immediato 100% → buyer (0 fee servizio), senza review; stato `refunded` / «rimborsato» in `/miei`. ~30 min dopo closed: tentativo `deleteChat` (se creator/admin con diritti), altrimenti leave + avviso corto (soft-fail).
+11. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; in disputa admin forza release/refund con `/payseller` o `/refundbuyer` (salta dual-confirm e review)
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato, solo deal *conclusi* `released`/`refunded`), `/invito CODICE`.  
 Admin: `/deal <id>` (DM: fatti card + chat completa), `/log #dealId` (DM transcript), `/iscritti`, `/codice`, `/codici`, `/fee`, `/admin_wipe_deals` (DM: svuota `deals.json` + `deal-logs.json`; con saldi escrow richiede `FORCE`).
@@ -132,9 +133,9 @@ Admin: `/deal <id>` (DM: fatti card + chat completa), `/log #dealId` (DM transcr
 1. `npm run solana:keygen` → salva secret su Render come `SOLANA_PRIVATE_KEY`
 2. Invia **~0.05 SOL** alla **pubkey master** (solo per fee tx)
 3. Deploy / restart del worker (**Manual Deploy**)
-4. Su Telegram: `/crea` → buyer → SOL → `0.01`
-5. Crea gruppo privato → aggiungi bot admin → `/avvia` → invita controparte (scrive un messaggio per bind). Hai *10 minuti* dopo le istruzioni DM; oltre → deal auto-annullato, rifai `/crea`.
-6. Termini DM opener → controparte *Accetta* (o *Proponi i ToS*) → `/wallet` seller poi buyer
+4. Su Telegram: `/crea` → buyer → SOL → termini (Prezzo € es. `0.01` path legacy amount se presente)
+5. Con helper configurato: apri il gruppo dal DM «Il tuo gruppo è stato creato» → *Invita il seller* → join → Accetta. Senza helper (emergenza): crea gruppo privato → bot admin → `/avvia` (*10 minuti* TTL).
+6. Termini DM opener → l'altra parte *Accetta* (o *Proponi i ToS*) → `/wallet` seller poi buyer
 7. Invia `0.01 SOL` all’indirizzo mostrato da `/indirizzo`
 8. Attendi “deposito rilevato” → *Consegnato* → *Paga* (dual-confirm)
 

@@ -1,12 +1,17 @@
 /**
  * Smoke: /crea pre-«aggiungi bot» role/asset use inline buttons;
- * free text is ignored (delete + re-prompt), not a flow advance.
+ * free text is ignored (delete + re-prompt), not a flow advance;
+ * persistent reply keyboard (Crea / I miei) stripped during button steps.
  * npm exec tsx scripts/check-button-only-dm-wizard.ts
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { assetKeyboard, roleKeyboard } from "../src/keyboards/menus.js";
+import {
+  assetKeyboard,
+  removeReplyKeyboard,
+  roleKeyboard,
+} from "../src/keyboards/menus.js";
 
 const root = resolve(import.meta.dirname, "..");
 const creaSrc = readFileSync(
@@ -15,6 +20,10 @@ const creaSrc = readFileSync(
 );
 const menusSrc = readFileSync(
   resolve(root, "src/keyboards/menus.ts"),
+  "utf8",
+);
+const hygieneSrc = readFileSync(
+  resolve(root, "src/services/dm-hygiene.ts"),
   "utf8",
 );
 
@@ -47,5 +56,13 @@ assert.match(
 // Invite non-code free text → re-prompt (keep/re-send inline skip)
 assert.match(creaSrc, /repromptInviteStep/);
 assert.match(creaSrc, /Testo non-codice[\s\S]*repromptInviteStep/);
+
+// Persistent reply keyboard removed during button wizard steps
+assert.deepEqual(removeReplyKeyboard(), { remove_keyboard: true });
+assert.match(hygieneSrc, /stripPersistentReplyKeyboard/);
+assert.match(hygieneSrc, /restoreMainMenuKeyboard/);
+assert.match(creaSrc, /stripPersistentReplyKeyboard/);
+assert.match(creaSrc, /restoreMainMenuKeyboard/);
+assert.match(menusSrc, /remove_keyboard:\s*true/);
 
 console.log("check-button-only-dm-wizard: OK");

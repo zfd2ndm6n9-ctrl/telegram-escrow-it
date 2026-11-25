@@ -1,7 +1,43 @@
 import type { BotContext } from "../context.js";
+import { mainMenuKeyboard, removeReplyKeyboard } from "../keyboards/menus.js";
 import { clearDmTermsUi } from "./dm-terms.js";
 import { dismissInviteStep } from "./invite-step.js";
 import { deleteMessageSafe } from "./prompt-cleanup.js";
+
+/**
+ * Toglie la reply keyboard persistente (Crea / I miei deal) sotto la tastiera
+ * telefono. Telegram non permette remove_keyboard + InlineKeyboard insieme:
+ * messaggio invisibile poi cancellato.
+ */
+export async function stripPersistentReplyKeyboard(
+  ctx: BotContext,
+): Promise<void> {
+  if (!ctx.chat || ctx.chat.type !== "private") return;
+  try {
+    const msg = await ctx.reply("\u2060", {
+      reply_markup: removeReplyKeyboard(),
+    });
+    await deleteMessageSafe(ctx.api, ctx.chat.id, msg.message_id);
+  } catch {
+    // ok — best-effort
+  }
+}
+
+/**
+ * Ripristina Crea / I miei deal dopo i passi solo-bottone del /crea
+ * (o a fine wizard / annulla). Stesso trucco messaggio invisibile.
+ */
+export async function restoreMainMenuKeyboard(ctx: BotContext): Promise<void> {
+  if (!ctx.chat || ctx.chat.type !== "private") return;
+  try {
+    const msg = await ctx.reply("\u2060", {
+      reply_markup: mainMenuKeyboard(),
+    });
+    await deleteMessageSafe(ctx.api, ctx.chat.id, msg.message_id);
+  } catch {
+    // ok — best-effort
+  }
+}
 
 /** Igiene: cancella messaggi effimeri del wizard /crea (ruolo, crypto, risposte). */
 export async function clearCreatingEphemeral(ctx: BotContext): Promise<void> {

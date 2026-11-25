@@ -698,7 +698,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     // Chi ha proposto non può accettare la propria card
     if (isTermsProposer(deal, ctx.from.id)) {
       await ctx.answerCallbackQuery({
-        text: "Sei il proponente: aspetta la controparte.",
+        text: "Sei il proponente: aspetta l'altra parte.",
         show_alert: true,
       });
       return;
@@ -803,7 +803,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     }
     if (isTermsProposer(deal, ctx.from.id) && termsReadyForConfirm(deal)) {
       await ctx.answerCallbackQuery({
-        text: "Sei il proponente: aspetta la controparte.",
+        text: "Sei il proponente: aspetta l'altra parte.",
         show_alert: true,
       });
       return;

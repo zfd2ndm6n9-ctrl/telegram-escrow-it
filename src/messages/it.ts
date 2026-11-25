@@ -30,7 +30,7 @@ function formatMissingList(fields: EssentialTermsField[]): string {
 const STATUS_LABELS: Record<Deal["status"], string> = {
   awaiting_group: "In attesa gruppo",
   awaiting_bot_admin: "Permessi bot incompleti",
-  awaiting_counterpart: "In attesa controparte",
+  awaiting_counterpart: "In attesa buyer/seller",
   awaiting_tos: "In attesa termini",
   awaiting_tos_confirm: "In attesa conferma termini",
   awaiting_amount: "In attesa importo",
@@ -259,7 +259,7 @@ Entra, poi *Sono entrato* o \`/start\`.`,
   dmTermsComplete: (deal: Deal) =>
     `✅ Termini salvati per deal *#${deal.id}*.
 
-Nel gruppo la controparte può *Accetta* o *Proponi i ToS*.`,
+Nel gruppo l'altra parte può *Accetta* o *Proponi i ToS*.`,
 
   dmTermsTooShort:
     "Troppo corto. Scrivi almeno un paio di caratteri chiari.",
@@ -304,14 +304,24 @@ Poi invita l'altra parte.`;
     deal: Deal,
     links: { creatorLink: string; counterpartLink: string },
     creatorInvited: boolean,
-  ) =>
-    `✅ Gruppo escrow creato per deal *#${deal.id}* (gestito da Escrowita).
+  ) => {
+    void links.counterpartLink; // invito buyer/seller → messaggio nel gruppo
+    const missing =
+      deal.creatorRole === "seller" ? "buyer" : "seller";
+    return `✅ *Il tuo gruppo è stato creato*
 
-${creatorInvited ? "Ti ho già aggiunto al gruppo.\n" : `*Il tuo link* (solo tu):\n${links.creatorLink}\n\n`}*Link per l'altra parte* (inoltralo solo a lei):
-${links.counterpartLink}
+Deal *#${deal.id}* · ruolo *${deal.creatorRole}* · *${deal.asset}*
+(gestito da Escrowita)
 
-Entrate nel gruppo → /avvia → Accetta → wallet → deposito.
-Verifica sempre l'indirizzo escrow nei messaggi del bot.`,
+${
+  creatorInvited
+    ? "Ti ho già aggiunto — apri il gruppo dal pulsante sotto."
+    : `Apri il gruppo dal pulsante sotto (link solo tuo):\n${links.creatorLink}`
+}
+
+Nel gruppo trovi *Invita il ${missing}* da inoltrare all'altra parte.
+Poi Accetta → wallet → deposito. Verifica sempre l'indirizzo escrow nei messaggi del bot.`;
+  },
 
   groupCreateFailed: (deal: Deal, detail: string) =>
     `⚠️ Deal *#${deal.id}* pronto, ma *non* sono riuscito a creare il gruppo (richiesto).
@@ -387,10 +397,22 @@ Nel frattempo (emergenza): crea un *gruppo privato* → aggiungi il bot come adm
     const header = `🔒 Deal *#${deal.id}* · *${deal.asset}*${solHint}`;
 
     if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
-      const missingRole = deal.creatorRole === "seller" ? "Buyer" : "Seller";
+      const missingRole = deal.creatorRole === "seller" ? "buyer" : "seller";
+      // Helper-owned: link invito dedicato (niente «controparte entra / scrivi»).
+      if (
+        deal.groupCreatedVia === "helper" &&
+        deal.counterpartInviteLink
+      ) {
+        return `${header}
+
+Invita il *${missingRole}*:
+${deal.counterpartInviteLink}`;
+      }
+      // Manuale (emergenza): role-aware, senza la parola «controparte».
+      const label = missingRole === "buyer" ? "Buyer" : "Seller";
       return `${header}
 
-${missingRole}: entra o scrivi un messaggio nel gruppo.`;
+${label}: entra o scrivi un messaggio nel gruppo.`;
     }
 
     const buyer = mentionUser(deal.buyerUsername, deal.buyerId, "buyer");
@@ -456,30 +478,52 @@ ${missingRole}: entra o scrivi un messaggio nel gruppo.`;
     "Troppi membri. Solo *buyer*, *seller* e il bot. Rimuovi gli altri, poi /avvia.",
 
   /**
-   * Role-aware: opener seller → chiedi Buyer; opener buyer → chiedi Seller.
+   * Role-aware: opener seller → invita buyer; opener buyer → invita seller.
+   * Helper path: link; manual: entra/scrivi (mai la parola «controparte»).
    */
-  counterpartAsk: (deal: Pick<Deal, "creatorRole">) => {
-    const missingRole = deal.creatorRole === "seller" ? "Buyer" : "Seller";
-    return `${missingRole}: entra o scrivi un messaggio nel gruppo.`;
+  counterpartAsk: (
+    deal: Pick<
+      Deal,
+      "creatorRole" | "groupCreatedVia" | "counterpartInviteLink"
+    >,
+  ) => {
+    const missingRole = deal.creatorRole === "seller" ? "buyer" : "seller";
+    if (deal.groupCreatedVia === "helper" && deal.counterpartInviteLink) {
+      return `Invita il *${missingRole}*:\n${deal.counterpartInviteLink}`;
+    }
+    const label = missingRole === "buyer" ? "Buyer" : "Seller";
+    return `${label}: entra o scrivi un messaggio nel gruppo.`;
   },
 
   /**
    * Fallback status se la living card non è disponibile.
-   * Con card presente: non inviare — un solo «entra o scrivi».
+   * Con card presente: non inviare — un solo prompt invite / entra.
    */
-  avviaAwaitingCounterpart: (deal: Pick<Deal, "id" | "creatorRole">) => {
-    const missingRole = deal.creatorRole === "seller" ? "Buyer" : "Seller";
+  avviaAwaitingCounterpart: (
+    deal: Pick<
+      Deal,
+      "id" | "creatorRole" | "groupCreatedVia" | "counterpartInviteLink"
+    >,
+  ) => {
+    const missingRole = deal.creatorRole === "seller" ? "buyer" : "seller";
+    if (deal.groupCreatedVia === "helper" && deal.counterpartInviteLink) {
+      return (
+        `Deal *#${deal.id}* — invita il *${missingRole}*:\n` +
+        deal.counterpartInviteLink
+      );
+    }
+    const label = missingRole === "buyer" ? "Buyer" : "Seller";
     return (
-      `Deal *#${deal.id}* già avviato — in attesa della controparte.\n` +
-      `${missingRole}: entra o scrivi un messaggio nel gruppo.`
+      `Deal *#${deal.id}* già avviato — in attesa.\n` +
+      `${label}: entra o scrivi un messaggio nel gruppo.`
     );
   },
 
   /** @deprecated Preferire counterpartAsk(deal). */
-  autoBindNone: "Controparte: entra o scrivi un messaggio nel gruppo.",
+  autoBindNone: "Buyer o seller: entra o scrivi un messaggio nel gruppo.",
 
   /** @deprecated Preferire counterpartAsk(deal). */
-  autoBindNeedMessage: "Controparte: entra o scrivi un messaggio nel gruppo.",
+  autoBindNeedMessage: "Buyer o seller: entra o scrivi un messaggio nel gruppo.",
 
   tosAccepted: (deal: Deal) =>
     deal.amount
@@ -1087,8 +1131,8 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   /** /avvia ripetuto su deal già collegato: niente seconda card. */
   alreadyLinkedShort: (deal: Deal) =>
     `Deal *#${deal.id}* già collegato — \`${STATUS_LABELS[deal.status]}\`. Usa /stato.`,
-  counterpartIsOpener: "Chi ha avviato il deal non conferma come controparte.",
-  counterpartTaken: "La controparte è già assegnata.",
+  counterpartIsOpener: "Chi ha avviato il deal non conferma come l'altra parte.",
+  counterpartTaken: "Buyer e seller sono già assegnati.",
 
   adminWipeUsage:
     "Uso (solo admin, in privato):\n" +
@@ -1129,14 +1173,14 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     `✅ Store svuotato: *${dealsRemoved}* deal, *${logsRemoved}* log. Members/invites/pin vouch intatti.`,
   /** Proponente non può accettare la propria proposta. */
   tosProposerCannotAccept:
-    "Hai proposto tu i termini. Aspetta *Accetta* o *Proponi i ToS* dalla controparte.",
+    "Hai proposto tu i termini. Aspetta *Accetta* o *Proponi i ToS* dall'altra parte.",
 
   /** @deprecated alias tono legacy — ora chiunque non-proponente Accetta */
   tosSellerCannotAccept: (_deal: Deal) =>
-    "Hai proposto tu i termini. Aspetta *Accetta* o *Proponi i ToS* dalla controparte.",
+    "Hai proposto tu i termini. Aspetta *Accetta* o *Proponi i ToS* dall'altra parte.",
 
   tosAlreadyAccepted: "Termini già accettati.",
-  tosOnlyCounterpart: "Solo la controparte può *Accetta* o *Proponi i ToS*.",
+  tosOnlyCounterpart: "Solo l'altra parte può *Accetta* o *Proponi i ToS*.",
   amountAlreadyConfirmed: "Importo già confermato.",
 
   /** Target SOL già lockato all'Accetto: no nuova FX / importo manuale. */

@@ -40,6 +40,8 @@ import {
   cancelMidCreaBeforeGroupBind,
   clearCreatingEphemeral,
   clearTermsErrorMessages,
+  restoreMainMenuKeyboard,
+  stripPersistentReplyKeyboard,
   trackCreatingEphemeral,
 } from "../services/dm-hygiene.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
@@ -116,6 +118,9 @@ export async function beginCreateDealFlow(ctx: BotContext): Promise<void> {
   if (ctx.message?.message_id != null) {
     await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
   }
+
+  // Passi solo-bottone: niente reply keyboard Crea/I miei sotto la tastiera telefono
+  await stripPersistentReplyKeyboard(ctx);
 
   // Deep-link /start invito_CODE → applica silenzioso a questo deal, no re-ask
   const pending = ctx.session.pendingInviteCode;
@@ -568,6 +573,8 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
   if (ctx.message?.message_id != null) {
     await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
   }
+  // Fine passi solo-bottone → ripristina menu; termini = free text.
+  await restoreMainMenuKeyboard(ctx);
 
   const role = creating.role;
   const placeholder = "PENDING_SOL_ESCROW";
@@ -672,34 +679,29 @@ async function finishDealReady(
         created.chatId,
       );
 
-      const links = {
-        creatorLink: created.creatorInviteLink,
-        counterpartLink: created.counterpartInviteLink,
-      };
-      const kb = groupInviteKeyboard(
-        created.creatorInvited
-          ? created.counterpartInviteLink
-          : created.creatorInviteLink,
-        config.tosWebAppUrl,
-        {
-          counterpartLink: created.creatorInvited
-            ? undefined
-            : created.counterpartInviteLink,
-        },
-      );
+      // DM: solo link creator → «Il tuo gruppo è stato creato».
+      // Link buyer/seller: posta il bot nel gruppo (card «Invita il …»).
+      const creatorLink = created.creatorInviteLink;
+      const kb = groupInviteKeyboard(creatorLink, config.tosWebAppUrl);
 
       if (!perms.ok) {
         await ctx.reply(
           it.missingBotPerms(perms.missing, { notAdmin: perms.notAdmin }),
           { parse_mode: "Markdown", reply_markup: kb },
         );
+        await restoreMainMenuKeyboard(ctx);
         return;
       }
 
       await ctx.reply(
-        it.groupReady(started, links, created.creatorInvited),
+        it.groupReady(
+          started,
+          { creatorLink, counterpartLink: created.counterpartInviteLink },
+          created.creatorInvited,
+        ),
         { parse_mode: "Markdown", reply_markup: kb },
       );
+      await restoreMainMenuKeyboard(ctx);
       return;
     }
 
