@@ -1,28 +1,20 @@
 import { InlineKeyboard, Keyboard } from "grammy";
 import type { Deal, PartyRole } from "../types.js";
 
-/** Label + callback shared by inline menu (no ReplyKeyboard duplicate). */
+/** Labels for persistent reply keyboard + hears handlers. */
 export const MAIN_MENU_CREA_LABEL = "➕ Crea escrow";
 export const MAIN_MENU_MIEI_LABEL = "📋 I miei deal";
-export const MAIN_MENU_CREA_CB = "menu:crea";
-export const MAIN_MENU_MIEI_CB = "menu:miei";
 
 /**
- * Menu DM: inline in the chat message (same style as /crea role/asset).
- * Never a persistent reply keyboard above the phone keyboard.
+ * Menu DM: persistent reply keyboard above the phone keyboard.
+ * Kept during /crea wizard; role/asset steps use InlineKeyboard separately.
  */
-export function mainMenuKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text(MAIN_MENU_CREA_LABEL, MAIN_MENU_CREA_CB)
-    .text(MAIN_MENU_MIEI_LABEL, MAIN_MENU_MIEI_CB);
-}
-
-/** Telegram reply-keyboard wipe (cannot combine with InlineKeyboard). */
-export function removeReplyKeyboard(): {
-  remove_keyboard: true;
-  selective: false;
-} {
-  return { remove_keyboard: true, selective: false };
+export function mainMenuKeyboard(): Keyboard {
+  return new Keyboard()
+    .text(MAIN_MENU_CREA_LABEL)
+    .text(MAIN_MENU_MIEI_LABEL)
+    .resized()
+    .persistent();
 }
 
 /** Ruolo mancante da invitare (opposto al creator del wizard). */

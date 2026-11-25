@@ -6,7 +6,6 @@ import {
   afterAmountKeyboard,
   assetKeyboard,
   groupInviteKeyboard,
-  MAIN_MENU_CREA_CB,
   MAIN_MENU_CREA_LABEL,
   MAIN_MENU_MIEI_LABEL,
   openBotDmKeyboard,
@@ -43,7 +42,6 @@ import {
   clearCreatingEphemeral,
   clearTermsErrorMessages,
   replyWithMainMenu,
-  stripPersistentReplyKeyboard,
   trackCreatingEphemeral,
 } from "../services/dm-hygiene.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
@@ -121,9 +119,6 @@ export async function beginCreateDealFlow(ctx: BotContext): Promise<void> {
     await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
   }
 
-  // Intero wizard (+ helper create): niente reply KB sopra il telefono
-  await stripPersistentReplyKeyboard(ctx);
-
   // Deep-link /start invito_CODE → applica silenzioso a questo deal, no re-ask
   const pending = ctx.session.pendingInviteCode;
   if (pending) {
@@ -174,11 +169,6 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
 
   bot.command("crea", beginCreate);
   bot.command("create", beginCreate);
-  // Inline menu (primary) + legacy reply-keyboard label (pre-inline clients)
-  bot.callbackQuery(MAIN_MENU_CREA_CB, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await beginCreate(ctx);
-  });
   bot.hears(MAIN_MENU_CREA_LABEL, beginCreate);
 
   /** Skip invito durante /crea (igiene silenziosa → ruolo). */
@@ -307,7 +297,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Legacy reply-keyboard menu: non mangiare come termini/ruolo — passa ai hears.
+    // Reply-keyboard menu: non mangiare come termini/ruolo — passa ai hears.
     if (MAIN_MENU_TEXTS.has(text)) {
       if (text === MAIN_MENU_MIEI_LABEL) {
         await cancelMidCreaBeforeGroupBind(ctx);

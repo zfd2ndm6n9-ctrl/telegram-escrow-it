@@ -1,7 +1,7 @@
 /**
  * Smoke: /crea pre-«aggiungi bot» role/asset use inline buttons;
  * free text is ignored (delete + re-prompt), not a flow advance;
- * main menu is inline (not reply KB); reply KB stripped for whole wizard.
+ * main menu stays as persistent ReplyKeyboard (no strip/ghost).
  * npm exec tsx scripts/check-button-only-dm-wizard.ts
  */
 import assert from "node:assert/strict";
@@ -9,10 +9,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   assetKeyboard,
-  MAIN_MENU_CREA_CB,
-  MAIN_MENU_MIEI_CB,
+  MAIN_MENU_CREA_LABEL,
+  MAIN_MENU_MIEI_LABEL,
   mainMenuKeyboard,
-  removeReplyKeyboard,
   roleKeyboard,
 } from "../src/keyboards/menus.js";
 
@@ -61,30 +60,32 @@ assert.match(
 assert.match(creaSrc, /repromptInviteStep/);
 assert.match(creaSrc, /Testo non-codice[\s\S]*repromptInviteStep/);
 
-// Main menu = inline in chat (not persistent ReplyKeyboard)
+// Main menu = persistent ReplyKeyboard (Crea / I miei) — no strip/ghost
 const menu = mainMenuKeyboard();
-assert.equal(menu.inline_keyboard?.length, 1);
-assert.equal(menu.inline_keyboard?.[0]?.length, 2);
-assert.equal(menu.inline_keyboard?.[0]?.[0]?.callback_data, MAIN_MENU_CREA_CB);
-assert.equal(menu.inline_keyboard?.[0]?.[1]?.callback_data, MAIN_MENU_MIEI_CB);
+assert.equal(typeof (menu as { keyboard?: unknown }).keyboard, "object");
 assert.match(
   menusSrc,
-  /function mainMenuKeyboard\(\): InlineKeyboard \{\s*return new InlineKeyboard\(\)/,
+  /function mainMenuKeyboard\(\): Keyboard \{\s*return new Keyboard\(\)/,
 );
-assert.doesNotMatch(menusSrc, /mainMenuKeyboard[\s\S]{0,200}\.persistent\(\)/);
+assert.match(menusSrc, /MAIN_MENU_CREA_LABEL[\s\S]{0,80}MAIN_MENU_MIEI_LABEL[\s\S]{0,80}\.resized\(\)[\s\S]{0,40}\.persistent\(\)/);
+assert.equal(MAIN_MENU_CREA_LABEL, "➕ Crea escrow");
+assert.equal(MAIN_MENU_MIEI_LABEL, "📋 I miei deal");
+assert.doesNotMatch(menusSrc, /menu:crea/);
+assert.doesNotMatch(menusSrc, /remove_keyboard/);
 
-// Single callback wiring (no duplicate handler bodies)
-assert.match(creaSrc, /callbackQuery\(MAIN_MENU_CREA_CB/);
-assert.match(dealsSrc, /callbackQuery\(MAIN_MENU_MIEI_CB/);
+// Reply-keyboard hears (primary), no inline menu callbacks
+assert.match(creaSrc, /hears\(MAIN_MENU_CREA_LABEL/);
+assert.match(dealsSrc, /hears\(MAIN_MENU_MIEI_LABEL/);
+assert.doesNotMatch(creaSrc, /callbackQuery\(MAIN_MENU_CREA/);
+assert.doesNotMatch(dealsSrc, /callbackQuery\(MAIN_MENU_MIEI/);
 
-// Strip reply KB for whole wizard; never restore reply menu
-assert.deepEqual(removeReplyKeyboard().remove_keyboard, true);
-assert.match(hygieneSrc, /stripPersistentReplyKeyboard/);
-assert.match(hygieneSrc, /REPLY_KEYBOARD_STRIP_DELETE_MS/);
+// No strip / ghost carrier — replyWithMainMenu attaches keyboard only
+assert.doesNotMatch(hygieneSrc, /stripPersistentReplyKeyboard/);
+assert.doesNotMatch(hygieneSrc, /\\u2060/);
+assert.doesNotMatch(creaSrc, /stripPersistentReplyKeyboard/);
+assert.doesNotMatch(dealsSrc, /stripPersistentReplyKeyboard/);
 assert.match(hygieneSrc, /replyWithMainMenu/);
 assert.doesNotMatch(hygieneSrc, /restoreMainMenuKeyboard/);
 assert.doesNotMatch(creaSrc, /restoreMainMenuKeyboard/);
-assert.match(creaSrc, /stripPersistentReplyKeyboard/);
-assert.match(menusSrc, /remove_keyboard:\s*true/);
 
 console.log("check-button-only-dm-wizard: OK");

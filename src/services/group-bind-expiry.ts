@@ -3,7 +3,6 @@ import { mainMenuKeyboard } from "../keyboards/menus.js";
 import { it } from "../messages/it.js";
 import type { DealStore } from "../store/deals.js";
 import { clearDmTermsUi } from "./dm-terms.js";
-import { stripPersistentReplyKeyboardChat } from "./dm-hygiene.js";
 import { deleteMessageSafe } from "./prompt-cleanup.js";
 
 /** Tempo max tra istruzioni DM «aggiungi bot» e bind gruppo. */
@@ -45,7 +44,6 @@ export function startGroupBindExpiryWatcher(
     }
 
     try {
-      await stripPersistentReplyKeyboardChat(api, deal.creatorId);
       const notice = await api.sendMessage(
         deal.creatorId,
         it.groupBindExpired(deal),
