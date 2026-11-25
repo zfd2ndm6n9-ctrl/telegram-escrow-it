@@ -105,13 +105,12 @@ export const config = {
     (process.env.TELEGRAM_BOT_CREATES_GROUPS?.trim() || "1").toLowerCase(),
   ),
   /**
-   * DM automatici agli admin su ogni disputa aperta.
-   * Default **off** (operatore apre il gruppo quando vuole; niente spam).
-   * Imposta `1`/`true`/`yes` per riattivare le notify.
-   * Critici (bot kick / gruppo cancellato / wipe / admin kick) restano sempre on.
+   * DM automatici agli admin su ogni disputa aperta (deal #id chiaro).
+   * Default **on** — l’operatore cerca il gruppo in Archiviati col codice deal.
+   * Imposta `0`/`false`/`no` per silenziare (critici kick/delete restano on).
    */
-  disputeAdminNotify: ["1", "true", "yes"].includes(
-    (process.env.DISPUTE_ADMIN_NOTIFY?.trim() || "").toLowerCase(),
+  disputeAdminNotify: !["0", "false", "no"].includes(
+    (process.env.DISPUTE_ADMIN_NOTIFY?.trim() || "1").toLowerCase(),
   ),
   /**
    * Canale pubblico aggiornamenti (CoinXpert-style «N iscritti»).

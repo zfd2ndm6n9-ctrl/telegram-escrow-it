@@ -1,6 +1,6 @@
 # Gruppi escrow creati dal servizio
 
-> Dettaglio limiti Telegram + decisione prodotto: store `docs/bot-owned-groups.md` (BET-102 / BET-103).
+> Dettaglio limiti Telegram + decisione prodotto: store `docs/bot-owned-groups.md` (BET-102 / BET-103 / BET-115).
 
 ## Path preferito (default)
 
@@ -8,10 +8,11 @@
 2. **Helper MTProto** crea un megagroup privato (la Bot API **non** può creare gruppi)  
 3. Helper = **owner** (account supporto di Francesco, non una parte)  
 4. Bot promosso admin con diritti forti (incluso promote → demote parti)  
-5. DM creator: effimero «Sto creando il gruppo…» → poi «Il tuo gruppo è stato creato» + link + «entra nel gruppo e invita il buyer/seller» (ruolo opposto al wizard; niente «ti ho già aggiunto»)  
-6. Nel gruppo: **due messaggi** — (A) invite link controparte, (B) «Invita il buyer/seller». Al join della controparte: cancella entrambi → bind → ToS  
-7. Parti entrano come **membri** → auto-bind / `/avvia`  
-8. Helper/support (`ADMIN_TELEGRAM_ID(S)`) **non** è mai buyer/seller — solo le due parti dei link
+5. Helper **archivia** il gruppo (`folders.EditPeerFolders`, folder_id=1) → fuori dalla inbox principale  
+6. DM creator: effimero «Sto creando il gruppo…» → poi «Il tuo gruppo è stato creato» + link + «entra nel gruppo e invita il buyer/seller» (ruolo opposto al wizard; niente «ti ho già aggiunto»)  
+7. Nel gruppo: **due messaggi** — (A) invite link controparte, (B) «Invita il buyer/seller». Al join della controparte: cancella entrambi → bind → ToS  
+8. Parti entrano come **membri** → auto-bind / `/avvia`  
+9. Helper/support (`ADMIN_TELEGRAM_ID(S)`) **non** è mai buyer/seller — solo le due parti dei link
 
 `TELEGRAM_BOT_CREATES_GROUPS` è **on** di default. Imposta `0` solo per forzare il path manuale legacy.
 
@@ -20,7 +21,8 @@
 | `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` | App su [my.telegram.org](https://my.telegram.org) |
 | `TELEGRAM_HELPER_SESSION` | Session string (`npm run helper:login`) |
 | `TELEGRAM_BOT_CREATES_GROUPS` | Default on; `0`/`false` = solo manuale |
-| `DISPUTE_ADMIN_NOTIFY` | Default **off**. `1` = DM admin su ogni disputa |
+| `DISPUTE_ADMIN_NOTIFY` | Default **on**. `0`/`false` = niente DM su disputa |
+| `ADMIN_TELEGRAM_IDS` | Destinatari DM disputa + `/deal` / force / critici |
 
 Senza helper: messaggio chiaro sul limite Bot API + istruzioni manuali **di emergenza** (owner umano = rischio kick/delete).
 
@@ -28,8 +30,16 @@ Senza helper: messaggio chiaro sul limite Bot API + istruzioni manuali **di emer
 
 | Evento | DM admin |
 |--------|----------|
-| Disputa aperta | **No** (default). Operatore apre il gruppo helper quando vuole. |
+| Disputa aperta | **Sì** (default). Body con `#dealId` chiaro → cerca in **Archiviati** Telegram. |
 | Bot kick / gruppo cancellato / wipe card / admin kickato | **Sì** (critico) |
+
+## Admin `/deal` vs `/log`
+
+| Comando | Contenuto |
+|---------|-----------|
+| `/deal <id>` (DM) | Fatti card + **solo** messaggi cancellati/cleared (`[del]` igiene). Non dumpa tutta la chat. |
+| `/log <id>` (DM) | Transcript completo (umani + eventi). |
+| Gruppo Telegram | Chat viva — helper owner, in **Archiviati**; cerca `#dealId` nel titolo. |
 
 ## Path manuale (degradato)
 
@@ -51,6 +61,7 @@ Su gruppi helper il bot ha anche **promuovi membri** per demote automatico se un
 - Kick bot non autorizzati  
 - Su `groupCreatedVia: helper`: demote admin umani editabili (parti restano membri)  
 - Alert se buyer/seller cambiano username o nome  
+- TODO (poi): harden se le parti cancellano messaggi del bot in gruppo (Bot API non notifica delete utente)
 
 ## Limiti onesti
 
@@ -60,6 +71,7 @@ Su gruppi helper il bot ha anche **promuovi membri** per demote automatico se un
 | Bot non può essere owner | Helper owner + bot admin + demote parti |
 | Owner umano (path manuale) | Evitare; warning in DM; compromise freeze se kick bot |
 | Helper owner | Proteggi `TELEGRAM_HELPER_SESSION` come secret di produzione |
+| Inbox helper piena | Archive automatico dopo create (`folder_id=1`) |
 
 ---
 
@@ -90,20 +102,25 @@ Dashboard → servizio bot → **Environment** → aggiungi (o aggiorna):
 | `TELEGRAM_API_ID` | da my.telegram.org |
 | `TELEGRAM_API_HASH` | da my.telegram.org |
 | `TELEGRAM_HELPER_SESSION` | output di `helper:login` |
+| `ADMIN_TELEGRAM_IDS` | i tuoi user id (DM disputa + `/deal`) |
 
 Opzionali:
 
 - `TELEGRAM_BOT_CREATES_GROUPS` — lascia assente / non `0` (default on).  
-- `DISPUTE_ADMIN_NOTIFY` — **non** impostare (default off = niente spam disputa).  
-- `ADMIN_TELEGRAM_IDS` — resta utile per `/deal`, force payout, alert critici.
+- `DISPUTE_ADMIN_NOTIFY` — lascia assente (default **on**). Imposta `0` solo per silenziare.  
 
-Salva → **Manual Deploy** del worker su `main` (include PR **#74** + **#75** e follow-up quiet alerts).
+Salva → **Manual Deploy** del worker su `main`.
 
 ### C. Verifica dopo deploy
 
 Nei log del worker cerca:
 
 - `Creazione gruppi ON: helper MTProto pronto`  
-- `Dispute admin DM: OFF (default)`  
+- `Dispute admin DM: ON (default…)`  
+- Dopo un `/crea`: `Helper: deal #… chat … → Archiviati (folder 1)`  
 
-Poi un `/crea` di prova: il gruppo deve apparire sotto l’account helper come **owner**; bot admin; parti solo membri.
+Poi:
+
+1. `/crea` di prova → gruppo sotto helper come **owner**, in **Archiviati** (non inbox).  
+2. Apri disputa nel gruppo → DM admin con `#dealId`.  
+3. DM bot: `/deal <id>` → fatti + solo `[del]`; cerca `#id` in Archiviati per la chat viva.  

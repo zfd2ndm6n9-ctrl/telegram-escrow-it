@@ -3,6 +3,8 @@
  * npm exec tsx scripts/check-bot-owned-groups.ts
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   BOT_API_CAN_CREATE_GROUPS,
   BOT_API_MEMBER_PERMISSIONS,
@@ -33,8 +35,31 @@ assert.equal(BOT_API_MEMBER_PERMISSIONS.can_pin_messages, false);
 
 // Default prefer create (unless TELEGRAM_BOT_CREATES_GROUPS=0)
 assert.equal(typeof config.telegramBotCreatesGroups, "boolean");
-// Dispute admin DMs off unless DISPUTE_ADMIN_NOTIFY=1
-assert.equal(config.disputeAdminNotify, false);
+// Dispute admin DMs on by default (unless DISPUTE_ADMIN_NOTIFY=0)
+assert.equal(config.disputeAdminNotify, true);
+
+{
+  const root = resolve(import.meta.dirname, "..");
+  const creatorSrc = readFileSync(
+    resolve(root, "src/services/group-creator.ts"),
+    "utf8",
+  );
+  assert.match(
+    creatorSrc,
+    /archiveHelperPeer/,
+    "helper create archives escrow chat",
+  );
+  const helperSrc = readFileSync(
+    resolve(root, "src/services/mtproto-helper.ts"),
+    "utf8",
+  );
+  assert.match(
+    helperSrc,
+    /folders\.EditPeerFolders/,
+    "archive uses MTProto folders.EditPeerFolders",
+  );
+  assert.match(helperSrc, /folderId:\s*1/, "archive folder_id = 1");
+}
 
 const deal = {
   id: "abcd1234",

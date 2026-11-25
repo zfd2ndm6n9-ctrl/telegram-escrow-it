@@ -4,6 +4,7 @@ import type { Deal } from "../types.js";
 import { it } from "../messages/it.js";
 import { config } from "../config.js";
 import {
+  archiveHelperPeer,
   channelToBotApiChatId,
   extractCreatedChannel,
   getMtprotoHelper,
@@ -256,6 +257,14 @@ export async function createEscrowGroup(input: {
 
     // Demote eventuali admin umani subito (parti non devono restare admin).
     await demoteNonOwnerHumanAdmins(input.botApi, chatId);
+
+    // Archiviati sul helper: fuori dalla inbox principale (soft-fail).
+    const archived = await archiveHelperPeer(channel);
+    if (archived) {
+      console.log(
+        `Helper: deal #${input.deal.id} chat ${chatId} → Archiviati (folder 1).`,
+      );
+    }
 
     return {
       ok: true,

@@ -91,3 +91,33 @@ export function extractCreatedChannel(
 export function channelToBotApiChatId(channel: Api.Channel): number {
   return Number(`-100${channel.id.toString()}`);
 }
+
+/**
+ * Sposta un peer nella cartella Archiviati dell'account helper (folder_id = 1).
+ * Così i gruppi escrow non allagano la inbox principale del supporto.
+ * Soft-fail: la create resta ok anche se l'archive fallisce.
+ *
+ * Accetta `Api.Channel` (teleproto risolve a InputPeer) o un InputPeer già pronto.
+ */
+export async function archiveHelperPeer(
+  peer: Api.Channel | Api.TypeInputPeer,
+): Promise<boolean> {
+  const client = await getMtprotoHelper();
+  try {
+    await client.invoke(
+      new Api.folders.EditPeerFolders({
+        folderPeers: [
+          new Api.InputFolderPeer({
+            // Channel funziona come peer (stesso pattern di EditChatDefaultBannedRights).
+            peer: peer as Api.TypeInputPeer,
+            folderId: 1, // Telegram "Archived chats"
+          }),
+        ],
+      }),
+    );
+    return true;
+  } catch (err) {
+    console.warn("archiveHelperPeer (folders.EditPeerFolders) failed:", err);
+    return false;
+  }
+}

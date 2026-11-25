@@ -215,7 +215,11 @@ async function completeStart(ctx: BotContext): Promise<void> {
   );
 }
 
-/** DM admin: fatti card + transcript completo (condiviso da `/deal` e `/start deal_HEX`). */
+/**
+ * DM admin: fatti card + solo messaggi cancellati/cleared (igiene).
+ * Condiviso da `/deal` e `/start deal_HEX`. Chat viva → gruppo in Archiviati.
+ * `/log` resta il transcript completo.
+ */
 async function replyAdminDealDm(
   ctx: BotContext,
   dealId: string,
@@ -226,13 +230,13 @@ async function replyAdminDealDm(
     return;
   }
   ctx.dealLogs.pruneExpired();
-  const all = ctx.dealLogs.getEntries(dealId);
+  const deleted = ctx.dealLogs.getDeletedEntries(dealId);
   const facts = formatDealEvidenceFacts(deal);
-  const header = it.dealAdminHeader(dealId, all.length);
-  const transcript = ctx.dealLogs.formatTranscript(dealId);
+  const header = it.dealAdminHeader(dealId, deleted.length);
+  const transcript = ctx.dealLogs.formatDeletedTranscript(dealId);
   const chatBlock = transcript
-    ? `${it.dealAdminChatTitle}\n${transcript}`
-    : it.logEmpty(dealId);
+    ? `${it.dealAdminDeletedTitle}\n${transcript}`
+    : it.dealAdminNoDeleted(dealId);
   const head = `${it.dealAdminFactsTitle}\n${facts}\n\n${header}`;
   const full = `${head}\n\n${chatBlock}`;
   if (full.length <= 3900) {
@@ -241,12 +245,12 @@ async function replyAdminDealDm(
   }
   await ctx.reply(head, { parse_mode: "Markdown" });
   if (transcript) {
-    await ctx.reply(it.dealAdminChatTitle, { parse_mode: "Markdown" });
+    await ctx.reply(it.dealAdminDeletedTitle, { parse_mode: "Markdown" });
     for (let i = 0; i < transcript.length; i += 3500) {
       await ctx.reply(transcript.slice(i, i + 3500));
     }
   } else {
-    await ctx.reply(it.logEmpty(dealId), { parse_mode: "Markdown" });
+    await ctx.reply(it.dealAdminNoDeleted(dealId), { parse_mode: "Markdown" });
   }
 }
 
@@ -382,9 +386,9 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
   });
 
   /**
-   * Admin DM: evidence pack — fatti card (ToS/parti/SOL/invito) + chat completa.
+   * Admin DM: evidence pack — fatti card + solo messaggi cancellati (igiene).
    * Uso: /deal 250538a0 | /deal #250538a0 | deep-link /start deal_HEX
-   * Niente centro /admin completo (fase 2).
+   * Transcript completo: `/log`. Chat viva: gruppo Archiviati (cerca #id).
    */
   bot.command("deal", async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {

@@ -101,7 +101,9 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
 
     // Retention: ogni testo umano nel gruppo deal (chat libera buyer↔seller,
     // comandi, non solo reply al bot) — prima che igiene/handler cancellino.
-    // Admin /deal e /log per giudicare dispute. Cap in store.
+    // Admin /deal = solo [del]; /log = transcript. Cap in store.
+    // TODO(poi): harden se le parti cancellano messaggi del bot in gruppo
+    // (Bot API non notifica delete utente → pin/card possono sparire senza alert).
     if (
       deal.status !== "released" &&
       deal.status !== "refunded" &&

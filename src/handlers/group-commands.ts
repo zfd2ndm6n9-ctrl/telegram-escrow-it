@@ -2334,11 +2334,11 @@ async function executeDisputeOpen(
     });
   }
 
-  // Default: niente DM spam su disputa — l'operatore apre il gruppo quando vuole
-  // (helper = owner). Critici kick/delete restano in group-compromise.
+  // Default ON: DM admin con deal #id (cerca in Archiviati). Opt-out: DISPUTE_ADMIN_NOTIFY=0.
+  // Critici kick/delete restano in group-compromise.
   if (!config.disputeAdminNotify) {
     console.log(
-      `Disputa #${updated.id}: DM admin silenziati (DISPUTE_ADMIN_NOTIFY off).`,
+      `Disputa #${updated.id}: DM admin silenziati (DISPUTE_ADMIN_NOTIFY=0).`,
     );
     return;
   }
