@@ -111,22 +111,24 @@ export function afterAmountKeyboard(
 }
 
 /**
- * DM dopo creazione helper: link clickable nel gruppo del creator.
- * Il link controparte manca qui — nel gruppo: (A) link + (B) «Invita il …».
+ * Callback: chiude la tastiera del DM group-ready (link resta nel testo).
+ * Niente «Entra nel gruppo» / «Leggi i Termini» — apri dal link in chat.
+ */
+export const GROUP_READY_BACK_CB = "group_ready_back";
+
+/**
+ * DM dopo creazione helper: solo ← Indietro.
+ * Invite URL e ToS restano nel testo / Mini App pin gruppo — non come bottoni.
  */
 export function groupInviteKeyboard(
-  inviteLink: string,
-  tosWebAppUrl?: string,
+  _inviteLink?: string,
+  _tosWebAppUrl?: string,
   _opts?: { counterpartLink?: string },
 ): InlineKeyboard {
+  void _inviteLink;
+  void _tosWebAppUrl;
   void _opts;
-  const kb = new InlineKeyboard().url("🔗 Entra nel gruppo", inviteLink).row();
-  if (tosWebAppUrl) {
-    kb.webApp("📄 Leggi i Termini", tosWebAppUrl);
-  } else {
-    kb.text("📄 Leggi i Termini", "tos");
-  }
-  return kb;
+  return new InlineKeyboard().text("← Indietro", GROUP_READY_BACK_CB);
 }
 
 /** Teaser canale vouch: apre la stessa Mini App ToS. */

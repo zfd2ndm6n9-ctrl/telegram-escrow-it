@@ -9,7 +9,7 @@
 3. Helper = **owner** (account supporto di Francesco, non una parte)  
 4. Bot promosso admin con diritti forti (incluso promote → demote parti)  
 5. Helper **archivia** il gruppo (`folders.EditPeerFolders`, folder_id=1) → fuori dalla inbox principale  
-6. DM creator: effimero «Sto creando il gruppo…» → poi «Il tuo gruppo è stato creato» + link + «entra nel gruppo e invita il buyer/seller» (ruolo opposto al wizard; niente «ti ho già aggiunto»)  
+6. DM creator: effimero «Sto creando il gruppo…» → poi «Il tuo gruppo è stato creato» + link in testo + «entra nel gruppo e invita il buyer/seller» (ruolo opposto al wizard; niente «ti ho già aggiunto») + bottone solo ← Indietro (niente Entra / Leggi Termini)  
 7. Nel gruppo: **due messaggi** — (A) invite link controparte, (B) «Invita il buyer/seller». Al join della controparte: cancella entrambi → bind → ToS  
 8. Parti entrano come **membri** → auto-bind / `/avvia`  
 9. Helper/support (`ADMIN_TELEGRAM_ID(S)`) **non** è mai buyer/seller — solo le due parti dei link

@@ -5,10 +5,12 @@ import { it } from "../messages/it.js";
 import {
   afterAmountKeyboard,
   assetKeyboard,
+  GROUP_READY_BACK_CB,
   groupInviteKeyboard,
   MAIN_MENU_CREA_CB,
   MAIN_MENU_CREA_LABEL,
   MAIN_MENU_MIEI_LABEL,
+  mainMenuKeyboard,
   openBotDmKeyboard,
   roleKeyboard,
 } from "../keyboards/menus.js";
@@ -87,8 +89,8 @@ function startGroupUrlForDeal(dealId: string, ctx: BotContext): string {
 }
 
 /**
- * DM post-create: Entra + (opz.) Mini App ToS.
- * Fallback se web_app / Markdown falliscono — il link deve arrivare sempre.
+ * DM post-create: testo con link + solo ← Indietro (niente Entra / Leggi Termini).
+ * Fallback se Markdown fallisce — il link deve arrivare sempre.
  */
 async function replyCreatorInviteDm(
   ctx: BotContext,
@@ -97,47 +99,30 @@ async function replyCreatorInviteDm(
 ): Promise<void> {
   if (!ctx.chat || ctx.chat.type !== "private") return;
 
-  const attempts: Array<{
-    parse_mode?: "Markdown";
-    reply_markup: ReturnType<typeof groupInviteKeyboard>;
-  }> = [
-    {
-      parse_mode: "Markdown",
-      reply_markup: groupInviteKeyboard(creatorLink, config.tosWebAppUrl),
-    },
-    // web_app rifiutato (dominio / PUBLIC_BASE_URL): callback ToS.
-    {
-      parse_mode: "Markdown",
-      reply_markup: groupInviteKeyboard(creatorLink, undefined),
-    },
-  ];
+  const reply_markup = groupInviteKeyboard();
 
-  for (const extra of attempts) {
-    try {
-      await ctx.reply(text, extra);
-      return;
-    } catch (err) {
-      console.warn(
-        "creator invite DM attempt failed:",
-        err instanceof Error ? err.message : err,
-      );
-    }
+  try {
+    await ctx.reply(text, { parse_mode: "Markdown", reply_markup });
+    return;
+  } catch (err) {
+    console.warn(
+      "creator invite DM Markdown failed:",
+      err instanceof Error ? err.message : err,
+    );
   }
 
-  // Ultimo: niente parse_mode (link grezzo ok) + solo URL Entra.
+  // Niente parse_mode (link grezzo ok) + ← Indietro.
   try {
-    await ctx.reply(text.replace(/\\([_*`\[])/g, "$1"), {
-      reply_markup: groupInviteKeyboard(creatorLink, undefined),
-    });
+    await ctx.reply(text.replace(/\\([_*`\[])/g, "$1"), { reply_markup });
   } catch (err) {
     console.error(
-      "creator invite DM all attempts failed:",
+      "creator invite DM plain failed:",
       err instanceof Error ? err.message : err,
     );
     try {
       await ctx.reply(
         `✅ Gruppo creato.\nEntra e invita l'altra parte:\n${creatorLink}`,
-        { reply_markup: groupInviteKeyboard(creatorLink, undefined) },
+        { reply_markup },
       );
     } catch (lastErr) {
       console.error(
@@ -353,6 +338,17 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       parse_mode: "Markdown",
       link_preview_options: { is_disabled: true },
     });
+  });
+
+  /** Group-ready DM: ← Indietro → menu Crea/I miei (link invita resta nel testo). */
+  bot.callbackQuery(GROUP_READY_BACK_CB, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    if (ctx.chat?.type !== "private") return;
+    try {
+      await ctx.editMessageReplyMarkup({ reply_markup: mainMenuKeyboard() });
+    } catch {
+      // Messaggio assente / non editabile.
+    }
   });
 
   bot.on("message:text", async (ctx, next) => {
