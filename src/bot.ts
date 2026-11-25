@@ -11,7 +11,7 @@ import { registerDealViewHandlers } from "./handlers/deals.js";
 import { registerGroupHygieneHandlers } from "./handlers/group-hygiene.js";
 import { registerGroupLifecycleHandlers } from "./handlers/group-lifecycle.js";
 import { registerGroupCommandHandlers } from "./handlers/group-commands.js";
-import { it } from "./messages/it.js";
+import { deleteMessageSafe } from "./services/prompt-cleanup.js";
 
 export type CreatedBot = {
   bot: Bot<BotContext>;
@@ -54,7 +54,8 @@ export function createBot(token: string): CreatedBot {
     console.error("Errore bot:", err.error);
   });
 
-  // Solo in privato: messaggio sconosciuto (non spammare i gruppi)
+  // Solo in privato, fuori wizard: free text non valido → cancella, silenzio.
+  // Button-only (menu inline): niente «Non ho capito…».
   bot.on("message:text", async (ctx) => {
     if (ctx.chat?.type !== "private") return;
     if (
@@ -65,7 +66,10 @@ export function createBot(token: string): CreatedBot {
     ) {
       return;
     }
-    await ctx.reply(it.unknownPrivate);
+    const mid = ctx.message?.message_id;
+    if (mid != null) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, mid);
+    }
   });
 
   return { bot, store, members, invites, dealLogs };

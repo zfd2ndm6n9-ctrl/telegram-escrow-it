@@ -119,12 +119,10 @@ export const it = {
     const softAt = username?.trim()
       ? ""
       : "\n\n_Imposta una @ Telegram per usare /crea._";
-    return `✅ Iscrizione ok — ${who}.${softAt}
+    // Menu = bottoni inline sotto (niente elenco /crea /miei nel testo).
+    return `✅ Iscrizione completata — ${who}.${softAt}
 
-Escrow per *servizi digitali*, info e lavoro online.
-
-/crea — nuovo deal
-/miei — i tuoi deal`;
+🔒 Escrow sicuro per *servizi digitali*, info e lavoro online.`;
   },
 
   /** Stesso profilo (anche dopo delete bot). */
@@ -135,12 +133,10 @@ Escrow per *servizi digitali*, info e lavoro online.
     const softAt = username?.trim()
       ? ""
       : "\n\n_Imposta una @ Telegram per usare /crea._";
-    return `Bentornato su *Escrowita* — ${who}.${softAt}
+    // Menu = bottoni inline sotto (niente elenco /crea /miei nel testo).
+    return `👋 Bentornato su *Escrowita* — ${who}.${softAt}
 
-Escrow per *servizi digitali*, info e lavoro online.
-
-/crea — nuovo deal
-/miei — i tuoi deal`;
+🔒 Escrow sicuro per *servizi digitali*, info e lavoro online.`;
   },
 
   /** Canale vouch: già dentro. */
@@ -148,17 +144,17 @@ Escrow per *servizi digitali*, info e lavoro online.
 
   /** Canale vouch: invita a entrare (hard gate). */
   needVouchJoin: (inviteLink: string) =>
-    `Prima entra nel *canale reviews*:
+    `📣 Prima entra nel *canale reviews*:
 
 ${inviteLink}
 
 Poi tocca *Sono entrato* o reinvia \`/start\`.`,
 
   vouchJoinedOk:
-    "✅ Canale reviews ok. Ora puoi usare /crea.",
+    "✅ Canale reviews ok. Tocca *Crea escrow* quando sei pronto.",
 
   vouchStillOut: (inviteLink: string) =>
-    `Non ti vedo ancora nel canale.
+    `👀 Non ti vedo ancora nel canale.
 
 ${inviteLink}
 
@@ -166,7 +162,7 @@ Entra, poi *Sono entrato* o \`/start\`.`,
 
   /** Opzionale su ogni /crea (si aggancia al deal). */
   askInviteOptional:
-    "Codice invito? Invia il codice oppure tocca *Nessun codice*.",
+    "🔑 Codice invito? Invia il codice oppure tocca *Nessun codice*.",
 
   /**
    * @deprecated Apply invito è silenzioso in DM; il codice compare solo
@@ -225,8 +221,8 @@ Entra, poi *Sono entrato* o \`/start\`.`,
 
   iscrittiCount: (n: number) => `Iscritti: *${n}*`,
 
-  askRole: "Che ruolo hai in questo deal?",
-  askAsset: "Con quale crypto vuoi fare l'escrow?",
+  askRole: "👤 Che ruolo hai in questo deal?",
+  askAsset: "💎 Con quale crypto vuoi fare l'escrow?",
   assetComingSoon: (asset: string) =>
     `*${asset}* sarà presto disponibile. Per ora scegli *SOL*.`,
   askAmount:
@@ -240,6 +236,10 @@ Entra, poi *Sono entrato* o \`/start\`.`,
   solanaNotConfigured:
     "Escrow SOL non configurato sul server. Avvisa il supporto.",
   cancelled: "Operazione annullata.",
+  /**
+   * @deprecated Fuori wizard: free text → delete silenzioso (niente reply).
+   * Tenuto per smoke/compat.
+   */
   unknownPrivate: "Non ho capito. Usa /crea o /miei.",
 
   /** Riepilogo vivente in DM proponente (elenco puntato). */
@@ -288,7 +288,7 @@ Nel gruppo l'altra parte può *Accetta* o *Proponi i ToS*.`,
 • Ruolo: *${deal.creatorRole}*
 • Crypto: *${deal.asset}*${termsNote}
 
-Ora (*entro 10 minuti*):
+⏱ Ora (*entro 10 minuti*):
 1. Crea un *gruppo privato*
 2. Aggiungi questo bot al gruppo
 3. Nel gruppo: /avvia
