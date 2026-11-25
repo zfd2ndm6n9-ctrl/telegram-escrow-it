@@ -6,6 +6,7 @@ import {
   afterAmountKeyboard,
   assetKeyboard,
   groupInviteKeyboard,
+  MAIN_MENU_CREA_CB,
   MAIN_MENU_CREA_LABEL,
   MAIN_MENU_MIEI_LABEL,
   openBotDmKeyboard,
@@ -67,7 +68,7 @@ const MENU_TEXTS = new Set([
   "LTC (presto)",
 ]);
 
-/** Legacy reply-keyboard taps: lasciano passare i `hears` registrati dopo. */
+/** Legacy reply-keyboard labels (pre-inline clients): pass to hears below. */
 const MAIN_MENU_TEXTS = new Set([MAIN_MENU_CREA_LABEL, MAIN_MENU_MIEI_LABEL]);
 
 /** Prefer helper create whenever gate is on (default) and MTProto ready. */
@@ -169,6 +170,11 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
 
   bot.command("crea", beginCreate);
   bot.command("create", beginCreate);
+  // Inline menu (primary) + legacy reply-keyboard label (pre-inline clients)
+  bot.callbackQuery(MAIN_MENU_CREA_CB, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await beginCreate(ctx);
+  });
   bot.hears(MAIN_MENU_CREA_LABEL, beginCreate);
 
   /** Skip invito durante /crea (igiene silenziosa → ruolo). */
@@ -297,7 +303,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Reply-keyboard menu: non mangiare come termini/ruolo — passa ai hears.
+    // Legacy reply-keyboard menu: non mangiare come termini/ruolo — passa ai hears.
     if (MAIN_MENU_TEXTS.has(text)) {
       if (text === MAIN_MENU_MIEI_LABEL) {
         await cancelMidCreaBeforeGroupBind(ctx);

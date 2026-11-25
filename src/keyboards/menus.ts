@@ -1,20 +1,20 @@
 import { InlineKeyboard, Keyboard } from "grammy";
 import type { Deal, PartyRole } from "../types.js";
 
-/** Labels for persistent reply keyboard + hears handlers. */
+/** Labels + callbacks: one inline menu definition (welcome / /miei / expiry). */
 export const MAIN_MENU_CREA_LABEL = "➕ Crea escrow";
 export const MAIN_MENU_MIEI_LABEL = "📋 I miei deal";
+export const MAIN_MENU_CREA_CB = "menu:crea";
+export const MAIN_MENU_MIEI_CB = "menu:miei";
 
 /**
- * Menu DM: persistent reply keyboard above the phone keyboard.
- * Kept during /crea wizard; role/asset steps use InlineKeyboard separately.
+ * Menu DM: inline on the chat message (same style as /crea role/asset).
+ * Never a ReplyKeyboard under the phone input — no strip/ghost carrier.
  */
-export function mainMenuKeyboard(): Keyboard {
-  return new Keyboard()
-    .text(MAIN_MENU_CREA_LABEL)
-    .text(MAIN_MENU_MIEI_LABEL)
-    .resized()
-    .persistent();
+export function mainMenuKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(MAIN_MENU_CREA_LABEL, MAIN_MENU_CREA_CB)
+    .text(MAIN_MENU_MIEI_LABEL, MAIN_MENU_MIEI_CB);
 }
 
 /** Ruolo mancante da invitare (opposto al creator del wizard). */

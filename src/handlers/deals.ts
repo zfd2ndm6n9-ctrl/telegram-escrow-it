@@ -2,6 +2,7 @@ import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { it, statusLabel } from "../messages/it.js";
 import {
+  MAIN_MENU_MIEI_CB,
   MAIN_MENU_MIEI_LABEL,
   mainMenuKeyboard,
 } from "../keyboards/menus.js";
@@ -57,11 +58,12 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
     const { text, parseMarkdown } = concludedListBody(deals);
     const parse_mode = parseMarkdown ? ("Markdown" as const) : undefined;
 
-    // Edit-in-place: un comando → un messaggio (no stack).
+    // Edit-in-place: un comando → un messaggio (no stack); keep inline menu.
     if (prevBotId != null) {
       try {
         await ctx.api.editMessageText(ctx.chat.id, prevBotId, text, {
           parse_mode,
+          reply_markup: mainMenuKeyboard(),
         });
         ctx.session.mieiListMessageId = prevBotId;
         return;
@@ -80,5 +82,10 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
   };
 
   bot.command("miei", listDeals);
+  bot.callbackQuery(MAIN_MENU_MIEI_CB, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await listDeals(ctx);
+  });
+  // Legacy reply-keyboard label (pre-inline clients)
   bot.hears(MAIN_MENU_MIEI_LABEL, listDeals);
 }

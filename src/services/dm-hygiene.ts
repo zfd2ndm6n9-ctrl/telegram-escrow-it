@@ -5,8 +5,8 @@ import { dismissInviteStep } from "./invite-step.js";
 import { deleteMessageSafe } from "./prompt-cleanup.js";
 
 /**
- * Risposta DM con reply keyboard persistente (Crea / I miei).
- * Nessuno strip / messaggio fantasma: la tastiera resta visibile.
+ * Risposta DM con menu inline (Crea / I miei) sul messaggio stesso.
+ * Niente ReplyKeyboard sotto l'input; niente strip/ghost carrier.
  */
 export async function replyWithMainMenu(
   ctx: BotContext,
