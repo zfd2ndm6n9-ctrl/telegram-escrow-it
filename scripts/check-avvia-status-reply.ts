@@ -1,6 +1,6 @@
 /**
  * Smoke: /avvia awaiting-counterpart copy + dedupe vs living card.
- * Helper path → «Invita il buyer/seller» + link; manual → entra/scrivi (no «controparte»).
+ * Helper path → «Entra come buyer/seller» + link; manual → entra/scrivi (no «controparte»).
  * npm exec tsx scripts/check-avvia-status-reply.ts
  */
 import {
@@ -8,7 +8,10 @@ import {
   shouldSendAvviaAutoBindStatus,
 } from "../src/services/group-setup.js";
 import { it } from "../src/messages/it.js";
-import { inviteMissingPartyKeyboard } from "../src/keyboards/menus.js";
+import {
+  entraComeMissingPartyLabel,
+  inviteMissingPartyKeyboard,
+} from "../src/keyboards/menus.js";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);
@@ -59,10 +62,11 @@ for (const reason of ["none", "need_message"] as const) {
     const text = avviaAutoBindReply(reason, deal);
     assert(!/controparte/i.test(text), `helper ${reason} must not say controparte`);
     assert(!/entra o scrivi/i.test(text), `helper ${reason} must not ask entra/scrivi`);
+    assert(!/Invita il/i.test(text), `helper ${reason} must not say Invita`);
     const expected = deal.creatorRole === "seller" ? "buyer" : "seller";
     assert(
-      new RegExp(`invita il \\*?${expected}`, "i").test(text),
-      `helper ${reason} expected Invita il ${expected}`,
+      new RegExp(`entra come \\*?${expected}`, "i").test(text),
+      `helper ${reason} expected Entra come ${expected}`,
     );
     assert(
       text.includes(deal.counterpartInviteLink),
@@ -78,18 +82,22 @@ assert(direct.includes("Buyer"), "seller opener → ask Buyer");
 assert(!/controparte/i.test(direct), "direct must not say controparte");
 
 const helperAsk = it.counterpartAsk(dealBuyerHelper);
-assert(/Invita il \*seller\*/i.test(helperAsk), "counterpartAsk helper → Invita il seller");
+assert(/Entra come \*seller\*/i.test(helperAsk), "counterpartAsk helper → Entra come seller");
 assert(helperAsk.includes("https://t.me/+sellerInvite"), "counterpartAsk helper link");
+assert(!/Invita il/i.test(helperAsk), "counterpartAsk must not say Invita");
+
+assert(entraComeMissingPartyLabel("buyer") === "Entra come seller", "label seller");
+assert(entraComeMissingPartyLabel("seller") === "Entra come buyer", "label buyer");
 
 const inviteKb = inviteMissingPartyKeyboard("buyer", "https://t.me/+x");
 const btn = inviteKb.inline_keyboard[0]?.[0];
-assert(btn && "text" in btn && btn.text === "Invita il seller", "keyboard seller label");
+assert(btn && "text" in btn && btn.text === "Entra come seller", "keyboard seller label");
 assert(btn && "url" in btn && btn.url === "https://t.me/+x", "keyboard url");
 
 const inviteKbBuyer = inviteMissingPartyKeyboard("seller", "https://t.me/+y");
 const btnB = inviteKbBuyer.inline_keyboard[0]?.[0];
 assert(
-  btnB && "text" in btnB && btnB.text === "Invita il buyer",
+  btnB && "text" in btnB && btnB.text === "Entra come buyer",
   "keyboard buyer label",
 );
 

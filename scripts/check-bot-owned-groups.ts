@@ -11,6 +11,7 @@ import {
 import { config } from "../src/config.js";
 import { it } from "../src/messages/it.js";
 import {
+  entraComeMissingPartyLabel,
   groupInviteKeyboard,
   inviteMissingPartyKeyboard,
 } from "../src/keyboards/menus.js";
@@ -60,24 +61,27 @@ const ready = it.groupReady(
   false,
 );
 assert.match(ready, /Il tuo gruppo è stato creato/i);
-assert.match(ready, /gestito da Escrowita/);
 assert.match(ready, /https:\/\/t\.me\/\+creator/);
-assert.match(ready, /Invita il seller/i);
+assert.ok(!/gestito da Escrowita/i.test(ready));
+assert.ok(!/Nel gruppo trovi/i.test(ready));
+assert.ok(!/Invita il/i.test(ready));
+assert.ok(!/indirizzo escrow/i.test(ready));
 assert.ok(!/crea un \*gruppo privato\*/i.test(ready));
 assert.ok(!/controparte/i.test(ready));
 
 const card = it.groupSetupCard(deal);
-assert.match(card, /Invita il \*seller\*/i);
+assert.match(card, /Entra come \*seller\*/i);
 assert.match(card, /https:\/\/t\.me\/\+counterpart/);
+assert.ok(!/Invita il/i.test(card));
 assert.ok(!/entra o scrivi/i.test(card));
 assert.ok(!/controparte/i.test(card));
 
 const cardKb = setupCardKeyboard(deal);
-const cardBtn = cardKb.inline_keyboard[0]?.[0];
-assert.ok(cardBtn && "text" in cardBtn);
-assert.equal(cardBtn.text, "Invita il seller");
-assert.ok(cardBtn && "url" in cardBtn);
-assert.equal(cardBtn.url, "https://t.me/+counterpart");
+assert.equal(
+  cardKb.inline_keyboard.flat().length,
+  0,
+  "helper awaiting card: no Invita / URL button",
+);
 
 const missing = it.groupCreateHelperMissing(deal);
 assert.match(missing, /Bot API/i);
@@ -93,11 +97,17 @@ assert.match(demoted, /membro/);
 const kb = groupInviteKeyboard("https://t.me/+a", undefined);
 const urls = kb.inline_keyboard.flat().map((b) => ("url" in b ? b.url : ""));
 assert.ok(urls.includes("https://t.me/+a"));
+const entraBtn = kb.inline_keyboard[0]?.[0];
+assert.ok(entraBtn && "text" in entraBtn);
+assert.match(entraBtn.text, /Entra nel gruppo/i);
+
+assert.equal(entraComeMissingPartyLabel("seller"), "Entra come buyer");
+assert.equal(entraComeMissingPartyLabel("buyer"), "Entra come seller");
 
 const inviteKb = inviteMissingPartyKeyboard("seller", "https://t.me/+b");
 const inviteBtn = inviteKb.inline_keyboard[0]?.[0];
 assert.ok(inviteBtn && "text" in inviteBtn);
-assert.equal(inviteBtn.text, "Invita il buyer");
+assert.equal(inviteBtn.text, "Entra come buyer");
 
 // Manual fallback card still role-aware entra/scrivi (no «controparte»)
 const manualDeal = {
