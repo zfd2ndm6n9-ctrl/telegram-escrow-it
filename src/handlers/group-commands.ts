@@ -2334,6 +2334,15 @@ async function executeDisputeOpen(
     });
   }
 
+  // Default: niente DM spam su disputa — l'operatore apre il gruppo quando vuole
+  // (helper = owner). Critici kick/delete restano in group-compromise.
+  if (!config.disputeAdminNotify) {
+    console.log(
+      `Disputa #${updated.id}: DM admin silenziati (DISPUTE_ADMIN_NOTIFY off).`,
+    );
+    return;
+  }
+
   const adminIds = config.adminTelegramIds;
   if (!adminIds.length) {
     await ctx.reply(it.adminMissing);

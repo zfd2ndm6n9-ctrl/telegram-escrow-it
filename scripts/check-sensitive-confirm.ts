@@ -431,6 +431,10 @@ const baseDeal = {
   assert.match(ask.toLowerCase(), /disputa/);
   assert.equal(it.frozenInDispute, "In disputa.");
   assert.equal(it.wrongStatus("disputed"), "In disputa.");
+  const opened = it.disputeOpened(baseDeal);
+  assert.match(opened, /Disputa aperta/);
+  assert.ok(!/avvisato/i.test(opened), "no spam copy — supporto entra quando serve");
+  assert.match(it.supportDm.toLowerCase(), /quando serve/);
 }
 
 // Admin DM fail: CTA invite + deep-link (niente vicolo cieco)
