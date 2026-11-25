@@ -654,6 +654,15 @@ async function finishDealReady(
       return;
     }
 
+    // Effimero «Sto creando…» → cancellato quando arriva il DM col link.
+    let creatingMsgId: number | undefined;
+    try {
+      const creatingMsg = await ctx.reply(it.creatingGroup);
+      creatingMsgId = creatingMsg.message_id;
+    } catch {
+      // Soft-fail: procedi senza l'effimero.
+    }
+
     const created = await createEscrowGroup({
       deal: current,
       botApi: ctx.api,
@@ -679,10 +688,14 @@ async function finishDealReady(
         created.chatId,
       );
 
-      // DM: solo link creator → «Il tuo gruppo è stato creato».
-      // Link buyer/seller: posta il bot nel gruppo (card «Entra come …»).
+      // DM: link creator + «entra nel gruppo e invita il buyer/seller».
+      // Nel gruppo: due messaggi (A link controparte, B «Invita il …»).
       const creatorLink = created.creatorInviteLink;
       const kb = groupInviteKeyboard(creatorLink, config.tosWebAppUrl);
+
+      if (creatingMsgId != null) {
+        await deleteMessageSafe(ctx.api, ctx.chat.id, creatingMsgId);
+      }
 
       if (!perms.ok) {
         await ctx.reply(
@@ -701,6 +714,10 @@ async function finishDealReady(
         { parse_mode: "Markdown", reply_markup: kb },
       );
       return;
+    }
+
+    if (creatingMsgId != null) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, creatingMsgId);
     }
 
     // Create fallita: emergenza manuale + errore chiaro.

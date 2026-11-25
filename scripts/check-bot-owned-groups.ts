@@ -15,7 +15,10 @@ import {
   groupInviteKeyboard,
   inviteMissingPartyKeyboard,
 } from "../src/keyboards/menus.js";
-import { setupCardKeyboard } from "../src/services/group-setup.js";
+import {
+  hasCounterpartInviteMessages,
+  setupCardKeyboard,
+} from "../src/services/group-setup.js";
 import type { Deal } from "../src/types.js";
 
 assert.equal(
@@ -58,29 +61,44 @@ const ready = it.groupReady(
     creatorLink: "https://t.me/+creator",
     counterpartLink: "https://t.me/+counterpart",
   },
-  false,
+  true, // even if MTProto-invited: never «ti ho già aggiunto»
 );
 assert.match(ready, /Il tuo gruppo è stato creato/i);
 assert.match(ready, /https:\/\/t\.me\/\+creator/);
+assert.match(ready, /Entra nel gruppo e invita il \*seller\*/i);
+assert.ok(!/ti ho già aggiunto/i.test(ready));
 assert.ok(!/gestito da Escrowita/i.test(ready));
 assert.ok(!/Nel gruppo trovi/i.test(ready));
-assert.ok(!/Invita il/i.test(ready));
 assert.ok(!/indirizzo escrow/i.test(ready));
 assert.ok(!/crea un \*gruppo privato\*/i.test(ready));
 assert.ok(!/controparte/i.test(ready));
 
+assert.equal(it.creatingGroup, "Sto creando il gruppo…");
+assert.equal(it.invitaMissingParty("buyer"), "Invita il seller");
+assert.equal(it.invitaMissingParty("seller"), "Invita il buyer");
+
+// Helper awaiting card text = link only (message A); hint is separate (B).
 const card = it.groupSetupCard(deal);
-assert.match(card, /Entra come \*seller\*/i);
-assert.match(card, /https:\/\/t\.me\/\+counterpart/);
+assert.equal(card, "https://t.me/+counterpart");
+assert.ok(!/Entra come/i.test(card));
 assert.ok(!/Invita il/i.test(card));
-assert.ok(!/entra o scrivi/i.test(card));
 assert.ok(!/controparte/i.test(card));
 
 const cardKb = setupCardKeyboard(deal);
 assert.equal(
   cardKb.inline_keyboard.flat().length,
   0,
-  "helper awaiting card: no Invita / URL button",
+  "helper awaiting: no URL button on card (two plain messages)",
+);
+
+assert.equal(hasCounterpartInviteMessages(deal), false);
+assert.equal(
+  hasCounterpartInviteMessages({
+    ...deal,
+    counterpartInviteLinkMessageId: 10,
+    counterpartInviteHintMessageId: 11,
+  } as Deal),
+  true,
 );
 
 const missing = it.groupCreateHelperMissing(deal);

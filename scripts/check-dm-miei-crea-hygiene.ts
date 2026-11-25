@@ -22,10 +22,13 @@ const expirySrc = readFileSync(
 );
 const ctxSrc = readFileSync(resolve(root, "src/context.ts"), "utf8");
 
-// /miei: edit-in-place (no delete+repost-only regression)
+// /miei: edit-in-place (no delete+repost-only regression); ← Indietro (no Crea/I miei)
 assert.match(dealsSrc, /editMessageText/);
 assert.match(dealsSrc, /cancelMidCreaBeforeGroupBind/);
 assert.match(dealsSrc, /mieiListMessageId/);
+assert.match(dealsSrc, /mieiBackKeyboard/);
+assert.match(dealsSrc, /MIEI_BACK_CB/);
+assert.doesNotMatch(dealsSrc, /reply_markup:\s*mainMenuKeyboard\(\)/);
 assert.doesNotMatch(
   dealsSrc,
   /if \(prevBotId != null\) \{\s*await deleteMessageSafe/,

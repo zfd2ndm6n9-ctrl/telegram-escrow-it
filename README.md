@@ -86,11 +86,11 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 1. `/start` → iscrizione (anche senza `@`: «utente» + soft remind) → entra nel **canale reviews** (hard gate) → `/crea`
 2. Invito opzionale → ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) — solo **inline buttons** (niente reply keyboard Crea/I miei sotto la tastiera telefono) — **niente wallet in DM**
 3. Chi apre (`/crea`) risponde alle **3 domande** termini in DM (Prodotto/servizio → Prezzo € → Condizioni)
-4. **Path preferito (helper MTProto):** il servizio crea il gruppo → DM «Il tuo gruppo è stato creato» + Entra nel gruppo → nel gruppo *Entra come buyer/seller* + link → join → auto-bind / `/avvia`. Path manuale (crea gruppo tu → bot admin → `/avvia`) solo emergenza / `TELEGRAM_BOT_CREATES_GROUPS=0`.
+4. **Path preferito (helper MTProto):** il servizio crea il gruppo → effimero «Sto creando il gruppo…» → DM «Il tuo gruppo è stato creato» + link + «entra nel gruppo e invita il buyer/seller» → nel gruppo due messaggi (link + *Invita il …*) → join → delete entrambi → bind → ToS. Path manuale (crea gruppo tu → bot admin → `/avvia`) solo emergenza / `TELEGRAM_BOT_CREATES_GROUPS=0`.
 
 ### Nel gruppo
 
-5. Helper: card con *Entra come buyer* o *Entra come seller* + invite link in testo (niente bottone Invita). Soft `@` + canale vouch solo per chi apre (`/crea`); l'altra parte: Accetta / `/wallet` / release senza `/start`
+5. Helper: (A) invite link controparte + (B) *Invita il buyer/seller*; al join cancella entrambi → Accetta/Proponi. Soft `@` + canale vouch solo per chi apre (`/crea`); l'altra parte: Accetta / `/wallet` / release senza `/start`
 6. *ToS*: card con *Accetta* o *Proponi i ToS* (l'altra parte). Proponi → stesse 3 domande *nel gruppo* (igiene Q+A); si scambiano finché uno Accetta (lock €→SOL)
 7. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 8. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
@@ -134,7 +134,7 @@ Admin: `/deal <id>` (DM: fatti card + chat completa), `/log #dealId` (DM transcr
 2. Invia **~0.05 SOL** alla **pubkey master** (solo per fee tx)
 3. Deploy / restart del worker (**Manual Deploy**)
 4. Su Telegram: `/crea` → buyer → SOL → termini (Prezzo € es. `0.01` path legacy amount se presente)
-5. Con helper configurato: apri il gruppo dal DM «Il tuo gruppo è stato creato» → *Entra come seller* (link) → join → Accetta. Senza helper (emergenza): crea gruppo privato → bot admin → `/avvia` (*10 minuti* TTL).
+5. Con helper configurato: apri il gruppo dal DM → invita l'altra parte col link nel gruppo → join → Accetta. Senza helper (emergenza): crea gruppo privato → bot admin → `/avvia` (*10 minuti* TTL).
 6. Termini DM opener → l'altra parte *Accetta* (o *Proponi i ToS*) → `/wallet` seller poi buyer
 7. Invia `0.01 SOL` all’indirizzo mostrato da `/indirizzo`
 8. Attendi “deposito rilevato” → *Consegnato* → *Paga* (dual-confirm)

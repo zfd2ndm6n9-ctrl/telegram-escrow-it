@@ -300,21 +300,30 @@ Poi invita l'altra parte.`;
   groupBindExpired: (deal: Deal) =>
     `⏱ Deal *#${deal.id}* annullato: setup gruppo non completato entro *10 minuti*.\nUsa /crea per ricominciare.`,
 
+  /** Effimero DM mentre l'helper crea il gruppo (cancellato al DM col link). */
+  creatingGroup: "Sto creando il gruppo…",
+
   groupReady: (
     deal: Deal,
     links: { creatorLink: string; counterpartLink: string },
-    creatorInvited: boolean,
+    _creatorInvited: boolean,
   ) => {
-    void links.counterpartLink; // invito buyer/seller → messaggio nel gruppo
+    void links.counterpartLink; // invito buyer/seller → messaggi nel gruppo
+    void _creatorInvited; // mai «ti ho già aggiunto» — sempre entra + invita
+    const missing =
+      deal.creatorRole === "seller" ? "buyer" : "seller";
     return `✅ *Il tuo gruppo è stato creato*
 
 Deal *#${deal.id}* · ruolo *${deal.creatorRole}* · *${deal.asset}*
 
-${
-  creatorInvited
-    ? "Ti ho già aggiunto — apri il gruppo dal pulsante sotto."
-    : `Apri il gruppo dal pulsante sotto (link solo tuo):\n${links.creatorLink}`
-}`;
+Entra nel gruppo e invita il *${missing}*:
+${links.creatorLink}`;
+  },
+
+  /** Messaggio (B) gruppo helper: hint corto ruolo da invitare. */
+  invitaMissingParty: (creatorRole: Deal["creatorRole"]) => {
+    const missing = creatorRole === "seller" ? "buyer" : "seller";
+    return `Invita il ${missing}`;
   },
 
   groupCreateFailed: (deal: Deal, detail: string) =>
@@ -392,15 +401,13 @@ Nel frattempo (emergenza): crea un *gruppo privato* → aggiungi il bot come adm
 
     if (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") {
       const missingRole = deal.creatorRole === "seller" ? "buyer" : "seller";
-      // Helper-owned: «Entra come …» + link in testo (inoltrabile); niente bottone Invita.
+      // Helper-owned: due messaggi separati (link + «Invita il …») — non questa card.
+      // Fallback se i due messaggi non sono ancora postati: link in testo.
       if (
         deal.groupCreatedVia === "helper" &&
         deal.counterpartInviteLink
       ) {
-        return `${header}
-
-Entra come *${missingRole}*:
-${deal.counterpartInviteLink}`;
+        return deal.counterpartInviteLink;
       }
       // Manuale (emergenza): role-aware, senza la parola «controparte».
       const label = missingRole === "buyer" ? "Buyer" : "Seller";
@@ -472,8 +479,8 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
     "Troppi membri. Solo *buyer*, *seller* e il bot. Rimuovi gli altri, poi /avvia.",
 
   /**
-   * Role-aware: opener seller → entra come buyer; opener buyer → entra come seller.
-   * Helper path: link in testo (inoltrabile); manual: entra/scrivi (mai «controparte»).
+   * Role-aware: opener seller → invita buyer; opener buyer → invita seller.
+   * Helper path: link (messaggio A); manual: entra/scrivi (mai «controparte»).
    */
   counterpartAsk: (
     deal: Pick<
@@ -483,15 +490,15 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
   ) => {
     const missingRole = deal.creatorRole === "seller" ? "buyer" : "seller";
     if (deal.groupCreatedVia === "helper" && deal.counterpartInviteLink) {
-      return `Entra come *${missingRole}*:\n${deal.counterpartInviteLink}`;
+      return deal.counterpartInviteLink;
     }
     const label = missingRole === "buyer" ? "Buyer" : "Seller";
     return `${label}: entra o scrivi un messaggio nel gruppo.`;
   },
 
   /**
-   * Fallback status se la living card non è disponibile.
-   * Con card presente: non inviare — un solo prompt entra come / entra.
+   * Fallback status se i due messaggi invite non sono disponibili.
+   * Con messaggi presenti: non inviare — niente stack.
    */
   avviaAwaitingCounterpart: (
     deal: Pick<
@@ -502,7 +509,7 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
     const missingRole = deal.creatorRole === "seller" ? "buyer" : "seller";
     if (deal.groupCreatedVia === "helper" && deal.counterpartInviteLink) {
       return (
-        `Deal *#${deal.id}* — entra come *${missingRole}*:\n` +
+        `Deal *#${deal.id}* — invita il *${missingRole}*:\n` +
         deal.counterpartInviteLink
       );
     }

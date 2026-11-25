@@ -126,7 +126,7 @@ export async function ensureEscrowitaGroupPhoto(
 
 /**
  * Keyboard della card setup:
- * - awaiting counterpart (helper): nessun bottone — «Entra come …» + link nel testo
+ * - awaiting counterpart (helper): nessun bottone — due messaggi separati (link + Invita)
  * - Accetta / Proponi a proposta completa
  */
 export function setupCardKeyboard(deal: Deal): InlineKeyboard {
@@ -135,7 +135,6 @@ export function setupCardKeyboard(deal: Deal): InlineKeyboard {
     deal.groupCreatedVia === "helper" &&
     deal.counterpartInviteLink
   ) {
-    // Niente «Invita» / URL button: link inoltrabile solo nel testo della card.
     return new InlineKeyboard();
   }
   if (
@@ -148,15 +147,135 @@ export function setupCardKeyboard(deal: Deal): InlineKeyboard {
   return new InlineKeyboard();
 }
 
-/** Aggiorna (o crea) l'unico messaggio di setup del deal. */
+function isHelperAwaitingCounterpart(deal: Deal): boolean {
+  return (
+    (!bothPartiesPresent(deal) || deal.status === "awaiting_counterpart") &&
+    deal.groupCreatedVia === "helper" &&
+    Boolean(deal.counterpartInviteLink)
+  );
+}
+
+/** True se i due messaggi invite (A+B) sono già nel gruppo. */
+export function hasCounterpartInviteMessages(deal: Deal): boolean {
+  return (
+    deal.counterpartInviteLinkMessageId != null &&
+    deal.counterpartInviteHintMessageId != null
+  );
+}
+
+/**
+ * Cancella i due messaggi invite (A link + B «Invita il …») e azzera gli id.
+ * Chiamare al join controparte prima della card ToS.
+ */
+export async function clearCounterpartInviteMessages(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  const chatId = deal.groupChatId;
+  if (chatId == null) {
+    return (
+      store.update(deal.id, {
+        counterpartInviteLinkMessageId: undefined,
+        counterpartInviteHintMessageId: undefined,
+      }) ?? deal
+    );
+  }
+  if (deal.counterpartInviteLinkMessageId != null) {
+    await deleteMessageSafe(api, chatId, deal.counterpartInviteLinkMessageId);
+  }
+  if (deal.counterpartInviteHintMessageId != null) {
+    await deleteMessageSafe(api, chatId, deal.counterpartInviteHintMessageId);
+  }
+  return (
+    store.update(deal.id, {
+      counterpartInviteLinkMessageId: undefined,
+      counterpartInviteHintMessageId: undefined,
+    }) ?? deal
+  );
+}
+
+/**
+ * Helper awaiting: due messaggi separati —
+ * (A) solo invite link, (B) «Invita il buyer/seller».
+ * Idempotente se entrambi già tracciati.
+ */
+export async function postHelperCounterpartInvite(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  const chatId = deal.groupChatId;
+  const link = deal.counterpartInviteLink;
+  if (chatId == null || !link) return deal;
+
+  let current = deal;
+
+  // Vecchio modello: una sola living card → elimina prima dei due messaggi.
+  if (current.setupMessageId != null) {
+    await deleteMessageSafe(api, chatId, current.setupMessageId);
+    current =
+      store.update(current.id, { setupMessageId: undefined }) ?? current;
+  }
+
+  if (hasCounterpartInviteMessages(current)) {
+    return current;
+  }
+
+  // Se ne manca uno (crash mid-post), ripulisci e riposta entrambi.
+  if (
+    current.counterpartInviteLinkMessageId != null ||
+    current.counterpartInviteHintMessageId != null
+  ) {
+    current = await clearCounterpartInviteMessages(api, store, current);
+  }
+
+  try {
+    const linkMsg = await api.sendMessage(chatId, link);
+    const hintMsg = await api.sendMessage(
+      chatId,
+      it.invitaMissingParty(current.creatorRole),
+    );
+    return (
+      store.update(current.id, {
+        counterpartInviteLinkMessageId: linkMsg.message_id,
+        counterpartInviteHintMessageId: hintMsg.message_id,
+      }) ?? current
+    );
+  } catch (err) {
+    console.warn(
+      `postHelperCounterpartInvite ${chatId} failed:`,
+      err instanceof Error ? err.message : err,
+    );
+    return store.get(current.id) ?? current;
+  }
+}
+
+/**
+ * Aggiorna (o crea) la card setup.
+ * Helper awaiting → due messaggi invite (non una living card).
+ * Con entrambe le parti → cancella invite A+B, poi card ToS.
+ */
 export async function refreshGroupSetupCard(
   api: Api,
   store: DealStore,
   deal: Deal,
 ): Promise<Deal> {
-  return upsertSetupMessage(api, store, deal, it.groupSetupCard(deal), {
+  if (isHelperAwaitingCounterpart(deal)) {
+    return postHelperCounterpartInvite(api, store, deal);
+  }
+
+  let current = deal;
+  if (
+    current.counterpartInviteLinkMessageId != null ||
+    current.counterpartInviteHintMessageId != null
+  ) {
+    current = await clearCounterpartInviteMessages(api, store, current);
+  }
+
+  return upsertSetupMessage(api, store, current, it.groupSetupCard(current), {
     parse_mode: "Markdown",
-    reply_markup: setupCardKeyboard(deal),
+    reply_markup: setupCardKeyboard(current),
   });
 }
 
@@ -795,25 +914,31 @@ export function avviaAutoBindReply(
 }
 
 /**
- * Evita doppio stack dopo /avvia: la living card (refreshGroupSetupCard)
- * è già il prompt italiano «Buyer/Seller: entra…».
+ * Evita doppio stack dopo /avvia: i due messaggi invite (helper) o la
+ * living card (manuale) sono già il prompt.
  *
- * - `too_many` → sempre inviare (messaggio diverso dalla card)
- * - living card presente (primo o /avvia ripetuto) → skip status
- * - card assente (post fallito) → un solo status (niente silenzio)
+ * - `too_many` → sempre inviare
+ * - prompt presente (setupMessageId *oppure* entrambi i msg invite) → skip
+ * - prompt assente → un solo status (niente silenzio)
  *
- * `priorSetupMessageId` resta nel signature per smoke/call sites;
- * la decisione dipende dalla card *dopo* startDealInGroup.
+ * `afterPromptMessageId` = setupMessageId *oppure* link-msg id dopo start.
  */
 export function shouldSendAvviaAutoBindStatus(
   reason: AutoBindFailure,
   _priorSetupMessageId: number | undefined,
-  afterSetupMessageId: number | undefined,
+  afterPromptMessageId: number | undefined,
 ): boolean {
   if (reason === "too_many") return true;
-  // Card vivente = unico prompt invite / entra; non stackare status.
-  if (afterSetupMessageId != null) return false;
+  if (afterPromptMessageId != null) return false;
   return true;
+}
+
+/** Id da passare a shouldSendAvviaAutoBindStatus dopo startDealInGroup. */
+export function avviaPromptMessageId(deal: Deal): number | undefined {
+  if (hasCounterpartInviteMessages(deal)) {
+    return deal.counterpartInviteLinkMessageId;
+  }
+  return deal.setupMessageId;
 }
 
 /**
