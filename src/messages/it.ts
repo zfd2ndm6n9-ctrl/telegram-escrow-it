@@ -652,11 +652,15 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
 
   /**
    * Altre info: parti + importo + fee.
+   * In disputa: solo blocco (niente deposito/importo/prezzo).
    * Pre-deposito: niente riga Deposito / «In attesa deposito», niente Supporto.
    * Post-deposito: «Deposito confermato» + Supporto (Disputa).
    */
   altreInfoMenu: (deal: Deal, opts?: { depositLine?: string }) => {
     void opts?.depositLine;
+    if (deal.status === "disputed") {
+      return it.disputeInfoBlocked;
+    }
     const postDeposit =
       deal.status === "funded" ||
       deal.status === "release_pending" ||
@@ -729,6 +733,13 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
 
   /** Azioni soldi bloccate in disputa — alert corto, niente wrongStatus spam. */
   frozenInDispute: "In disputa.",
+
+  /**
+   * Altre info / Stato in disputa: niente deposito/importo/prezzo.
+   * Solo blocco chiaro fino al supporto.
+   */
+  disputeInfoBlocked:
+    "*IN DISPUTA* — tutte le altre funzioni sono bloccate fino all'arrivo del supporto.",
 
   /** Gruppo compromesso: freeze azioni parti (bottoni / comandi in gruppo). */
   frozenGroupCompromised:
@@ -1210,6 +1221,10 @@ export function formatDepositStato(
   deal: Deal,
   opts?: { depositLine?: string; depositPhase?: DepositPhase },
 ): string {
+  // In disputa: niente deposito/importo/prezzo — solo blocco chiaro.
+  if (deal.status === "disputed") {
+    return it.disputeInfoBlocked;
+  }
   // Disputa solo post-deposito → disputed e stati chiusi contano come confermato.
   const phase: DepositPhase =
     opts?.depositPhase &&

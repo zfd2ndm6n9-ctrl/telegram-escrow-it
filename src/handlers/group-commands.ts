@@ -802,6 +802,21 @@ async function applyWallet(
  * Altrimenti reply con ← Indietro (igiene: niente tastiera azioni duplicate).
  */
 async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
+  // In disputa: niente deposito/importo/prezzo (stesso copy di Altre info).
+  if (deal.status === "disputed") {
+    await replaceStatusMessage(
+      ctx.api,
+      ctx.store,
+      deal,
+      it.disputeInfoBlocked,
+      {
+        parse_mode: "Markdown",
+        reply_markup: uiBackKeyboard(),
+      },
+    );
+    return;
+  }
+
   let current = deal;
   let depositLine: string | undefined;
   let depositPhase: ReturnType<typeof depositPhaseFromBalance> | undefined;
@@ -1922,9 +1937,10 @@ async function handleAltreInfo(ctx: BotContext): Promise<void> {
     return;
   }
   if (deal.status === "disputed") {
-    await ctx.answerCallbackQuery({
-      text: plainAlert(it.disputeAlreadyOpen),
-      show_alert: true,
+    await answerCbOk(ctx);
+    await replaceActionReply(ctx.api, ctx.store, deal, it.disputeInfoBlocked, {
+      parse_mode: "Markdown",
+      reply_markup: uiBackKeyboard(),
     });
     return;
   }
