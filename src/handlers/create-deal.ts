@@ -6,7 +6,9 @@ import {
   afterAmountKeyboard,
   assetKeyboard,
   groupInviteKeyboard,
-  mainMenuKeyboard,
+  MAIN_MENU_CREA_CB,
+  MAIN_MENU_CREA_LABEL,
+  MAIN_MENU_MIEI_LABEL,
   openBotDmKeyboard,
   roleKeyboard,
 } from "../keyboards/menus.js";
@@ -40,7 +42,7 @@ import {
   cancelMidCreaBeforeGroupBind,
   clearCreatingEphemeral,
   clearTermsErrorMessages,
-  restoreMainMenuKeyboard,
+  replyWithMainMenu,
   stripPersistentReplyKeyboard,
   trackCreatingEphemeral,
 } from "../services/dm-hygiene.js";
@@ -57,8 +59,8 @@ import type { Asset, Deal, PartyRole } from "../types.js";
 
 /** Pulsanti menu / wizard: non sono un codice invito né risposta termini. */
 const MENU_TEXTS = new Set([
-  "➕ Crea escrow",
-  "📋 I miei deal",
+  MAIN_MENU_CREA_LABEL,
+  MAIN_MENU_MIEI_LABEL,
   "❌ Annulla",
   "🛒 Sono il buyer",
   "🏪 Sono il seller",
@@ -67,8 +69,8 @@ const MENU_TEXTS = new Set([
   "LTC (presto)",
 ]);
 
-/** Solo voci menu principali: lasciano passare i `hears` registrati dopo. */
-const MAIN_MENU_TEXTS = new Set(["➕ Crea escrow", "📋 I miei deal"]);
+/** Legacy reply-keyboard taps: lasciano passare i `hears` registrati dopo. */
+const MAIN_MENU_TEXTS = new Set([MAIN_MENU_CREA_LABEL, MAIN_MENU_MIEI_LABEL]);
 
 /** Prefer helper create whenever gate is on (default) and MTProto ready. */
 function preferBotCreatedGroups(): boolean {
@@ -119,7 +121,7 @@ export async function beginCreateDealFlow(ctx: BotContext): Promise<void> {
     await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
   }
 
-  // Passi solo-bottone: niente reply keyboard Crea/I miei sotto la tastiera telefono
+  // Intero wizard (+ helper create): niente reply KB sopra il telefono
   await stripPersistentReplyKeyboard(ctx);
 
   // Deep-link /start invito_CODE → applica silenzioso a questo deal, no re-ask
@@ -172,7 +174,12 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
 
   bot.command("crea", beginCreate);
   bot.command("create", beginCreate);
-  bot.hears("➕ Crea escrow", beginCreate);
+  // Inline menu (primary) + legacy reply-keyboard label (pre-inline clients)
+  bot.callbackQuery(MAIN_MENU_CREA_CB, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await beginCreate(ctx);
+  });
+  bot.hears(MAIN_MENU_CREA_LABEL, beginCreate);
 
   /** Skip invito durante /crea (igiene silenziosa → ruolo). */
   bot.callbackQuery("invite_skip", async (ctx) => {
@@ -300,10 +307,9 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    // Menu principale: non mangiare come termini/ruolo — passa ai hears.
-    // (hears «Crea» è prima e di solito consuma; «I miei» è registrato dopo.)
+    // Legacy reply-keyboard menu: non mangiare come termini/ruolo — passa ai hears.
     if (MAIN_MENU_TEXTS.has(text)) {
-      if (text === "📋 I miei deal") {
+      if (text === MAIN_MENU_MIEI_LABEL) {
         await cancelMidCreaBeforeGroupBind(ctx);
         ctx.session.creating = undefined;
         await dismissInviteStep(ctx);
@@ -406,7 +412,7 @@ async function cancelCreateWizard(
   if (userMsgId != null) {
     await deleteMessageSafe(ctx.api, ctx.chat.id, userMsgId);
   }
-  await ctx.reply(it.cancelled, { reply_markup: mainMenuKeyboard() });
+  await replyWithMainMenu(ctx, it.cancelled);
 }
 
 /** Free text mid-invite: delete user echo + re-send prompt with inline skip. */
@@ -569,12 +575,11 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
   }
 
   // Igiene: cancella ask crypto + risposta «◎ SOL» prima del wizard termini.
+  // Reply KB resta stripata per termini + helper create (menu = inline a fine flusso).
   await clearCreatingEphemeral(ctx);
   if (ctx.message?.message_id != null) {
     await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
   }
-  // Fine passi solo-bottone → ripristina menu; termini = free text.
-  await restoreMainMenuKeyboard(ctx);
 
   const role = creating.role;
   const placeholder = "PENDING_SOL_ESCROW";
@@ -647,9 +652,8 @@ async function finishDealReady(
   if (preferBotCreatedGroups()) {
     if (!groupCreatorReady()) {
       current = await sendGroupBindInstructions(ctx, current);
-      await ctx.reply(it.groupCreateHelperMissing(current), {
+      await replyWithMainMenu(ctx, it.groupCreateHelperMissing(current), {
         parse_mode: "Markdown",
-        reply_markup: mainMenuKeyboard(),
       });
       return;
     }
@@ -689,7 +693,6 @@ async function finishDealReady(
           it.missingBotPerms(perms.missing, { notAdmin: perms.notAdmin }),
           { parse_mode: "Markdown", reply_markup: kb },
         );
-        await restoreMainMenuKeyboard(ctx);
         return;
       }
 
@@ -701,15 +704,13 @@ async function finishDealReady(
         ),
         { parse_mode: "Markdown", reply_markup: kb },
       );
-      await restoreMainMenuKeyboard(ctx);
       return;
     }
 
     // Create fallita: emergenza manuale + errore chiaro.
     current = await sendGroupBindInstructions(ctx, current);
-    await ctx.reply(it.groupCreateFailed(current, created.error), {
+    await replyWithMainMenu(ctx, it.groupCreateFailed(current, created.error), {
       parse_mode: "Markdown",
-      reply_markup: mainMenuKeyboard(),
     });
     return;
   }

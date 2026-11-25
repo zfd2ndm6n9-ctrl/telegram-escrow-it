@@ -39,7 +39,7 @@ assert.match(hygieneSrc, /dmGroupInstructionsMessageId/);
 
 // Menu bypass so «I miei deal» reaches deals hears mid-wizard
 assert.match(creaSrc, /MAIN_MENU_TEXTS/);
-assert.match(creaSrc, /📋 I miei deal/);
+assert.match(creaSrc, /MAIN_MENU_MIEI_LABEL/);
 assert.match(creaSrc, /await next\(\)/);
 
 // pickRole no-op unless on role step
