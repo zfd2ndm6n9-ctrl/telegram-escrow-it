@@ -8,8 +8,8 @@
 2. **Helper MTProto** crea un megagroup privato (la Bot API **non** può creare gruppi)  
 3. Helper = **owner** (account supporto di Francesco, non una parte)  
 4. Bot promosso admin con diritti forti (incluso promote → demote parti)  
-5. DM creator: «Il tuo gruppo è stato creato» + link clickable (`member_limit: 1`)  
-6. Nel gruppo: testo **Entra come buyer** / **Entra come seller** + invite link (ruolo opposto al wizard; niente bottone Invita)  
+5. DM creator: effimero «Sto creando il gruppo…» → poi «Il tuo gruppo è stato creato» + link + «entra nel gruppo e invita il buyer/seller» (ruolo opposto al wizard; niente «ti ho già aggiunto»)  
+6. Nel gruppo: **due messaggi** — (A) invite link controparte, (B) «Invita il buyer/seller». Al join della controparte: cancella entrambi → bind → ToS  
 7. Parti entrano come **membri** → auto-bind / `/avvia`  
 8. Helper/support (`ADMIN_TELEGRAM_ID(S)`) **non** è mai buyer/seller — solo le due parti dei link
 

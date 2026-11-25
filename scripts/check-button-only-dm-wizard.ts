@@ -13,7 +13,9 @@ import {
   MAIN_MENU_CREA_LABEL,
   MAIN_MENU_MIEI_CB,
   MAIN_MENU_MIEI_LABEL,
+  MIEI_BACK_CB,
   mainMenuKeyboard,
+  mieiBackKeyboard,
   roleKeyboard,
 } from "../src/keyboards/menus.js";
 
@@ -80,8 +82,23 @@ assert.doesNotMatch(menusSrc, /mainMenuKeyboard[\s\S]{0,120}new Keyboard\(/);
 // Single callback wiring (no duplicate handler bodies)
 assert.match(creaSrc, /callbackQuery\(MAIN_MENU_CREA_CB/);
 assert.match(dealsSrc, /callbackQuery\(MAIN_MENU_MIEI_CB/);
+assert.match(dealsSrc, /callbackQuery\(MIEI_BACK_CB/);
 assert.match(creaSrc, /hears\(MAIN_MENU_CREA_LABEL/);
 assert.match(dealsSrc, /hears\(MAIN_MENU_MIEI_LABEL/);
+
+// /miei list: ← Indietro only (no repeating Crea / I miei)
+const mieiBack = mieiBackKeyboard();
+assert.equal(mieiBack.inline_keyboard?.[0]?.[0]?.callback_data, MIEI_BACK_CB);
+assert.equal(mieiBack.inline_keyboard?.[0]?.[0]?.text, "← Indietro");
+assert.match(dealsSrc, /mieiBackKeyboard\(\)/);
+assert.doesNotMatch(
+  dealsSrc,
+  /listDeals[\s\S]{0,800}reply_markup:\s*mainMenuKeyboard\(\)/,
+);
+
+// After wizard: ephemeral «Sto creando il gruppo…» then delete on link DM
+assert.match(creaSrc, /it\.creatingGroup/);
+assert.match(creaSrc, /creatingMsgId/);
 
 // No strip / ghost carrier — replyWithMainMenu attaches inline only
 assert.doesNotMatch(hygieneSrc, /stripPersistentReplyKeyboard/);

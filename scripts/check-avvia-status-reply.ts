@@ -1,10 +1,12 @@
 /**
- * Smoke: /avvia awaiting-counterpart copy + dedupe vs living card.
- * Helper path → «Entra come buyer/seller» + link; manual → entra/scrivi (no «controparte»).
+ * Smoke: /avvia awaiting-counterpart copy + dedupe vs invite msgs / living card.
+ * Helper path → invite link (+ separate «Invita il …» in group); manual → entra/scrivi.
  * npm exec tsx scripts/check-avvia-status-reply.ts
  */
 import {
   avviaAutoBindReply,
+  avviaPromptMessageId,
+  hasCounterpartInviteMessages,
   shouldSendAvviaAutoBindStatus,
 } from "../src/services/group-setup.js";
 import { it } from "../src/messages/it.js";
@@ -12,6 +14,7 @@ import {
   entraComeMissingPartyLabel,
   inviteMissingPartyKeyboard,
 } from "../src/keyboards/menus.js";
+import type { Deal } from "../src/types.js";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);
@@ -62,11 +65,10 @@ for (const reason of ["none", "need_message"] as const) {
     const text = avviaAutoBindReply(reason, deal);
     assert(!/controparte/i.test(text), `helper ${reason} must not say controparte`);
     assert(!/entra o scrivi/i.test(text), `helper ${reason} must not ask entra/scrivi`);
-    assert(!/Invita il/i.test(text), `helper ${reason} must not say Invita`);
     const expected = deal.creatorRole === "seller" ? "buyer" : "seller";
     assert(
-      new RegExp(`entra come \\*?${expected}`, "i").test(text),
-      `helper ${reason} expected Entra come ${expected}`,
+      new RegExp(`invita il \\*?${expected}`, "i").test(text),
+      `helper ${reason} expected Invita il ${expected}`,
     );
     assert(
       text.includes(deal.counterpartInviteLink),
@@ -82,9 +84,14 @@ assert(direct.includes("Buyer"), "seller opener → ask Buyer");
 assert(!/controparte/i.test(direct), "direct must not say controparte");
 
 const helperAsk = it.counterpartAsk(dealBuyerHelper);
-assert(/Entra come \*seller\*/i.test(helperAsk), "counterpartAsk helper → Entra come seller");
-assert(helperAsk.includes("https://t.me/+sellerInvite"), "counterpartAsk helper link");
-assert(!/Invita il/i.test(helperAsk), "counterpartAsk must not say Invita");
+assert(
+  helperAsk === "https://t.me/+sellerInvite",
+  "counterpartAsk helper → link only (msg A)",
+);
+assert(
+  it.invitaMissingParty("buyer") === "Invita il seller",
+  "invitaMissingParty buyer opener",
+);
 
 assert(entraComeMissingPartyLabel("buyer") === "Entra come seller", "label seller");
 assert(entraComeMissingPartyLabel("seller") === "Entra come buyer", "label buyer");
@@ -101,33 +108,33 @@ assert(
   "keyboard buyer label",
 );
 
-// Living card is the single identify-counterpart prompt — never stack status.
+// Two invite msgs (or living card) = single identify prompt — never stack status.
 assert(
   shouldSendAvviaAutoBindStatus("none", undefined, 42) === false,
-  "first start with card must skip status",
+  "first start with prompt must skip status",
 );
 assert(
   shouldSendAvviaAutoBindStatus("need_message", undefined, 99) === false,
-  "need_message first start with card must skip status",
+  "need_message first start with prompt must skip status",
 );
 assert(
   shouldSendAvviaAutoBindStatus("none", 10, 10) === false,
-  "repeat /avvia with living card must skip status",
+  "repeat /avvia with prompt must skip status",
 );
 assert(
   shouldSendAvviaAutoBindStatus("need_message", 7, 7) === false,
-  "repeat need_message with living card must skip status",
+  "repeat need_message with prompt must skip status",
 );
-// Card refresh failed → still send status (no silence).
+// Prompt refresh failed → still send status (no silence).
 assert(
   shouldSendAvviaAutoBindStatus("none", undefined, undefined) === true,
-  "missing card must send status",
+  "missing prompt must send status",
 );
 assert(
   shouldSendAvviaAutoBindStatus("need_message", 5, undefined) === true,
-  "lost card after prior id must send status",
+  "lost prompt after prior id must send status",
 );
-// too_many always visible (different from card copy).
+// too_many always visible (different from invite copy).
 assert(
   shouldSendAvviaAutoBindStatus("too_many", undefined, 42) === true,
   "too_many always sends",
@@ -135,6 +142,21 @@ assert(
 assert(
   shouldSendAvviaAutoBindStatus("too_many", 1, 1) === true,
   "too_many on repeat always sends",
+);
+
+const withInviteMsgs = {
+  ...dealSellerHelper,
+  counterpartInviteLinkMessageId: 101,
+  counterpartInviteHintMessageId: 102,
+} as Deal;
+assert(hasCounterpartInviteMessages(withInviteMsgs), "both invite ids");
+assert(
+  avviaPromptMessageId(withInviteMsgs) === 101,
+  "avvia prompt prefers invite link msg id",
+);
+assert(
+  avviaPromptMessageId({ setupMessageId: 55 } as Deal) === 55,
+  "fallback to setupMessageId",
 );
 
 console.log("check-avvia-status-reply: OK");

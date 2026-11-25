@@ -4,7 +4,8 @@ import { it, statusLabel } from "../messages/it.js";
 import {
   MAIN_MENU_MIEI_CB,
   MAIN_MENU_MIEI_LABEL,
-  mainMenuKeyboard,
+  MIEI_BACK_CB,
+  mieiBackKeyboard,
 } from "../keyboards/menus.js";
 import { cancelMidCreaBeforeGroupBind } from "../services/dm-hygiene.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
@@ -58,12 +59,12 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
     const { text, parseMarkdown } = concludedListBody(deals);
     const parse_mode = parseMarkdown ? ("Markdown" as const) : undefined;
 
-    // Edit-in-place: un comando → un messaggio (no stack); keep inline menu.
+    // Edit-in-place: un comando → un messaggio (no stack); ← Indietro (no Crea/I miei).
     if (prevBotId != null) {
       try {
         await ctx.api.editMessageText(ctx.chat.id, prevBotId, text, {
           parse_mode,
-          reply_markup: mainMenuKeyboard(),
+          reply_markup: mieiBackKeyboard(),
         });
         ctx.session.mieiListMessageId = prevBotId;
         return;
@@ -76,7 +77,7 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
 
     const msg = await ctx.reply(text, {
       parse_mode,
-      reply_markup: mainMenuKeyboard(),
+      reply_markup: mieiBackKeyboard(),
     });
     ctx.session.mieiListMessageId = msg.message_id;
   };
@@ -85,6 +86,16 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
   bot.callbackQuery(MAIN_MENU_MIEI_CB, async (ctx) => {
     await ctx.answerCallbackQuery();
     await listDeals(ctx);
+  });
+  bot.callbackQuery(MIEI_BACK_CB, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    if (ctx.chat?.type !== "private") return;
+    const listId =
+      ctx.callbackQuery.message?.message_id ?? ctx.session.mieiListMessageId;
+    if (listId != null) {
+      await deleteMessageSafe(ctx.api, ctx.chat.id, listId);
+    }
+    ctx.session.mieiListMessageId = undefined;
   });
   // Legacy reply-keyboard label (pre-inline clients)
   bot.hears(MAIN_MENU_MIEI_LABEL, listDeals);

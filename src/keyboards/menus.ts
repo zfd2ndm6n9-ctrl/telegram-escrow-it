@@ -17,6 +17,14 @@ export function mainMenuKeyboard(): InlineKeyboard {
     .text(MAIN_MENU_MIEI_LABEL, MAIN_MENU_MIEI_CB);
 }
 
+/** Callback: chiude la lista `/miei` (niente Crea/I miei ripetuti). */
+export const MIEI_BACK_CB = "miei_back";
+
+/** Sotto la lista deal: solo ← Indietro (torna al menu precedente). */
+export function mieiBackKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("← Indietro", MIEI_BACK_CB);
+}
+
 /** Ruolo mancante (opposto al creator del wizard). */
 export function missingPartyRole(creatorRole: PartyRole): PartyRole {
   return creatorRole === "seller" ? "buyer" : "seller";
@@ -29,8 +37,8 @@ export function entraComeMissingPartyLabel(creatorRole: PartyRole): string {
 }
 
 /**
- * Bottone URL gruppo: «Entra come buyer/seller» (no «Invita il …»).
- * Il link resta anche nel testo della card (inoltrabile).
+ * Bottone URL opzionale: «Entra come buyer/seller».
+ * Path helper attuale: due messaggi plain (link + «Invita il …»), senza questo KB.
  */
 export function inviteMissingPartyKeyboard(
   creatorRole: PartyRole,
@@ -104,7 +112,7 @@ export function afterAmountKeyboard(
 
 /**
  * DM dopo creazione helper: link clickable nel gruppo del creator.
- * Il link per buyer/seller manca qui — lo posta il bot nel gruppo («Entra come …»).
+ * Il link controparte manca qui — nel gruppo: (A) link + (B) «Invita il …».
  */
 export function groupInviteKeyboard(
   inviteLink: string,

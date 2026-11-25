@@ -130,6 +130,16 @@ export interface Deal {
    */
   counterpartInviteLink?: string;
   /**
+   * Messaggio (A) nel gruppo helper in attesa: solo il link invito controparte.
+   * Cancellato insieme a `counterpartInviteHintMessageId` al join → ToS.
+   */
+  counterpartInviteLinkMessageId?: number;
+  /**
+   * Messaggio (B) separato: «Invita il buyer/seller».
+   * Cancellato insieme a `counterpartInviteLinkMessageId` al join → ToS.
+   */
+  counterpartInviteHintMessageId?: number;
+  /**
    * Chi ha creato il gruppo Telegram:
    * - `helper` = MTProto service account (parti non owner)
    * - `manual` = una parte ha creato il gruppo (owner umano = rischio kick/delete)

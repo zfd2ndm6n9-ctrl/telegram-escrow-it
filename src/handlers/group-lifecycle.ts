@@ -45,6 +45,7 @@ import {
   postAskSellerWallet,
   refreshGroupSetupCard,
   refreshGroupTitle,
+  avviaPromptMessageId,
   shouldSendAvviaAutoBindStatus,
   startDealInGroup,
   trackSeenGroupUser,
@@ -123,7 +124,7 @@ async function resumeAvviaAfterAdmin(
   chatId: number,
   runner: AvviaRunner,
 ): Promise<void> {
-  const priorSetupMessageId = deal.setupMessageId;
+  const priorPromptId = avviaPromptMessageId(deal);
   const { deal: started, perms, autoBind } = await startDealInGroup(
     ctx.api,
     ctx.store,
@@ -144,12 +145,12 @@ async function resumeAvviaAfterAdmin(
   }
 
   if (autoBind) {
-    // Card vivente = unico «entra o scrivi»; status solo se card manca / too_many.
+    // Due msg invite (helper) o card (manuale) = prompt unico; status solo se manca / too_many.
     if (
       shouldSendAvviaAutoBindStatus(
         autoBind,
-        priorSetupMessageId,
-        started.setupMessageId,
+        priorPromptId,
+        avviaPromptMessageId(started),
       )
     ) {
       await sendTrackedPrompt(
@@ -486,9 +487,9 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         runnerDisplayName: displayNameOf(ctx.from),
       };
 
-      // Prima di startDealInGroup: se la card non c'è ancora, il refresh
-      // in auto-bind miss è il prompt unico — non stackare «già avviato».
-      const priorSetupMessageId = deal.setupMessageId;
+      // Prima di startDealInGroup: se i prompt invite non ci sono ancora,
+      // il refresh in auto-bind miss è il prompt unico — non stackare status.
+      const priorPromptId = avviaPromptMessageId(deal);
 
       const { deal: started, perms, autoBind } = await startDealInGroup(
         ctx.api,
@@ -511,13 +512,12 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       }
 
       if (autoBind) {
-        // Living card = unico identify-counterpart. Status solo se card
-        // assente o too_many (sendTrackedPrompt cancella wait precedenti).
+        // Due msg invite / card = unico identify. Status solo se assente o too_many.
         if (
           shouldSendAvviaAutoBindStatus(
             autoBind,
-            priorSetupMessageId,
-            started.setupMessageId,
+            priorPromptId,
+            avviaPromptMessageId(started),
           )
         ) {
           await sendTrackedPrompt(
