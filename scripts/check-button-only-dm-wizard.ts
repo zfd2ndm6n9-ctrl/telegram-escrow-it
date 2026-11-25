@@ -96,9 +96,12 @@ assert.doesNotMatch(
   /listDeals[\s\S]{0,800}reply_markup:\s*mainMenuKeyboard\(\)/,
 );
 
-// After wizard: ephemeral «Sto creando il gruppo…» then delete on link DM
+// After wizard: ephemeral «Sto creando…» + resilient creator invite DM
 assert.match(creaSrc, /it\.creatingGroup/);
 assert.match(creaSrc, /creatingMsgId/);
+assert.match(creaSrc, /replyCreatorInviteDm/);
+assert.match(creaSrc, /postHelperCounterpartInvite/);
+assert.match(creaSrc, /finally/);
 
 // No strip / ghost carrier — replyWithMainMenu attaches inline only
 assert.doesNotMatch(hygieneSrc, /stripPersistentReplyKeyboard/);

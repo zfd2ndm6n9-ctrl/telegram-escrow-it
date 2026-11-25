@@ -73,6 +73,19 @@ assert.ok(!/indirizzo escrow/i.test(ready));
 assert.ok(!/crea un \*gruppo privato\*/i.test(ready));
 assert.ok(!/controparte/i.test(ready));
 
+// Underscore in t.me/+ hash must be Markdown-escaped (else sendMessage fails).
+const underscoreLink = "https://t.me/+Ab_Cd_Ef-Gh";
+const readyEsc = it.groupReady(
+  deal,
+  { creatorLink: underscoreLink, counterpartLink: "https://t.me/+x" },
+  false,
+);
+assert.match(readyEsc, /https:\/\/t\.me\/\+Ab\\_Cd\\_Ef-Gh/);
+assert.ok(
+  !readyEsc.includes(underscoreLink),
+  "raw underscore link must not appear unescaped in Markdown body",
+);
+
 assert.equal(it.creatingGroup, "Sto creando il gruppo…");
 assert.equal(it.invitaMissingParty("buyer"), "Invita il seller");
 assert.equal(it.invitaMissingParty("seller"), "Invita il buyer");
