@@ -21,8 +21,8 @@ function errDetail(err: unknown): string {
 }
 
 /**
- * Dopo bind controparte (termini pronti, prima di Accetta):
- * messaggio pinnato con Mini App ToS (`?deal=`). Idempotente.
+ * Dopo bind controparte (termini pronti): messaggio pinnato con Mini App ToS
+ * in sola lettura («Leggi i Termini»). Niente Accetta / `?deal=`. Idempotente.
  */
 export async function ensureGroupTosMiniAppPin(
   api: Api,
@@ -42,11 +42,9 @@ export async function ensureGroupTosMiniAppPin(
 
   const tosUrl = config.tosWebAppUrl;
   if (!tosUrl) {
-    // Senza host pubblico: niente pin Mini App (Accetta resta callback).
+    // Senza host pubblico: niente pin Mini App (card Accetta resta callback).
     return current;
   }
-
-  const dealUrl = `${tosUrl}${tosUrl.includes("?") ? "&" : "?"}deal=${encodeURIComponent(current.id)}`;
 
   // Già tracciato: solo re-pin soft (niente ripost se già pinnato / errore banale).
   if (current.tosMiniAppMessageId != null) {
@@ -58,7 +56,7 @@ export async function ensureGroupTosMiniAppPin(
   try {
     const msg = await api.sendMessage(chatId, it.groupTosMiniAppPin, {
       parse_mode: "Markdown",
-      reply_markup: groupTosMiniAppKeyboard(dealUrl),
+      reply_markup: groupTosMiniAppKeyboard(tosUrl),
     });
     messageId = msg.message_id;
   } catch (webAppErr) {
@@ -68,7 +66,7 @@ export async function ensureGroupTosMiniAppPin(
     try {
       const msg = await api.sendMessage(chatId, it.groupTosMiniAppPin, {
         parse_mode: "Markdown",
-        reply_markup: groupTosMiniAppUrlKeyboard(dealUrl),
+        reply_markup: groupTosMiniAppUrlKeyboard(tosUrl),
       });
       messageId = msg.message_id;
     } catch (urlErr) {
@@ -85,7 +83,7 @@ export async function ensureGroupTosMiniAppPin(
   );
 }
 
-/** Dopo Accetta: togli il teaser Mini App (la card setup resta pinnata). */
+/** Dopo Accetta (card): togli il teaser Mini App (la card setup resta pinnata). */
 export async function clearGroupTosMiniAppPin(
   api: Api,
   store: DealStore,

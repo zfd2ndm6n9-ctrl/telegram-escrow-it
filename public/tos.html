@@ -16,10 +16,7 @@
         --muted: var(--tg-theme-hint-color, #6b7280);
         --card: var(--tg-theme-secondary-bg-color, #ffffff);
         --accent: var(--tg-theme-button-color, #1f6feb);
-        --accent-fg: var(--tg-theme-button-text-color, #ffffff);
         --line: color-mix(in srgb, var(--fg) 12%, transparent);
-        --danger: #c62828;
-        --ok: #1b7f3a;
       }
 
       * {
@@ -39,7 +36,7 @@
       main {
         max-width: 40rem;
         margin: 0 auto;
-        padding: 1.25rem 1.1rem 6rem;
+        padding: 1.25rem 1.1rem 2rem;
       }
 
       h1 {
@@ -94,51 +91,6 @@
         color: var(--muted);
         font-size: 0.8rem;
       }
-
-      .status {
-        margin: 0 0 1rem;
-        padding: 0.75rem 0.9rem;
-        border-radius: 10px;
-        font-size: 0.95rem;
-        display: none;
-      }
-
-      .status.show {
-        display: block;
-      }
-
-      .status.ok {
-        background: color-mix(in srgb, var(--ok) 14%, transparent);
-        color: var(--ok);
-      }
-
-      .status.err {
-        background: color-mix(in srgb, var(--danger) 12%, transparent);
-        color: var(--danger);
-      }
-
-      .accept-fallback {
-        display: none;
-        margin-top: 1.25rem;
-        width: 100%;
-        border: 0;
-        border-radius: 12px;
-        padding: 0.9rem 1rem;
-        font-size: 1rem;
-        font-weight: 650;
-        background: var(--accent);
-        color: var(--accent-fg);
-        cursor: pointer;
-      }
-
-      .accept-fallback.show {
-        display: block;
-      }
-
-      .accept-fallback:disabled {
-        opacity: 0.55;
-        cursor: default;
-      }
     </style>
   </head>
   <body>
@@ -149,7 +101,6 @@
         Pensato soprattutto per servizi digitali, informazioni, dati e lavoro
         online, con consegna e conferma di completamento tra le parti.
       </p>
-      <div id="status" class="status" role="status"></div>
       <ol>
         <li>
           <span class="num">1.</span>
@@ -190,9 +141,10 @@
           <span class="num">5.</span>
           <h2>Accettazione dei termini del deal</h2>
           <p>
-            Con «Accetta» le parti fissano il loro accordo (prodotto/servizio,
-            prezzo, condizioni). Il bot esegue solo rilascio o rimborso secondo
-            il flusso previsto, dopo conferma reciproca di completamento.
+            Con «Accetta» sulla card del gruppo le parti fissano il loro accordo
+            (prodotto/servizio, prezzo, condizioni). Il bot esegue solo rilascio
+            o rimborso secondo il flusso previsto, dopo conferma reciproca di
+            completamento.
           </p>
         </li>
         <li>
@@ -222,120 +174,17 @@
           </p>
         </li>
       </ol>
-      <button id="acceptBtn" class="accept-fallback" type="button">
-        Accetta i termini
-      </button>
       <footer>Escrowita · Italia · 18+</footer>
     </main>
     <script>
       (function () {
-        var params = new URLSearchParams(window.location.search || "");
-        var dealId = (params.get("deal") || "").trim();
-        var statusEl = document.getElementById("status");
-        var fallbackBtn = document.getElementById("acceptBtn");
-        var accepting = false;
-        var tg = window.Telegram && Telegram.WebApp ? Telegram.WebApp : null;
-
-        function showStatus(kind, text) {
-          if (!statusEl) return;
-          statusEl.className = "status show " + kind;
-          statusEl.textContent = text;
-        }
-
-        function setBusy(busy) {
-          accepting = busy;
-          if (fallbackBtn) fallbackBtn.disabled = busy;
-          if (tg && tg.MainButton) {
-            if (busy) tg.MainButton.showProgress();
-            else tg.MainButton.hideProgress();
-          }
-        }
-
-        async function acceptTerms() {
-          if (!dealId || accepting) return;
-          if (!tg || !tg.initData) {
-            showStatus(
-              "err",
-              "Apri questa pagina dalla Mini App Telegram nel deal.",
-            );
-            return;
-          }
-          setBusy(true);
-          showStatus("ok", "Accettazione in corso…");
-          try {
-            var res = await fetch("/api/tos/accept", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                initData: tg.initData,
-                dealId: dealId,
-              }),
-            });
-            var data = {};
-            try {
-              data = await res.json();
-            } catch (_) {}
-            if (res.ok && data && data.ok) {
-              showStatus("ok", "Termini accettati. Puoi chiudere.");
-              if (tg.HapticFeedback && tg.HapticFeedback.notificationOccurred) {
-                try {
-                  tg.HapticFeedback.notificationOccurred("success");
-                } catch (_) {}
-              }
-              if (tg.MainButton) {
-                tg.MainButton.hide();
-              }
-              if (fallbackBtn) fallbackBtn.classList.remove("show");
-              setTimeout(function () {
-                try {
-                  tg.close();
-                } catch (_) {}
-              }, 900);
-              return;
-            }
-            var code = (data && data.error) || "accept_failed";
-            var messages = {
-              invalid_init: "Sessione Mini App non valida. Riapri i Termini.",
-              not_found: "Deal non trovato.",
-              not_ready: "Nessun termine da accettare ora.",
-              already: "Termini già accettati.",
-              not_party: "Solo buyer/seller del deal.",
-              proposer: "Hai proposto tu: aspetta l’altra parte.",
-              missing_price: "Manca il prezzo in euro nei termini.",
-              rate_unavailable: "Tasso €→SOL non disponibile. Riprova.",
-              no_group: "Gruppo non collegato.",
-              accept_unavailable: "Servizio non pronto. Riprova tra poco.",
-            };
-            showStatus("err", messages[code] || "Impossibile accettare (" + code + ").");
-            if (tg.HapticFeedback && tg.HapticFeedback.notificationOccurred) {
-              try {
-                tg.HapticFeedback.notificationOccurred("error");
-              } catch (_) {}
-            }
-          } catch (err) {
-            showStatus("err", "Errore di rete. Riprova.");
-          } finally {
-            setBusy(false);
-          }
-        }
-
         try {
+          var tg =
+            window.Telegram && Telegram.WebApp ? Telegram.WebApp : null;
           if (tg) {
             tg.ready();
             tg.expand();
-            if (dealId) {
-              if (tg.MainButton) {
-                tg.MainButton.setText("Accetta i termini");
-                tg.MainButton.show();
-                tg.MainButton.onClick(acceptTerms);
-              } else if (fallbackBtn) {
-                fallbackBtn.classList.add("show");
-                fallbackBtn.addEventListener("click", acceptTerms);
-              }
-            }
-          } else if (dealId && fallbackBtn) {
-            fallbackBtn.classList.add("show");
-            fallbackBtn.addEventListener("click", acceptTerms);
+            if (tg.MainButton) tg.MainButton.hide();
           }
         } catch (_) {}
       })();

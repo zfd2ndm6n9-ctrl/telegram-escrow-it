@@ -32,7 +32,7 @@ export type AcceptTosResult =
   | { ok: false; reason: AcceptTosFailReason; deal?: Deal };
 
 /**
- * Accetta i termini del deal (card gruppo o Mini App).
+ * Accetta i termini del deal (callback card gruppo `tosok`).
  * Controparte non-proponente; lock €→SOL; pin card; wallet seller.
  */
 export async function acceptDealTerms(

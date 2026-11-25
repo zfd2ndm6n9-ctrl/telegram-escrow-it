@@ -7,7 +7,7 @@ Usando il bot Telegram **Escrowita** accetti questi Termini. Se non li accetti, 
 
 In Telegram i termini si aprono come **Mini App** (`GET /tos` sul Web Service), non come messaggio lungo in chat.
 
-**Flusso deal:** dopo il bind della controparte il bot pinna un messaggio «Leggi e Accetta» (`web_app` → `/tos?deal=<id>`). L’accettazione avviene nella Mini App (`POST /api/tos/accept` con `initData` Telegram). Sul canale vouch: teaser pinnato + menu button bot «📄 Termini» quando l’host HTTPS è configurato (`PUBLIC_BASE_URL`).
+**Flusso deal:** dopo il bind della controparte il bot pinna «Leggi i Termini» (`web_app` → `/tos`, sola lettura). L’accettazione dei termini del deal resta sulla card gruppo (*Accetta* / *Proponi i ToS*, callback). Sul canale vouch: teaser pinnato + menu button bot «📄 Termini» quando l’host HTTPS è configurato (`PUBLIC_BASE_URL`).
 
 Escrowita è pensato soprattutto per **servizi digitali**, informazioni, dati e lavoro online, con consegna e conferma di completamento tra le parti.
 

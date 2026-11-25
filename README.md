@@ -52,13 +52,13 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `UPDATES_CHANNEL_MESSAGE_ID` | no | Message id vivente da editare; se assente → aggiorna *description* del canale |
 | `VOUCH_CHANNEL_ID` | no (sì in prod) | Canale vouch + **gate /crea** + teaser ToS pinnato (id `-100…` preferito). Bot **admin** + Post + Pin + `getChatMember`. Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
 | `VOUCH_INVITE_LINK` | no | Invite mostrato a `/start`. Default `https://t.me/+tww-HqO8htBiMzdk` (override su Render se ruoti il link) |
-| `PORT` | no | Se impostato: `GET /healthz` + `GET /tos` + `POST /api/tos/accept` (Render/Fly) |
+| `PORT` | no | Se impostato: `GET /healthz` + `GET /tos` (Render/Fly) |
 | `TELEGRAM_BOT_CREATES_GROUPS` | no | `1` per tentare create automatica gruppo (default off) |
 | `TELEGRAM_API_ID` / `HASH` / `HELPER_SESSION` | no | Solo con gate sopra; altrimenti soft-fallback manuale |
 
 Documentazione: [`docs/TOS.md`](./docs/TOS.md) (Termini; Mini App `/tos`) · [`docs/solana-escrow.md`](./docs/solana-escrow.md) · [`docs/bot-created-groups.md`](./docs/bot-created-groups.md).
 
-**ToS in Telegram:** Mini App su `/tos` (serve **Web Service** HTTPS + `PUBLIC_BASE_URL` o `RENDER_EXTERNAL_URL`). Dopo bind controparte il bot **pinna** un teaser «Leggi e Accetta»; *Accetta* apre la Mini App (`?deal=`) e conferma con `POST /api/tos/accept` (initData HMAC). Senza host pubblico resta il callback `tosok`. Canale vouch: teaser pinnato + menu button bot «📄 Termini» (soft-fail sul canale). Boot: re-pin solo se esiste `DATA_DIR/vouch-tos-pin.json`; creare/sostituire con admin `/pin_tos`.
+**ToS in Telegram:** Mini App su `/tos` (sola lettura; serve **Web Service** HTTPS + `PUBLIC_BASE_URL` o `RENDER_EXTERNAL_URL`). Dopo bind controparte il bot **pinna** «Leggi i Termini» (opzionale). *Accetta* / *Proponi i ToS* restano callback sulla card gruppo (`tosok`), non Mini App. Canale vouch: teaser pinnato + menu button bot «📄 Termini» (soft-fail sul canale). Boot: re-pin solo se esiste `DATA_DIR/vouch-tos-pin.json`; creare/sostituire con admin `/pin_tos`.
 
 ## Avvio (polling)
 

@@ -1,6 +1,6 @@
 import { assertConfig, config } from "./config.js";
 import { createBot } from "./bot.js";
-import { setTosAcceptApiHandler, startHealthServer } from "./health.js";
+import { startHealthServer } from "./health.js";
 import {
   getMasterKeypair,
   getPlatformFeeWalletPubkey,
@@ -15,9 +15,7 @@ import {
 import { startGroupBindExpiryWatcher } from "./services/group-bind-expiry.js";
 import { startGroupCloseCleanupWatcher } from "./services/group-close-cleanup.js";
 import { startUsernameRefresh } from "./services/username-refresh.js";
-import { acceptDealTerms } from "./services/tos-accept.js";
 import { ensureTosMenuButtons } from "./services/tos-menu-button.js";
-import { validateWebAppInitData } from "./services/webapp-init-data.js";
 import { ensureVouchTosPin } from "./services/vouch-tos-pin.js";
 
 async function main(): Promise<void> {
@@ -54,41 +52,6 @@ async function main(): Promise<void> {
   }
 
   const { bot, store, members, invites, dealLogs } = createBot(config.botToken);
-
-  // Mini App Accetta: POST /api/tos/accept (stesso processo Web Service + polling).
-  setTosAcceptApiHandler(async ({ initData, dealId }) => {
-    const validated = validateWebAppInitData(initData, config.botToken);
-    if (!validated) {
-      return { ok: false, error: "invalid_init", status: 401 };
-    }
-    const deal = store.get(dealId);
-    if (!deal) {
-      return { ok: false, error: "not_found", status: 404 };
-    }
-    const result = await acceptDealTerms(
-      bot.api,
-      store,
-      deal,
-      validated.user.id,
-      { pinMessageId: deal.setupMessageId },
-    );
-    if (result.ok) return { ok: true };
-    const statusByReason: Record<string, number> = {
-      already: 409,
-      not_ready: 409,
-      not_party: 403,
-      proposer: 403,
-      missing_price: 409,
-      rate_unavailable: 503,
-      no_group: 409,
-      not_found: 404,
-    };
-    return {
-      ok: false,
-      error: result.reason,
-      status: statusByReason[result.reason] ?? 400,
-    };
-  });
 
   const rawDataDir = process.env.DATA_DIR?.trim() || "(unset → data)";
   console.log(
@@ -148,12 +111,12 @@ async function main(): Promise<void> {
 
   if (config.tosWebAppUrl) {
     console.log(
-      `ToS Mini App: ${config.tosWebAppUrl} (web_app Accetta + canale «Leggi i Termini»)`,
+      `ToS Mini App: ${config.tosWebAppUrl} (pin gruppo + canale «Leggi i Termini»; Accetta resta callback card)`,
     );
   } else {
     console.warn(
       "PUBLIC_BASE_URL / RENDER_EXTERNAL_URL / TOS_URL assenti: " +
-        "«Leggi i Termini» / Accetta Mini App usano fallback corto o callback.",
+        "pin «Leggi i Termini» non disponibile; Accetta resta callback sulla card.",
     );
   }
 

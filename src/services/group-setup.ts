@@ -6,7 +6,6 @@ import { InlineKeyboard, InputFile } from "grammy";
 import type { Deal } from "../types.js";
 import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
-import { config } from "../config.js";
 import {
   buyerAfterShipKeyboard,
   groupActionsKeyboard,
@@ -44,13 +43,6 @@ import {
   upsertSetupMessage,
 } from "./prompt-cleanup.js";
 
-/** URL Mini App ToS con `?deal=` per Accetta in-app. */
-export function tosDealWebAppUrl(dealId: string): string | undefined {
-  const base = config.tosWebAppUrl;
-  if (!base) return undefined;
-  const sep = base.includes("?") ? "&" : "?";
-  return `${base}${sep}deal=${encodeURIComponent(dealId)}`;
-}
 
 /** PNG branding gruppi deal (repo `assets/`, non compilato in dist/). */
 const GROUP_PHOTO_FILENAME = "escrowita-group.png";
@@ -137,7 +129,7 @@ export async function ensureEscrowitaGroupPhoto(
 /**
  * Keyboard della card setup:
  * - awaiting counterpart (helper): nessun bottone — due messaggi separati (link + Invita)
- * - Accetta / Proponi a proposta completa
+ * - Accetta / Proponi a proposta completa (callback; niente Mini App)
  */
 export function setupCardKeyboard(deal: Deal): InlineKeyboard {
   if (
@@ -152,7 +144,7 @@ export function setupCardKeyboard(deal: Deal): InlineKeyboard {
     termsReadyForConfirm(deal) &&
     !tosAccepted(deal)
   ) {
-    return tosConfirmKeyboard(deal.id, tosDealWebAppUrl(deal.id));
+    return tosConfirmKeyboard(deal.id);
   }
   return new InlineKeyboard();
 }
@@ -265,7 +257,7 @@ export async function postHelperCounterpartInvite(
  * Aggiorna (o crea) la card setup.
  * Helper awaiting → due messaggi invite (non una living card).
  * Con entrambe le parti → cancella invite A+B, poi card ToS.
- * Termini pronti → pin Mini App ToS (Accetta in-app) prima della card.
+ * Termini pronti → pin Mini App ToS (sola lettura) prima della card.
  */
 export async function refreshGroupSetupCard(
   api: Api,

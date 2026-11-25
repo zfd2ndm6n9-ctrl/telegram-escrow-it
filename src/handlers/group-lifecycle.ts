@@ -655,7 +655,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await clearBotPrompts(ctx.api, ctx.store, advanced);
   });
 
-  // Fallback Accetta (senza Mini App / PUBLIC_BASE_URL): stesso lock di POST /api/tos/accept
+  // Accetta termini deal (card gruppo) → lock €→SOL → wallet seller
   bot.callbackQuery(/^tosok:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     let deal = ctx.store.get(dealId);

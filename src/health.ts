@@ -38,7 +38,10 @@ export type TosAcceptApiHandler = (
 
 let tosAcceptHandler: TosAcceptApiHandler | undefined;
 
-/** Collega il handler Accetta Mini App (dopo createBot). */
+/**
+ * Legacy: Mini App non accetta più i termini deal (sola lettura).
+ * Endpoint POST /api/tos/accept resta 503 se non collegato.
+ */
 export function setTosAcceptApiHandler(
   handler: TosAcceptApiHandler | undefined,
 ): void {
@@ -129,7 +132,8 @@ async function handleTosAccept(
 /**
  * HTTP minimo per PaaS (Render/Railway/Fly).
  * Bind immediato su 0.0.0.0:PORT; la Promise risolve solo dopo listening.
- * Serve Mini App ToS su GET /tos e Accetta su POST /api/tos/accept.
+ * Serve Mini App ToS (sola lettura) su GET /tos.
+ * POST /api/tos/accept è legacy (503 senza handler).
  */
 export function startHealthServer(port: number): Promise<Server> {
   const server = createServer((req, res) => {
@@ -177,7 +181,7 @@ export function startHealthServer(port: number): Promise<Server> {
     server.once("error", reject);
     server.listen(port, "0.0.0.0", () => {
       console.log(
-        `Health HTTP in ascolto su 0.0.0.0:${port} (/healthz, /tos, POST /api/tos/accept)`,
+        `Health HTTP in ascolto su 0.0.0.0:${port} (/healthz, /tos)`,
       );
       resolve(server);
     });
