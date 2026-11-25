@@ -56,7 +56,7 @@ Sul **Web Service** (o Background Worker) che esegue il bot — Environment:
 | `SOLANA_WATCH_INTERVAL_MS` | no | Default `20000` |
 | `ADMIN_TELEGRAM_ID` / `ADMIN_TELEGRAM_IDS` | sì per dispute / force / `/deal` `/log` / codici | User id Telegram admin |
 | `ADMIN_TELEGRAM_IDS` | no | Lista admin csv (oltre al singolo) |
-| `PUBLIC_BASE_URL` | sì in prod | Host HTTPS → Mini App `/tos` (o `RENDER_EXTERNAL_URL`) |
+| `PUBLIC_BASE_URL` | sì in prod (Web) | Host HTTPS → Mini App `/tos` + `POST /api/tos/accept` (o `RENDER_EXTERNAL_URL`) |
 | `TOS_URL` | no | Override URL Mini App (default `${PUBLIC_BASE_URL}/tos`) |
 | `DATA_DIR` | sì in prod | Persistenza deal + iscritti + inviti + log (`deals.json`, `members.json`, `invites.json`, `deal-logs.json`). Render: path **assoluto** `/var/data` (non `var/data`) |
 | `VOUCH_CHANNEL_ID` | sì in prod | Canale vouch + gate `/crea` (id `-100…`). Bot **admin** Post + `getChatMember`. Fail post → log `[vouch] FAIL …` |

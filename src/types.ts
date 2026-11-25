@@ -221,6 +221,11 @@ export interface Deal {
    * preferibilmente pinnato nel gruppo.
    */
   tosAcceptedMessageId?: number;
+  /**
+   * Teaser pinnato Mini App ToS (dopo bind, prima di Accetta).
+   * Non cancellare in hygiene finché i termini non sono accettati.
+   */
+  tosMiniAppMessageId?: number;
   /** Ultimo messaggio /stato del bot (sostituito al prossimo /stato). */
   lastStatusMessageId?: number;
   /**

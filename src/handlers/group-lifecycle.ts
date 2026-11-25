@@ -57,11 +57,10 @@ import {
   clearEphemeralReplies,
   clearRoleError,
   deleteMessageSafe,
-  pinAcceptedTos,
   replaceRoleError,
   sendTrackedPrompt,
-  untrackPrompt,
 } from "../services/prompt-cleanup.js";
+import { acceptDealTerms } from "../services/tos-accept.js";
 import { kickUnauthorizedBot } from "./group-hygiene.js";
 
 function displayNameOf(user: {
@@ -656,7 +655,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await clearBotPrompts(ctx.api, ctx.store, advanced);
   });
 
-  // Controparte Accetta termini → lock + pin → converti €→SOL → wallet seller
+  // Fallback Accetta (senza Mini App / PUBLIC_BASE_URL): stesso lock di POST /api/tos/accept
   bot.callbackQuery(/^tosok:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     let deal = ctx.store.get(dealId);
@@ -676,88 +675,33 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       }
       deal = boundHere;
     }
-    if (!termsReadyForConfirm(deal) || deal.status !== "awaiting_tos_confirm") {
-      await ctx.answerCallbackQuery({ text: "Nessun termine da accettare" });
-      return;
-    }
-    if (tosAccepted(deal)) {
-      // Click sbagliato: solo alert, niente spam in chat
+
+    const result = await acceptDealTerms(ctx.api, ctx.store, deal, ctx.from.id, {
+      pinMessageId:
+        ctx.callbackQuery.message?.message_id ?? deal.setupMessageId,
+    });
+    if (!result.ok) {
+      const alerts: Record<string, string> = {
+        not_ready: "Nessun termine da accettare",
+        already: plainAlert(it.tosAlreadyAccepted),
+        not_party: "Solo buyer/seller del deal.",
+        proposer: "Sei il proponente: aspetta l'altra parte.",
+        missing_price: plainAlert(it.missingCommercialPrice),
+        rate_unavailable: plainAlert(it.rateUnavailable),
+        no_group: "Gruppo non collegato",
+        not_found: "Deal non trovato",
+      };
       await ctx.answerCallbackQuery({
-        text: plainAlert(it.tosAlreadyAccepted),
-        show_alert: true,
+        text: alerts[result.reason] ?? "Impossibile accettare",
+        show_alert:
+          result.reason === "already" ||
+          result.reason === "proposer" ||
+          result.reason === "missing_price" ||
+          result.reason === "rate_unavailable",
       });
       return;
     }
-    if (!isParty(deal, ctx.from.id)) {
-      await ctx.answerCallbackQuery({
-        text: "Solo buyer/seller del deal.",
-        show_alert: true,
-      });
-      return;
-    }
-    // Chi ha proposto non può accettare la propria card
-    if (isTermsProposer(deal, ctx.from.id)) {
-      await ctx.answerCallbackQuery({
-        text: "Sei il proponente: aspetta l'altra parte.",
-        show_alert: true,
-      });
-      return;
-    }
-
-    const tosMsgId =
-      ctx.callbackQuery.message?.message_id ?? deal.setupMessageId;
-    const now = new Date().toISOString();
-
-    // SOL target: lock una sola volta. Se già confermato, non ricalcolare FX.
-    let solAmount = "";
-    if (amountConfirmed(deal) && parseAmount(deal.amount)) {
-      solAmount = deal.amount;
-    } else if (deal.amount && parseAmount(deal.amount)) {
-      // Amount già presente (legacy / retry): locka senza nuova FX.
-      solAmount = deal.amount;
-    } else {
-      if (!deal.priceEur) {
-        await ctx.answerCallbackQuery({
-          text: plainAlert(it.missingCommercialPrice),
-          show_alert: true,
-        });
-        return;
-      }
-      const converted = await convertPriceEurToSol(deal.priceEur);
-      if (!converted) {
-        await ctx.answerCallbackQuery({
-          text: plainAlert(it.rateUnavailable),
-          show_alert: true,
-        });
-        return;
-      }
-      solAmount = converted;
-    }
-
-    let updated = ctx.store.update(deal.id, {
-      tosAcceptedAt: now,
-      amount: solAmount,
-      amountConfirmedAt: deal.amountConfirmedAt ?? now,
-      status: "awaiting_seller_wallet" as const,
-      ...(tosMsgId != null
-        ? {
-            setupMessageId: deal.setupMessageId ?? tosMsgId,
-            tosAcceptedMessageId: tosMsgId,
-          }
-        : {}),
-    })!;
-
-    if (tosMsgId != null) {
-      updated = untrackPrompt(ctx.store, updated, tosMsgId);
-      await pinAcceptedTos(ctx.api, ctx.chat.id, tosMsgId);
-    }
-
     await ctx.answerCallbackQuery({ text: "Termini accettati" });
-    // Niente reply Accetto leftover: card aggiornata + ask wallet bastano.
-    // setChatTitle può migrare group→supergroup: sync id prima della card wallet.
-    updated = await refreshGroupTitle(ctx.api, ctx.store, updated);
-    updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
-    await postAskSellerWallet(ctx.api, ctx.store, updated);
   });
 
   // Controparte Proponi i ToS → 3 domande nel gruppo → card Accetta/Proponi all'altra parte
