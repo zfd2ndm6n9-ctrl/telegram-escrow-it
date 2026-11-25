@@ -52,13 +52,13 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `UPDATES_CHANNEL_MESSAGE_ID` | no | Message id vivente da editare; se assente → aggiorna *description* del canale |
 | `VOUCH_CHANNEL_ID` | no (sì in prod) | Canale vouch + **gate /crea** + teaser ToS pinnato (id `-100…` preferito). Bot **admin** + Post + Pin + `getChatMember`. Id: inoltra un msg del canale a `@userinfobot` / `@getidsbot` |
 | `VOUCH_INVITE_LINK` | no | Invite mostrato a `/start`. Default `https://t.me/+tww-HqO8htBiMzdk` (override su Render se ruoti il link) |
-| `PORT` | no | Se impostato: `GET /healthz` + `GET /tos` (Render/Fly) |
+| `PORT` | no | Se impostato: `GET /healthz` + `GET /tos` + `POST /api/tos/accept` (Render/Fly) |
 | `TELEGRAM_BOT_CREATES_GROUPS` | no | `1` per tentare create automatica gruppo (default off) |
 | `TELEGRAM_API_ID` / `HASH` / `HELPER_SESSION` | no | Solo con gate sopra; altrimenti soft-fallback manuale |
 
 Documentazione: [`docs/TOS.md`](./docs/TOS.md) (Termini; Mini App `/tos`) · [`docs/solana-escrow.md`](./docs/solana-escrow.md) · [`docs/bot-created-groups.md`](./docs/bot-created-groups.md).
 
-**ToS in Telegram:** «Leggi i Termini» apre una **Web App** (`web_app`) su `/tos`. Sul canale vouch: teaser corto pinnato — al boot solo re-pin se esiste `DATA_DIR/vouch-tos-pin.json` (mai un nuovo post); creare/sostituire solo con admin `/pin_tos`. Dopo Manual Deploy imposta `PUBLIC_BASE_URL` se non c’è già `RENDER_EXTERNAL_URL`.
+**ToS in Telegram:** Mini App su `/tos` (serve **Web Service** HTTPS + `PUBLIC_BASE_URL` o `RENDER_EXTERNAL_URL`). Dopo bind controparte il bot **pinna** un teaser «Leggi e Accetta»; *Accetta* apre la Mini App (`?deal=`) e conferma con `POST /api/tos/accept` (initData HMAC). Senza host pubblico resta il callback `tosok`. Canale vouch: teaser pinnato + menu button bot «📄 Termini» (soft-fail sul canale). Boot: re-pin solo se esiste `DATA_DIR/vouch-tos-pin.json`; creare/sostituire con admin `/pin_tos`.
 
 ## Avvio (polling)
 
@@ -90,8 +90,8 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 
 ### Nel gruppo
 
-5. Helper: (A) invite link controparte + (B) *Invita il buyer/seller*; al join cancella entrambi → Accetta/Proponi. Soft `@` + canale vouch solo per chi apre (`/crea`); l'altra parte: Accetta / `/wallet` / release senza `/start`
-6. *ToS*: card con *Accetta* o *Proponi i ToS* (l'altra parte). Proponi → stesse 3 domande *nel gruppo* (igiene Q+A); si scambiano finché uno Accetta (lock €→SOL)
+5. Helper: (A) invite link controparte + (B) *Invita il buyer/seller*; al join cancella entrambi → pin Mini App ToS + Accetta/Proponi. Soft `@` + canale vouch solo per chi apre (`/crea`); l'altra parte: Accetta / `/wallet` / release senza `/start`
+6. *ToS*: pin Mini App + card *Accetta* (in Mini App) o *Proponi i ToS*. Proponi → 3 domande *nel gruppo* (igiene Q+A); si scambiano finché uno Accetta (lock €→SOL)
 7. Wallet **seller**, poi **buyer** (`/wallet` o indirizzo in chiaro)
 8. Indirizzo escrow (verifica solo nei messaggi del bot) → buyer deposita SOL
 9. Rilevamento automatico → seller *Consegnato* → buyer *Paga* (dual-confirm). In parallelo: *Rimborsa buyer* (dual-confirm buyer+seller; anche pre-consegna da stato / ship ask)

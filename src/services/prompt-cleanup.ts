@@ -30,6 +30,9 @@ function keptMessageIds(deal: Deal): Set<number> {
   if (deal.tosAcceptedMessageId != null) {
     keep.add(deal.tosAcceptedMessageId);
   }
+  if (deal.tosMiniAppMessageId != null) {
+    keep.add(deal.tosMiniAppMessageId);
+  }
   return keep;
 }
 
