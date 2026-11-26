@@ -562,15 +562,55 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     }
   });
 
-  /** Admin: elenco codici. */
+  /**
+   * Admin: disattiva un codice (soft-launch / ritiro test).
+   * /codiceoff <CODICE>
+   */
+  bot.command(["codiceoff", "inviteoff"], async (ctx) => {
+    if (!ctx.from || !isAdminUser(ctx.from.id)) {
+      await ctx.reply(it.adminOnly);
+      return;
+    }
+    const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
+    const code = (parts[1] ?? "").trim();
+    if (!code) {
+      await ctx.reply(it.codiceOffUsage, { parse_mode: "Markdown" });
+      return;
+    }
+    const existing = ctx.invites.get(code);
+    if (!existing) {
+      await ctx.reply(it.codiceOffMissing(code), { parse_mode: "Markdown" });
+      return;
+    }
+    if (!existing.active) {
+      await ctx.reply(it.codiceOffAlready(existing.code), {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+    const updated = ctx.invites.setActive(code, false);
+    if (!updated) {
+      await ctx.reply(it.codiceOffMissing(code), { parse_mode: "Markdown" });
+      return;
+    }
+    await ctx.reply(it.codiceOffOk(updated.code), { parse_mode: "Markdown" });
+  });
+
+  /** Admin: elenco codici *attivi* (default). `/codici all` = anche off. */
   bot.command(["codici", "invitelist"], async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
       await ctx.reply(it.adminOnly);
       return;
     }
-    const list = ctx.invites.list(30);
+    const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
+    const includeInactive = ["all", "tutti", "off"].includes(
+      (parts[1] ?? "").trim().toLowerCase(),
+    );
+    const list = ctx.invites.list(30, { includeInactive });
     if (list.length === 0) {
-      await ctx.reply(it.codiceListEmpty);
+      await ctx.reply(
+        includeInactive ? it.codiceListEmpty : it.codiceListEmptyActive,
+      );
       return;
     }
     const lines = list.map((inv) => {
@@ -581,7 +621,10 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       const flag = inv.active ? "" : " [off]";
       return `• *${inv.code}*${flag} · ${who} · ${n} usi\n  \`${inv.collaboratorWallet}\``;
     });
-    await ctx.reply(`${it.codiceListHeader(list.length)}\n\n${lines.join("\n")}`, {
+    const header = includeInactive
+      ? it.codiceListHeaderAll(list.length)
+      : it.codiceListHeader(list.length);
+    await ctx.reply(`${header}\n\n${lines.join("\n")}`, {
       parse_mode: "Markdown",
     });
   });

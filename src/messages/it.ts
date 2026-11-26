@@ -1129,14 +1129,31 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   adminOnly: "Solo admin.",
 
   codiceUsage:
-    "Uso (admin): `/codice <WALLET_SOL> <@user|userId> [CODICE]`\nEs: `/codice So111… @mario`\nEs: `/codice So111… 123456789 ESC-PROMO1`",
+    "Uso (admin): `/codice <WALLET_SOL> <@user|userId> [CODICE]`\nEs: `/codice So111… @mario`\nEs: `/codice So111… 123456789 ESC-PROMO1`\nDisattiva: `/codiceoff CODICE`",
 
   codiceCreated: (code: string, wallet: string, who: string) =>
     `✅ Codice *${escMd(code)}*\nCollab: ${who}\nWallet: \`${wallet}\`\nL'utente: \`/invito ${code}\``,
 
+  codiceOffUsage:
+    "Uso (admin): `/codiceoff <CODICE>`\nEs: `/codiceoff ESC-A1B2C3`",
+
+  codiceOffOk: (code: string) =>
+    `🛑 Codice *${escMd(code)}* disattivato.\nNon vale su \`/crea\` e non compare in \`/codici\` (audit: \`/codici all\`).`,
+
+  codiceOffAlready: (code: string) =>
+    `Codice *${escMd(code)}* è già disattivato.`,
+
+  codiceOffMissing: (code: string) =>
+    `Codice *${escMd(code)}* non trovato.`,
+
   codiceListEmpty: "Nessun codice invito.",
 
-  codiceListHeader: (n: number) => `Codici invito (*${n}*):`,
+  codiceListEmptyActive:
+    "Nessun codice *attivo*. Audit (anche off): `/codici all`.",
+
+  codiceListHeader: (n: number) => `Codici attivi (*${n}*):`,
+
+  codiceListHeaderAll: (n: number) => `Codici (attivi + off) (*${n}*):`,
 
   feeSummaryHeader: (released: number, refunded: number) =>
     `Fee summary — released *${released}* · refunded *${refunded}*`,

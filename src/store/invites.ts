@@ -41,6 +41,16 @@ function normalizeCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/^#/, "");
 }
 
+/**
+ * Codici di test soft-launch da non riusare in prod/staging.
+ * Restano inattivi anche se ancora presenti su `invites.json` del disco.
+ */
+export const RETIRED_INVITE_CODES = new Set(["KEYTEST", "TESTKEY"]);
+
+export function isRetiredInviteCode(raw: string): boolean {
+  return RETIRED_INVITE_CODES.has(normalizeCode(raw));
+}
+
 /** Genera codice leggibile: ESC-XXXXXX */
 function newInviteCode(): string {
   const body = randomBytes(4).toString("hex").toUpperCase().slice(0, 6);
@@ -74,17 +84,26 @@ export class InviteStore {
   }
 
   private load(): void {
+    let retiredTouched = false;
     try {
       const raw = readFileSync(this.filePath, "utf8");
       const parsed = JSON.parse(raw) as InviteStoreSnapshot;
       for (const inv of parsed.invites ?? []) {
         if (!inv?.code) continue;
         const code = normalizeCode(inv.code);
+        const retired = RETIRED_INVITE_CODES.has(code);
+        const active = retired ? false : inv.active !== false;
+        if (retired && inv.active !== false) {
+          retiredTouched = true;
+          console.warn(
+            `InviteStore: codice ritirato disattivato → ${code}`,
+          );
+        }
         this.invites.set(code, {
           ...inv,
           code,
           redemptions: inv.redemptions ?? [],
-          active: inv.active !== false,
+          active,
         });
       }
     } catch (err) {
@@ -92,6 +111,9 @@ export class InviteStore {
       if (code !== "ENOENT") {
         console.warn("Impossibile leggere lo store invites:", err);
       }
+    }
+    if (retiredTouched) {
+      this.persist();
     }
   }
 
@@ -118,8 +140,17 @@ export class InviteStore {
     return this.invites.get(normalizeCode(code));
   }
 
-  list(limit = 50): InviteCode[] {
+  /**
+   * Elenco codici. Default: solo *attivi* (soft-launch /codici).
+   * Passa `includeInactive: true` per audit (off + ritirati).
+   */
+  list(
+    limit = 50,
+    opts?: { includeInactive?: boolean },
+  ): InviteCode[] {
+    const includeInactive = opts?.includeInactive === true;
     return [...this.invites.values()]
+      .filter((inv) => includeInactive || inv.active)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, Math.max(0, limit));
   }
@@ -132,6 +163,11 @@ export class InviteStore {
     code?: string;
   }): InviteCode {
     let code = input.code ? normalizeCode(input.code) : newInviteCode();
+    if (input.code && RETIRED_INVITE_CODES.has(code)) {
+      throw new Error(
+        `Codice ritirato (non riutilizzabile): ${code}. Scegline un altro.`,
+      );
+    }
     if (this.invites.has(code)) {
       if (input.code) {
         throw new Error(`Codice già esistente: ${code}`);

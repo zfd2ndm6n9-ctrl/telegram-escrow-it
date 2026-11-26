@@ -74,6 +74,34 @@ function loadConfig(env: NodeJS.ProcessEnv): {
   assert.equal(c.createGate, "open");
 }
 
+// Soft-launch fail-safe: CREATE_GATE=open never sticks on production Node.
+{
+  const c = loadConfig({
+    APP_ENV: "production",
+    CREATE_GATE: "open",
+    NODE_ENV: "production",
+  });
+  assert.equal(c.appEnv, "production");
+  assert.equal(
+    c.createGate,
+    "invite",
+    "production ignores CREATE_GATE=open → invite",
+  );
+}
+
+{
+  const c = loadConfig({
+    APP_ENV: "development",
+    CREATE_GATE: "open",
+    NODE_ENV: "production",
+  });
+  assert.equal(
+    c.createGate,
+    "invite",
+    "NODE_ENV=production coerces open → invite",
+  );
+}
+
 {
   const createSrc = readFileSync(
     resolve(root, "src/handlers/create-deal.ts"),
@@ -88,6 +116,24 @@ function loadConfig(env: NodeJS.ProcessEnv): {
   );
   assert.match(inviteSrc, /createGate === "invite"/);
   assert.match(inviteSrc, /createGateInviteAsk/);
+  assert.match(inviteSrc, /isRetiredInviteCode/);
+
+  const invitesSrc = readFileSync(
+    resolve(root, "src/store/invites.ts"),
+    "utf8",
+  );
+  assert.match(invitesSrc, /RETIRED_INVITE_CODES/);
+  assert.match(invitesSrc, /KEYTEST/);
+  assert.match(invitesSrc, /TESTKEY/);
+
+  const startSrc = readFileSync(
+    resolve(root, "src/handlers/start.ts"),
+    "utf8",
+  );
+  assert.match(startSrc, /codiceoff/);
+  assert.match(startSrc, /setActive\(code, false\)/);
+  assert.match(startSrc, /includeInactive/);
+  assert.match(startSrc, /codiceListEmptyActive/);
 }
 
 console.log("check-create-gate: ok");
