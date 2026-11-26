@@ -21,8 +21,8 @@ function errDetail(err: unknown): string {
 }
 
 /**
- * Dopo bind controparte (termini pronti): messaggio pinnato con Mini App ToS
- * in sola lettura («Leggi i Termini»). Niente Accetta / `?deal=`. Idempotente.
+ * Dopo bind controparte (termini pronti): pin «ESCROWITA TOS» + bottone Leggi
+ * (Mini App sola lettura). Niente Accetta / `?deal=`. Idempotente.
  */
 export async function ensureGroupTosMiniAppPin(
   api: Api,

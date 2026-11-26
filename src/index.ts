@@ -111,12 +111,12 @@ async function main(): Promise<void> {
 
   if (config.tosWebAppUrl) {
     console.log(
-      `ToS Mini App: ${config.tosWebAppUrl} (pin gruppo + canale «Leggi i Termini»; Accetta resta callback card)`,
+      `ToS Mini App: ${config.tosWebAppUrl} (pin gruppo ESCROWITA TOS + Leggi; canale «Leggi i Termini»; Accetta resta callback card)`,
     );
   } else {
     console.warn(
       "PUBLIC_BASE_URL / RENDER_EXTERNAL_URL / TOS_URL assenti: " +
-        "pin «Leggi i Termini» non disponibile; Accetta resta callback sulla card.",
+        "pin ESCROWITA TOS non disponibile; Accetta resta callback sulla card.",
     );
   }
 

@@ -91,19 +91,20 @@ function startGroupUrlForDeal(dealId: string, ctx: BotContext): string {
 /**
  * DM post-create: testo con link + solo ← Indietro (niente Entra / Leggi Termini).
  * Fallback se Markdown fallisce — il link deve arrivare sempre.
+ * Ritorna message_id per cancellarlo quando entra la controparte.
  */
 async function replyCreatorInviteDm(
   ctx: BotContext,
   text: string,
   creatorLink: string,
-): Promise<void> {
-  if (!ctx.chat || ctx.chat.type !== "private") return;
+): Promise<number | undefined> {
+  if (!ctx.chat || ctx.chat.type !== "private") return undefined;
 
   const reply_markup = groupInviteKeyboard();
 
   try {
-    await ctx.reply(text, { parse_mode: "Markdown", reply_markup });
-    return;
+    const msg = await ctx.reply(text, { parse_mode: "Markdown", reply_markup });
+    return msg.message_id;
   } catch (err) {
     console.warn(
       "creator invite DM Markdown failed:",
@@ -113,22 +114,27 @@ async function replyCreatorInviteDm(
 
   // Niente parse_mode (link grezzo ok) + ← Indietro.
   try {
-    await ctx.reply(text.replace(/\\([_*`\[])/g, "$1"), { reply_markup });
+    const msg = await ctx.reply(text.replace(/\\([_*`\[])/g, "$1"), {
+      reply_markup,
+    });
+    return msg.message_id;
   } catch (err) {
     console.error(
       "creator invite DM plain failed:",
       err instanceof Error ? err.message : err,
     );
     try {
-      await ctx.reply(
+      const msg = await ctx.reply(
         `✅ Gruppo creato.\nEntra e invita l'altra parte:\n${creatorLink}`,
         { reply_markup },
       );
+      return msg.message_id;
     } catch (lastErr) {
       console.error(
         "creator invite DM plain fallback failed:",
         lastErr instanceof Error ? lastErr.message : lastErr,
       );
+      return undefined;
     }
   }
 }
@@ -783,27 +789,30 @@ async function finishDealReady(
 
         // DM: link creator + «entra nel gruppo e invita il buyer/seller».
         const creatorLink = created.creatorInviteLink;
-        if (!permsOk) {
-          await replyCreatorInviteDm(
-            ctx,
-            it.missingBotPerms(missingPerms, { notAdmin }),
-            creatorLink,
-          );
-          return;
-        }
-
-        await replyCreatorInviteDm(
-          ctx,
-          it.groupReady(
-            started,
-            {
+        const inviteMsgId = !permsOk
+          ? await replyCreatorInviteDm(
+              ctx,
+              it.missingBotPerms(missingPerms, { notAdmin }),
               creatorLink,
-              counterpartLink: created.counterpartInviteLink,
-            },
-            created.creatorInvited,
-          ),
-          creatorLink,
-        );
+            )
+          : await replyCreatorInviteDm(
+              ctx,
+              it.groupReady(
+                started,
+                {
+                  creatorLink,
+                  counterpartLink: created.counterpartInviteLink,
+                },
+                created.creatorInvited,
+              ),
+              creatorLink,
+            );
+        if (inviteMsgId != null) {
+          const prev = started.dmCreatorInviteMessageIds ?? [];
+          ctx.store.update(started.id, {
+            dmCreatorInviteMessageIds: [...prev, inviteMsgId],
+          });
+        }
         return;
       }
 
