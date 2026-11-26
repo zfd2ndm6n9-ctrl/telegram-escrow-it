@@ -1,14 +1,12 @@
 /**
- * Smoke: /crea pre-«aggiungi bot» role/asset use inline buttons;
- * free text is ignored (delete + re-prompt), not a flow advance;
- * main menu is inline on the message (no ReplyKeyboard, no strip/ghost).
+ * Smoke: /crea pre-group role uses inline buttons; free text is ignored
+ * (delete + re-prompt); asset step removed (SOL only); main menu is inline.
  * npm exec tsx scripts/check-button-only-dm-wizard.ts
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  assetKeyboard,
   GROUP_READY_BACK_CB,
   groupInviteKeyboard,
   MAIN_MENU_CREA_CB,
@@ -38,33 +36,30 @@ const hygieneSrc = readFileSync(
   "utf8",
 );
 
-// Role + asset are InlineKeyboard (not ReplyKeyboard / oneTime)
+// Role is InlineKeyboard (not ReplyKeyboard / oneTime); no asset picker
 const role = roleKeyboard();
-const asset = assetKeyboard();
 assert.equal(role.inline_keyboard?.length, 2);
-assert.equal(asset.inline_keyboard?.length, 2);
 assert.doesNotMatch(menusSrc, /roleKeyboard\(\)[\s\S]*?\.oneTime\(\)/);
-assert.doesNotMatch(menusSrc, /assetKeyboard\(\)[\s\S]*?\.oneTime\(\)/);
 assert.match(menusSrc, /crea_role:buyer/);
-assert.match(menusSrc, /crea_asset:SOL/);
-assert.match(menusSrc, /crea_asset:LTC/);
-assert.match(menusSrc, /Ł LTC/);
 assert.match(menusSrc, /crea_cancel/);
-assert.doesNotMatch(menusSrc, /LTC \(presto\)/);
+assert.doesNotMatch(menusSrc, /crea_asset:/);
+assert.doesNotMatch(menusSrc, /Ł LTC/);
+assert.doesNotMatch(menusSrc, /Ξ ETH/);
+assert.doesNotMatch(menusSrc, /assetKeyboard/);
+assert.doesNotMatch(creaSrc, /crea_asset:/);
+assert.doesNotMatch(creaSrc, /step === "asset"/);
+assert.doesNotMatch(creaSrc, /"LTC"/);
+assert.doesNotMatch(creaSrc, /"ETH"/);
 
 // Callbacks registered
 assert.match(creaSrc, /crea_role:\(buyer\|seller\)/);
-assert.match(creaSrc, /crea_asset:\(SOL\|ETH\|LTC\)/);
 assert.match(creaSrc, /callbackQuery\("crea_cancel"/);
+assert.match(creaSrc, /asset: "SOL"/);
 
-// Free text mid role/asset → replaceCreatingPrompt (delete + re-send buttons)
+// Free text mid role → replaceCreatingPrompt (delete + re-send buttons)
 assert.match(
   creaSrc,
   /creating\.step === "role"[\s\S]*?replaceCreatingPrompt[\s\S]*?roleKeyboard/,
-);
-assert.match(
-  creaSrc,
-  /creating\.step === "asset"[\s\S]*?replaceCreatingPrompt[\s\S]*?assetKeyboard/,
 );
 
 // Invite non-code free text → re-prompt (keep/re-send inline skip)

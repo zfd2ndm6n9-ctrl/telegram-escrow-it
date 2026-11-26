@@ -226,11 +226,8 @@ Entra, poi *Sono entrato* o \`/start\`.`,
   iscrittiCount: (n: number) => `Iscritti: *${n}*`,
 
   askRole: "👤 Che ruolo hai in questo deal?",
-  askAsset: "💎 Con quale crypto vuoi fare l'escrow?",
-  assetComingSoon: (asset: string) =>
-    `*${asset}* sarà presto disponibile. Per ora scegli *SOL*, *LTC* o *ETH*.`,
   assetNotConfigured: (asset: string) =>
-    `Escrow *${asset}* non configurato sul server. Scegli un'altra crypto o avvisa il supporto.`,
+    `Escrow *${asset}* non configurato sul server. Avvisa il supporto.`,
   askAmount:
     "Quanto vuoi mettere in escrow? Importo in *SOL* (es. `0.01`).\n⚠️ Mainnet reale: usa importi di test piccoli.",
   askWallet:
@@ -242,7 +239,7 @@ Entra, poi *Sono entrato* o \`/start\`.`,
   solanaNotConfigured:
     "Escrow SOL non configurato sul server. Avvisa il supporto.",
   escrowNotConfigured:
-    "Escrow on-chain non configurato sul server (manca SOLANA_PRIVATE_KEY / LTC_PRIVATE_KEY / ETH_PRIVATE_KEY). Avvisa il supporto.",
+    "Escrow on-chain non configurato sul server (manca SOLANA_PRIVATE_KEY). Avvisa il supporto.",
   cancelled: "Operazione annullata.",
 
   /** Prompt DM: dopo tap «Lascia un feedback». */

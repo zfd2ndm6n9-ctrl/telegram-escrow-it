@@ -5,19 +5,20 @@ import type { InviteStore } from "./store/invites.js";
 import type { MemberStore } from "./store/members.js";
 import type { Asset, DmTermsStep, PartyRole } from "./types.js";
 
-export type CreateDealStep = "invite" | "role" | "asset";
+export type CreateDealStep = "invite" | "role";
 
 export interface SessionData {
   creating?: {
     step: CreateDealStep;
     role?: PartyRole;
+    /** @deprecated Asset fisso SOL — campo ignorato. */
     asset?: Asset;
     /** Snapshot invito opzionale per *questo* deal (da step /crea). */
     inviteCode?: string;
     collaboratorUserId?: number;
     collaboratorWallet?: string;
   };
-  /** Messaggi effimeri /crea (ruolo, crypto, risposte) da cancellare a fine step. */
+  /** Messaggi effimeri /crea (ruolo, risposte) da cancellare a fine step. */
   creatingEphemeralIds?: number[];
   /**
    * Wizard termini in DM (opener dopo /crea): deal attivo + step corrente.

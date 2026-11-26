@@ -4,7 +4,6 @@ import { config } from "../config.js";
 import { it } from "../messages/it.js";
 import {
   afterAmountKeyboard,
-  assetKeyboard,
   GROUP_READY_BACK_CB,
   groupInviteKeyboard,
   MAIN_MENU_CREA_CB,
@@ -63,7 +62,7 @@ import {
   lookupDealInvite,
   replyInviteAttachError,
 } from "../services/invite-step.js";
-import type { Asset, Deal, PartyRole } from "../types.js";
+import type { Deal, PartyRole } from "../types.js";
 
 /** Pulsanti menu / wizard: non sono un codice invito né risposta termini. */
 const MENU_TEXTS = new Set([
@@ -73,13 +72,6 @@ const MENU_TEXTS = new Set([
   "❌ Annulla",
   "🛒 Sono il buyer",
   "🏪 Sono il seller",
-  "◎ SOL",
-  "Ξ ETH",
-  "ETH",
-  "ETH (presto)",
-  "Ł LTC",
-  "LTC",
-  "LTC (presto)",
 ]);
 
 /** Legacy reply-keyboard labels (pre-inline clients): pass to hears below. */
@@ -319,28 +311,6 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     await pickRole(ctx, "seller");
   });
 
-  bot.hears("◎ SOL", async (ctx) => {
-    await pickAsset(ctx, "SOL");
-  });
-
-  bot.hears(["Ł LTC", "LTC"], async (ctx) => {
-    await pickAsset(ctx, "LTC");
-  });
-
-  bot.hears(["Ξ ETH", "ETH"], async (ctx) => {
-    await pickAsset(ctx, "ETH");
-  });
-
-  bot.hears("ETH (presto)", async (ctx) => {
-    // Legacy label pre-ETH-live
-    await pickAsset(ctx, "ETH");
-  });
-
-  bot.hears("LTC (presto)", async (ctx) => {
-    // Legacy label pre-LTC-live
-    await pickAsset(ctx, "LTC");
-  });
-
   bot.callbackQuery(/^crea_role:(buyer|seller)$/, async (ctx) => {
     const role = ctx.match[1] as PartyRole;
     if (ctx.chat?.type !== "private" || !ctx.from) {
@@ -355,31 +325,13 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     await pickRole(ctx, role);
   });
 
-  bot.callbackQuery(/^crea_asset:(SOL|ETH|LTC)$/, async (ctx) => {
-    const asset = ctx.match[1] as Asset;
-    if (ctx.chat?.type !== "private" || !ctx.from) {
-      await ctx.answerCallbackQuery();
-      return;
-    }
-    if (ctx.session.creating?.step !== "asset") {
-      await ctx.answerCallbackQuery({ text: "Passo non attivo" });
-      return;
-    }
-    await ctx.answerCallbackQuery();
-    if (asset === "SOL" || asset === "LTC" || asset === "ETH") {
-      await pickAsset(ctx, asset);
-      return;
-    }
-    await assetComingSoon(ctx, asset);
-  });
-
   bot.callbackQuery("crea_cancel", async (ctx) => {
     if (ctx.chat?.type !== "private") {
       await ctx.answerCallbackQuery();
       return;
     }
     const step = ctx.session.creating?.step;
-    if (step !== "invite" && step !== "role" && step !== "asset") {
+    if (step !== "invite" && step !== "role") {
       await ctx.answerCallbackQuery({ text: "Niente da annullare" });
       return;
     }
@@ -500,13 +452,6 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     if (creating.step === "role") {
       await replaceCreatingPrompt(ctx, () =>
         ctx.reply(it.askRole, { reply_markup: roleKeyboard() }),
-      );
-      return;
-    }
-
-    if (creating.step === "asset") {
-      await replaceCreatingPrompt(ctx, () =>
-        ctx.reply(it.askAsset, { reply_markup: assetKeyboard() }),
       );
       return;
     }
@@ -662,58 +607,20 @@ async function pickRole(ctx: BotContext, role: PartyRole): Promise<void> {
   const prev = ctx.session.creating;
   // Solo sul passo ruolo (niente skip invito / stale tap mid-termini).
   if (!prev || prev.step !== "role") return;
-  ctx.session.creating = {
-    step: "asset",
-    role,
-    inviteCode: prev.inviteCode,
-    collaboratorUserId: prev.collaboratorUserId,
-    collaboratorWallet: prev.collaboratorWallet,
-  };
-  await replaceCreatingPrompt(ctx, () =>
-    ctx.reply(it.askAsset, { reply_markup: assetKeyboard() }),
-  );
-}
 
-async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
-  if (ctx.chat?.type !== "private" || !ctx.from) return;
-  const creating = ctx.session.creating;
-  if (!creating || creating.step !== "asset" || !creating.role) {
-    ctx.session.creating = {
-      step: "role",
-      inviteCode: creating?.inviteCode,
-      collaboratorUserId: creating?.collaboratorUserId,
-      collaboratorWallet: creating?.collaboratorWallet,
-    };
+  if (!isAssetConfigured("SOL")) {
     await replaceCreatingPrompt(ctx, () =>
-      ctx.reply(it.askRole, { reply_markup: roleKeyboard() }),
+      ctx.reply(it.assetNotConfigured("SOL"), { parse_mode: "Markdown" }),
     );
     return;
   }
 
-  if (!isAssetConfigured(asset)) {
-    await replaceCreatingPrompt(ctx, () =>
-      ctx.reply(it.assetNotConfigured(asset), {
-        parse_mode: "Markdown",
-        reply_markup: assetKeyboard(),
-      }),
-    );
-    return;
-  }
-
-  // Igiene: cancella ask crypto + risposta asset prima del wizard termini.
-  // Reply KB resta stripata per termini + helper create (menu = inline a fine flusso).
+  // Igiene: cancella ask ruolo (+ tap) prima del wizard termini.
   await clearCreatingEphemeral(ctx);
   if (ctx.message?.message_id != null) {
     await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
   }
 
-  const role = creating.role;
-  const placeholder =
-    asset === "LTC"
-      ? "PENDING_LTC_ESCROW"
-      : asset === "ETH"
-        ? "PENDING_ETH_ESCROW"
-        : "PENDING_SOL_ESCROW";
   const creatorDisplayName = [ctx.from.first_name, ctx.from.last_name]
     .filter(Boolean)
     .join(" ");
@@ -727,16 +634,16 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
     creatorDisplayName: creatorDisplayName || undefined,
     creatorRole: role,
     amount: "",
-    asset,
-    escrowAddress: placeholder,
+    asset: "SOL",
+    escrowAddress: "PENDING_SOL_ESCROW",
     ...inviteAttribution,
   });
 
-  const escrowAddress = await getEscrowAddressForAsset(asset, deal.id);
+  const escrowAddress = await getEscrowAddressForAsset("SOL", deal.id);
   if (!escrowAddress) {
     ctx.store.setStatus(deal.id, "cancelled");
     ctx.session.creating = undefined;
-    await ctx.reply(it.assetNotConfigured(asset), { parse_mode: "Markdown" });
+    await ctx.reply(it.assetNotConfigured("SOL"), { parse_mode: "Markdown" });
     return;
   }
 
@@ -922,20 +829,6 @@ async function sendGroupBindInstructions(
       awaitingGroupExpiresAt: groupBindExpiresAtIso(),
       dmGroupInstructionsMessageId: msg.message_id,
     }) ?? deal
-  );
-}
-
-async function assetComingSoon(ctx: BotContext, asset: Asset): Promise<void> {
-  if (ctx.chat?.type !== "private") return;
-  const creating = ctx.session.creating;
-  if (!creating || creating.step !== "asset") {
-    return;
-  }
-  await replaceCreatingPrompt(ctx, () =>
-    ctx.reply(it.assetComingSoon(asset), {
-      parse_mode: "Markdown",
-      reply_markup: assetKeyboard(),
-    }),
   );
 }
 
