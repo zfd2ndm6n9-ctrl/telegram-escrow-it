@@ -9,7 +9,7 @@ import {
   termsReadyForConfirm,
   tosAccepted,
 } from "./deal-logic.js";
-import { convertPriceEurToSol } from "./fx/sol-eur.js";
+import { convertPriceEurToAsset } from "./asset-crypto.js";
 import { clearGroupTosMiniAppPin } from "./group-tos-pin.js";
 import { postAskSellerWallet, refreshGroupSetupCard, refreshGroupTitle } from "./group-setup.js";
 import {
@@ -33,7 +33,7 @@ export type AcceptTosResult =
 
 /**
  * Accetta i termini del deal (callback card gruppo `tosok`).
- * Controparte non-proponente; lock €→SOL; pin card; wallet seller.
+ * Controparte non-proponente; lock €→crypto; pin card; wallet seller.
  */
 export async function acceptDealTerms(
   api: Api,
@@ -60,20 +60,24 @@ export async function acceptDealTerms(
     return { ok: false, reason: "no_group", deal: current };
   }
 
-  let solAmount = "";
-  if (amountConfirmed(current) && parseAmount(current.amount)) {
-    solAmount = current.amount;
-  } else if (current.amount && parseAmount(current.amount)) {
-    solAmount = current.amount;
+  const maxDec = current.asset === "LTC" ? 8 : 9;
+  let cryptoAmount = "";
+  if (amountConfirmed(current) && parseAmount(current.amount, maxDec)) {
+    cryptoAmount = current.amount;
+  } else if (current.amount && parseAmount(current.amount, maxDec)) {
+    cryptoAmount = current.amount;
   } else {
     if (!current.priceEur) {
       return { ok: false, reason: "missing_price", deal: current };
     }
-    const converted = await convertPriceEurToSol(current.priceEur);
+    const converted = await convertPriceEurToAsset(
+      current.asset,
+      current.priceEur,
+    );
     if (!converted) {
       return { ok: false, reason: "rate_unavailable", deal: current };
     }
-    solAmount = converted;
+    cryptoAmount = converted;
   }
 
   const tosMsgId =
@@ -85,7 +89,7 @@ export async function acceptDealTerms(
   let updated =
     store.update(current.id, {
       tosAcceptedAt: now,
-      amount: solAmount,
+      amount: cryptoAmount,
       amountConfirmedAt: current.amountConfirmedAt ?? now,
       status: "awaiting_seller_wallet" as const,
       ...(tosMsgId != null

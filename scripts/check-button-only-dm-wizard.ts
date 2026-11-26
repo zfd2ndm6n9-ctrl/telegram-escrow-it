@@ -45,7 +45,10 @@ assert.doesNotMatch(menusSrc, /roleKeyboard\(\)[\s\S]*?\.oneTime\(\)/);
 assert.doesNotMatch(menusSrc, /assetKeyboard\(\)[\s\S]*?\.oneTime\(\)/);
 assert.match(menusSrc, /crea_role:buyer/);
 assert.match(menusSrc, /crea_asset:SOL/);
+assert.match(menusSrc, /crea_asset:LTC/);
+assert.match(menusSrc, /Ł LTC/);
 assert.match(menusSrc, /crea_cancel/);
+assert.doesNotMatch(menusSrc, /LTC \(presto\)/);
 
 // Callbacks registered
 assert.match(creaSrc, /crea_role:\(buyer\|seller\)/);

@@ -8,6 +8,13 @@ import {
   startDepositWatcher,
 } from "./services/solana/index.js";
 import {
+  getMasterKeypair as getLtcMasterKeypair,
+  getPlatformFeeWalletAddress,
+  isLtcConfigured,
+  keypairToAddress,
+  startLtcDepositWatcher,
+} from "./services/ltc/index.js";
+import {
   getMtprotoHelper,
   isMtprotoHelperConfigured,
   stopMtprotoHelper,
@@ -38,16 +45,42 @@ async function main(): Promise<void> {
       );
       const feeWallet = await getPlatformFeeWalletPubkey();
       console.log(
-        `Fee piattaforma (5% release): ${feeWallet ?? master.publicKey.toBase58()}` +
+        `Fee piattaforma SOL (5% release): ${feeWallet ?? master.publicKey.toBase58()}` +
           (config.feeWalletPubkey ? " (FEE_WALLET_PUBKEY)" : " (= master)"),
       );
       console.log(
-        "⚠️ Hot wallet: tieni solo importi di test piccoli. Secret solo su Render env.",
+        "⚠️ Hot wallet SOL: tieni solo importi di test piccoli. Secret solo su Render env.",
       );
     }
   } else {
     console.warn(
-      "SOLANA_PRIVATE_KEY assente: /crea on-chain disabilitato finché non la imposti.",
+      "SOLANA_PRIVATE_KEY assente: deal SOL disabilitati finché non la imposti.",
+    );
+  }
+
+  if (isLtcConfigured()) {
+    const master = getLtcMasterKeypair();
+    if (master) {
+      const masterAddr = keypairToAddress(master);
+      console.log(`Escrow LTC mainnet attivo. Master address: ${masterAddr}`);
+      const feeWallet = getPlatformFeeWalletAddress();
+      console.log(
+        `Fee piattaforma LTC (5% release): ${feeWallet ?? masterAddr}` +
+          (config.ltcFeeAddress ? " (FEE_WALLET_LTC)" : " (= master)"),
+      );
+      console.log(
+        "⚠️ Hot wallet LTC: tieni solo importi di test piccoli. Secret solo su Render env.",
+      );
+    }
+  } else {
+    console.warn(
+      "LTC_PRIVATE_KEY assente: deal LTC disabilitati finché non la imposti.",
+    );
+  }
+
+  if (!isSolanaConfigured() && !isLtcConfigured()) {
+    console.warn(
+      "Nessuna chiave escrow (SOL/LTC): /crea on-chain disabilitato.",
     );
   }
 
@@ -186,6 +219,13 @@ async function main(): Promise<void> {
       ? config.solanaWatchIntervalMs
       : 20_000,
   );
+  const ltcWatcher = startLtcDepositWatcher(
+    store,
+    bot.api,
+    Number.isFinite(config.ltcWatchIntervalMs)
+      ? config.ltcWatchIntervalMs
+      : 20_000,
+  );
 
   const groupBindExpiry = startGroupBindExpiryWatcher(store, bot.api, 30_000);
   // ~1 min post-payout: tick ogni 15s così la delete arriva vicino al minuto.
@@ -203,6 +243,7 @@ async function main(): Promise<void> {
 
   const stop = async () => {
     watcher.stop();
+    ltcWatcher.stop();
     groupBindExpiry.stop();
     groupCloseCleanup.stop();
     usernameRefresh.stop();

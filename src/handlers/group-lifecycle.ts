@@ -24,7 +24,7 @@ import {
   applyGroupTermsAnswer,
   startProposeTermsWizard,
 } from "../services/dm-terms.js";
-import { convertPriceEurToSol } from "../services/fx/sol-eur.js";
+import { convertPriceEurToAsset } from "../services/asset-crypto.js";
 import {
   demoteIfPartyPromoted,
   hardenGroupPermissions,
@@ -687,7 +687,9 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         not_party: "Solo buyer/seller del deal.",
         proposer: "Sei il proponente: aspetta l'altra parte.",
         missing_price: plainAlert(it.missingCommercialPrice),
-        rate_unavailable: plainAlert(it.rateUnavailable),
+        rate_unavailable: plainAlert(
+          it.rateUnavailable(result.deal?.asset ?? deal.asset),
+        ),
         no_group: "Gruppo non collegato",
         not_found: "Deal non trovato",
       };
@@ -953,9 +955,14 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         !amountConfirmed(current) &&
         !current.amount
       ) {
-        const converted = await convertPriceEurToSol(current.priceEur);
+        const converted = await convertPriceEurToAsset(
+          current.asset,
+          current.priceEur,
+        );
         if (!converted) {
-          await ctx.reply(it.rateUnavailable, { parse_mode: "Markdown" });
+          await ctx.reply(it.rateUnavailable(current.asset), {
+            parse_mode: "Markdown",
+          });
           return;
         }
         let updated = ctx.store.update(current.id, {
