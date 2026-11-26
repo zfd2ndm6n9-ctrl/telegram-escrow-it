@@ -33,6 +33,6 @@ assert.doesNotMatch(
 assert.match(itSrc, /unknownPrivate:/);
 assert.match(it.askInviteOptional, /🔑|Codice invito/);
 assert.match(it.askRole, /👤|ruolo/);
-assert.match(it.askAsset, /💎|crypto/);
+assert.doesNotMatch(itSrc, /askAsset:/);
 
 console.log("check-welcome-silent-private: OK");

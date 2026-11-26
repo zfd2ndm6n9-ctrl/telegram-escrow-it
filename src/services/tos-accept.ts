@@ -60,12 +60,10 @@ export async function acceptDealTerms(
     return { ok: false, reason: "no_group", deal: current };
   }
 
-  const maxDec =
-    current.asset === "LTC" ? 8 : current.asset === "ETH" ? 18 : 9;
   let cryptoAmount = "";
-  if (amountConfirmed(current) && parseAmount(current.amount, maxDec)) {
+  if (amountConfirmed(current) && parseAmount(current.amount, 9)) {
     cryptoAmount = current.amount;
-  } else if (current.amount && parseAmount(current.amount, maxDec)) {
+  } else if (current.amount && parseAmount(current.amount, 9)) {
     cryptoAmount = current.amount;
   } else {
     if (!current.priceEur) {

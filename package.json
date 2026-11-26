@@ -10,8 +10,6 @@
     "typecheck": "tsc --noEmit",
     "verify:getme": "tsx scripts/verify-getme.ts",
     "solana:keygen": "tsx scripts/generate-solana-keypair.ts",
-    "ltc:keygen": "tsx scripts/generate-ltc-keypair.ts",
-    "eth:keygen": "tsx scripts/generate-eth-keypair.ts",
     "helper:login": "tsx scripts/helper-login.ts",
     "recover:escrow": "tsx src/cli/recover-escrow.ts",
     "recover:escrow:prod": "node dist/cli/recover-escrow.js",
@@ -36,14 +34,10 @@
   },
   "dependencies": {
     "@solana/web3.js": "^3.2.1",
-    "bitcoinjs-lib": "^7.0.5",
     "bs58": "^6.0.0",
     "dotenv": "^18.0.10",
-    "ecpair": "^3.0.2",
-    "ethers": "^6.17.0",
     "grammy": "^1.46.0",
-    "teleproto": "^1.233.0",
-    "tiny-secp256k1": "^2.2.5"
+    "teleproto": "^1.233.0"
   },
   "devDependencies": {
     "@types/bs58": "^4.0.4",

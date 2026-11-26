@@ -39,8 +39,8 @@ export type PendingSelfConfirm = {
   userId: number;
 };
 
-/** SOL + LTC + ETH live. Niente USDT. */
-export type Asset = "SOL" | "ETH" | "LTC";
+/** SOL native only. Niente USDC / LTC / ETH. */
+export type Asset = "SOL";
 export type PartyRole = "buyer" | "seller";
 
 /** Step del wizard termini in DM (proponente corrente). */

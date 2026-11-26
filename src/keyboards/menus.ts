@@ -94,20 +94,6 @@ export function roleKeyboard(): InlineKeyboard {
 }
 
 /**
- * Crypto step: SOL + LTC + ETH live.
- * Inline so free text / phone keyboard does not hide choices.
- * Callbacks: `crea_asset:SOL` | `crea_asset:ETH` | `crea_asset:LTC` | `crea_cancel`.
- */
-export function assetKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("◎ SOL", "crea_asset:SOL")
-    .text("Ł LTC", "crea_asset:LTC")
-    .text("Ξ ETH", "crea_asset:ETH")
-    .row()
-    .text("❌ Annulla", "crea_cancel");
-}
-
-/**
  * Post-crea: startgroup + ToS Mini App (`web_app`).
  * Senza URL → callback `tos` (fallback corto in chat).
  */

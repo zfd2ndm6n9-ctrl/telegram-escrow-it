@@ -1,7 +1,7 @@
 # Solana MAINNET escrow — telegram-escrow-it
 
 **Per:** Francesco  
-**Asset MVP:** SOL (mainnet) + LTC (vedi [`ltc-escrow.md`](./ltc-escrow.md)). Roadmap: ETH. Niente USDT.  
+**Asset:** SOL native (mainnet) only. Niente USDC / LTC / ETH.  
 **Secret:** solo env Render — mai repo / store / chat lunga durata se evitabile.
 
 ## Modello scelto (MVP)
@@ -175,6 +175,6 @@ Persistenza: `DATA_DIR/invites.json`.
 
 ## Fuori scope (dopo)
 
-- ETH
+- Altre chain / USDC
 - KMS / cold / multi-sig
 - Postgres / replica off-site del JSON
