@@ -7,7 +7,10 @@ import {
   MIEI_BACK_CB,
   mieiBackKeyboard,
 } from "../keyboards/menus.js";
-import { cancelMidCreaBeforeGroupBind } from "../services/dm-hygiene.js";
+import {
+  cancelMidCreaBeforeGroupBind,
+  clearFeedbackUi,
+} from "../services/dm-hygiene.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
 import { dismissInviteStep } from "../services/invite-step.js";
 
@@ -35,6 +38,7 @@ export function registerDealViewHandlers(bot: Bot<BotContext>): void {
     }
     if (!ctx.from) return;
     await dismissInviteStep(ctx);
+    await clearFeedbackUi(ctx);
 
     // Mid /crea prima di «aggiungi bot»: cancella sequenza e mostra /miei.
     await cancelMidCreaBeforeGroupBind(ctx);

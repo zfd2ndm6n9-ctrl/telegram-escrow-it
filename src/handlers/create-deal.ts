@@ -9,6 +9,7 @@ import {
   groupInviteKeyboard,
   MAIN_MENU_CREA_CB,
   MAIN_MENU_CREA_LABEL,
+  MAIN_MENU_FEEDBACK_LABEL,
   MAIN_MENU_MIEI_LABEL,
   mainMenuKeyboard,
   openBotDmKeyboard,
@@ -67,6 +68,7 @@ import type { Asset, Deal, PartyRole } from "../types.js";
 const MENU_TEXTS = new Set([
   MAIN_MENU_CREA_LABEL,
   MAIN_MENU_MIEI_LABEL,
+  MAIN_MENU_FEEDBACK_LABEL,
   "❌ Annulla",
   "🛒 Sono il buyer",
   "🏪 Sono il seller",
@@ -76,7 +78,11 @@ const MENU_TEXTS = new Set([
 ]);
 
 /** Legacy reply-keyboard labels (pre-inline clients): pass to hears below. */
-const MAIN_MENU_TEXTS = new Set([MAIN_MENU_CREA_LABEL, MAIN_MENU_MIEI_LABEL]);
+const MAIN_MENU_TEXTS = new Set([
+  MAIN_MENU_CREA_LABEL,
+  MAIN_MENU_MIEI_LABEL,
+  MAIN_MENU_FEEDBACK_LABEL,
+]);
 
 /** Prefer helper create whenever gate is on (default) and MTProto ready. */
 function preferBotCreatedGroups(): boolean {
@@ -290,7 +296,12 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     }
   });
 
-  bot.hears("❌ Annulla", async (ctx) => {
+  bot.hears("❌ Annulla", async (ctx, next) => {
+    // Feedback DM usa lo stesso label: lascia passare al handler feedback.
+    if (ctx.session.awaitingFeedback) {
+      await next();
+      return;
+    }
     await cancelCreateWizard(ctx, { userMessageId: ctx.message?.message_id });
   });
 
@@ -395,7 +406,10 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
 
     // Legacy reply-keyboard menu: non mangiare come termini/ruolo — passa ai hears.
     if (MAIN_MENU_TEXTS.has(text)) {
-      if (text === MAIN_MENU_MIEI_LABEL) {
+      if (
+        text === MAIN_MENU_MIEI_LABEL ||
+        text === MAIN_MENU_FEEDBACK_LABEL
+      ) {
         await cancelMidCreaBeforeGroupBind(ctx);
         ctx.session.creating = undefined;
         await dismissInviteStep(ctx);
