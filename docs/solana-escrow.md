@@ -153,7 +153,7 @@ Esempio: `/codice So111…abc @mario` → genera `ESC-XXXXXX`.
 Soft-launch (`CREATE_GATE=invite` / `APP_ENV=production`): codice **obbligatorio** a ogni `/crea` (niente skip). Alternativa: `/invito ESC-XXXXXX` o deep-link `/start ESC-XXXXXX` (applicato al prossimo `/crea`).  
 I deal che **crea** ereditano il codice → split 2.5/2.5 alla release.
 
-Altri comandi admin: `/codici` (lista), `/codiceoff CODICE` (disattiva), `/fee` (riepilogo fee da deal released).  
+Altri comandi admin: `/codici` (solo attivi; `/codici all` = anche off), `/codiceoff CODICE` (disattiva → inutile su `/crea`), `/fee`.  
 `KEYTEST` / `TESTKEY` sono ritirati in codice (non riutilizzabili).
 
 Persistenza: `DATA_DIR/invites.json`.

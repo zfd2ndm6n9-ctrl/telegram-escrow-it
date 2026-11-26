@@ -1138,14 +1138,22 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     "Uso (admin): `/codiceoff <CODICE>`\nEs: `/codiceoff ESC-A1B2C3`",
 
   codiceOffOk: (code: string) =>
-    `🛑 Codice *${escMd(code)}* disattivato. Non vale più su \`/crea\`.`,
+    `🛑 Codice *${escMd(code)}* disattivato.\nNon vale su \`/crea\` e non compare in \`/codici\` (audit: \`/codici all\`).`,
+
+  codiceOffAlready: (code: string) =>
+    `Codice *${escMd(code)}* è già disattivato.`,
 
   codiceOffMissing: (code: string) =>
     `Codice *${escMd(code)}* non trovato.`,
 
   codiceListEmpty: "Nessun codice invito.",
 
-  codiceListHeader: (n: number) => `Codici invito (*${n}*):`,
+  codiceListEmptyActive:
+    "Nessun codice *attivo*. Audit (anche off): `/codici all`.",
+
+  codiceListHeader: (n: number) => `Codici attivi (*${n}*):`,
+
+  codiceListHeaderAll: (n: number) => `Codici (attivi + off) (*${n}*):`,
 
   feeSummaryHeader: (released: number, refunded: number) =>
     `Fee summary — released *${released}* · refunded *${refunded}*`,

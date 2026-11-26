@@ -140,8 +140,17 @@ export class InviteStore {
     return this.invites.get(normalizeCode(code));
   }
 
-  list(limit = 50): InviteCode[] {
+  /**
+   * Elenco codici. Default: solo *attivi* (soft-launch /codici).
+   * Passa `includeInactive: true` per audit (off + ritirati).
+   */
+  list(
+    limit = 50,
+    opts?: { includeInactive?: boolean },
+  ): InviteCode[] {
+    const includeInactive = opts?.includeInactive === true;
     return [...this.invites.values()]
+      .filter((inv) => includeInactive || inv.active)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, Math.max(0, limit));
   }

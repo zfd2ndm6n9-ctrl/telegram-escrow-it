@@ -94,6 +94,16 @@ try {
   const off = store.setActive("ESC-LIVE1", false);
   assert.ok(off);
   assert.equal(off.active, false);
+
+  // /codici default = solo attivi
+  assert.deepEqual(
+    store.list(30).map((i) => i.code),
+    [],
+    "list() hides inactive by default",
+  );
+  const withOff = store.list(30, { includeInactive: true }).map((i) => i.code);
+  assert.ok(withOff.includes("ESC-LIVE1"));
+  assert.ok(withOff.includes("KEYTEST"));
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

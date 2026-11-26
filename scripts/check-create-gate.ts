@@ -132,6 +132,8 @@ function loadConfig(env: NodeJS.ProcessEnv): {
   );
   assert.match(startSrc, /codiceoff/);
   assert.match(startSrc, /setActive\(code, false\)/);
+  assert.match(startSrc, /includeInactive/);
+  assert.match(startSrc, /codiceListEmptyActive/);
 }
 
 console.log("check-create-gate: ok");
