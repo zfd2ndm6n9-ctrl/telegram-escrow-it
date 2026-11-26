@@ -239,4 +239,32 @@ export async function cancelLeftoverCreaForNewFlow(
   ctx.session.creating = undefined;
   ctx.session.termsQa = undefined;
   ctx.session.pendingCrea = undefined;
+  await clearFeedbackUi(ctx);
+}
+
+/** Igiene: cancella prompt + effimeri del flusso feedback DM. */
+export async function clearFeedbackUi(ctx: BotContext): Promise<void> {
+  if (!ctx.chat || ctx.chat.type !== "private") return;
+  if (ctx.session.feedbackPromptMessageId != null) {
+    await deleteMessageSafe(
+      ctx.api,
+      ctx.chat.id,
+      ctx.session.feedbackPromptMessageId,
+    );
+  }
+  for (const id of ctx.session.feedbackEphemeralIds ?? []) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, id);
+  }
+  ctx.session.feedbackPromptMessageId = undefined;
+  ctx.session.feedbackEphemeralIds = undefined;
+  ctx.session.awaitingFeedback = undefined;
+}
+
+export function trackFeedbackEphemeral(
+  ctx: BotContext,
+  messageId?: number,
+): void {
+  if (messageId == null) return;
+  const prev = ctx.session.feedbackEphemeralIds ?? [];
+  ctx.session.feedbackEphemeralIds = [...prev, messageId];
 }

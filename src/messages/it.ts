@@ -240,6 +240,39 @@ Entra, poi *Sono entrato* o \`/start\`.`,
   solanaNotConfigured:
     "Escrow SOL non configurato sul server. Avvisa il supporto.",
   cancelled: "Operazione annullata.",
+
+  /** Prompt DM: dopo tap «Lascia un feedback». */
+  feedbackAsk: "✍️ Scrivi il tuo feedback in un messaggio.",
+
+  /** Dopo inoltro ok agli admin. */
+  feedbackThanks: "✅ Grazie — feedback inviato al team.",
+
+  /** Nessun ADMIN_TELEGRAM_ID(S): non possiamo inoltrare. */
+  feedbackAdminMissing:
+    "Grazie, ma al momento non posso inoltrare il feedback (admin non configurato).",
+
+  /** Testo vuoto / solo spazi mentre in attesa feedback. */
+  feedbackNeedText: "Scrivi un messaggio di testo, oppure ❌ Annulla.",
+
+  /**
+   * DM admin: header chiaro con @ e user id, poi corpo feedback.
+   */
+  feedbackAdminNotify: (
+    username: string | undefined,
+    userId: number,
+    body: string,
+  ) => {
+    const handle = username?.trim()
+      ? `@${escMd(username.trim())}`
+      : "_senza @_";
+    return `📩 *Feedback utente*
+
+Da: ${handle}
+Id: \`${userId}\`
+
+${escMd(body)}`;
+  },
+
   /**
    * @deprecated Fuori wizard: free text → delete silenzioso (niente reply).
    * Tenuto per smoke/compat.

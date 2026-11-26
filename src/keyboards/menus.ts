@@ -4,17 +4,30 @@ import type { Deal, PartyRole } from "../types.js";
 /** Labels + callbacks: one inline menu definition (welcome / /miei / expiry). */
 export const MAIN_MENU_CREA_LABEL = "➕ Crea escrow";
 export const MAIN_MENU_MIEI_LABEL = "📋 I miei deal";
+export const MAIN_MENU_FEEDBACK_LABEL = "💬 Lascia un feedback";
 export const MAIN_MENU_CREA_CB = "menu:crea";
 export const MAIN_MENU_MIEI_CB = "menu:miei";
+export const MAIN_MENU_FEEDBACK_CB = "menu:feedback";
+
+/** Callback: annulla prompt feedback DM. */
+export const FEEDBACK_CANCEL_CB = "feedback_cancel";
 
 /**
  * Menu DM: inline on the chat message (same style as /crea role/asset).
  * Never a ReplyKeyboard under the phone input — no strip/ghost carrier.
+ * Riga 1: Crea / I miei · Riga 2: Feedback.
  */
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text(MAIN_MENU_CREA_LABEL, MAIN_MENU_CREA_CB)
-    .text(MAIN_MENU_MIEI_LABEL, MAIN_MENU_MIEI_CB);
+    .text(MAIN_MENU_MIEI_LABEL, MAIN_MENU_MIEI_CB)
+    .row()
+    .text(MAIN_MENU_FEEDBACK_LABEL, MAIN_MENU_FEEDBACK_CB);
+}
+
+/** Prompt feedback: solo Annulla (come invito /crea). */
+export function feedbackPromptKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("❌ Annulla", FEEDBACK_CANCEL_CB);
 }
 
 /** Callback: chiude la lista `/miei` (niente Crea/I miei ripetuti). */

@@ -61,6 +61,15 @@ export interface SessionData {
    * al prossimo step valido.
    */
   termsErrorMessageIds?: number[];
+  /** DM «Lascia un feedback»: in attesa del testo utente. */
+  awaitingFeedback?: boolean;
+  /** Message id del prompt «Scrivi il feedback» (+ Annulla). */
+  feedbackPromptMessageId?: number;
+  /**
+   * Messaggi effimeri feedback (errori + echo utente).
+   * Cancellati a invio ok o Annulla.
+   */
+  feedbackEphemeralIds?: number[];
 }
 
 export type BotContext = Context &

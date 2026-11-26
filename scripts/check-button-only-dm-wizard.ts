@@ -13,6 +13,8 @@ import {
   groupInviteKeyboard,
   MAIN_MENU_CREA_CB,
   MAIN_MENU_CREA_LABEL,
+  MAIN_MENU_FEEDBACK_CB,
+  MAIN_MENU_FEEDBACK_LABEL,
   MAIN_MENU_MIEI_CB,
   MAIN_MENU_MIEI_LABEL,
   MIEI_BACK_CB,
@@ -67,13 +69,20 @@ assert.match(creaSrc, /repromptInviteStep/);
 assert.match(creaSrc, /Testo non-codice[\s\S]*repromptInviteStep/);
 
 // Main menu = inline in chat (not persistent ReplyKeyboard)
+// Row 1: Crea / I miei · Row 2: Feedback
 const menu = mainMenuKeyboard();
-assert.equal(menu.inline_keyboard?.length, 1);
+assert.equal(menu.inline_keyboard?.length, 2);
 assert.equal(menu.inline_keyboard?.[0]?.length, 2);
+assert.equal(menu.inline_keyboard?.[1]?.length, 1);
 assert.equal(menu.inline_keyboard?.[0]?.[0]?.callback_data, MAIN_MENU_CREA_CB);
 assert.equal(menu.inline_keyboard?.[0]?.[1]?.callback_data, MAIN_MENU_MIEI_CB);
+assert.equal(
+  menu.inline_keyboard?.[1]?.[0]?.callback_data,
+  MAIN_MENU_FEEDBACK_CB,
+);
 assert.equal(MAIN_MENU_CREA_LABEL, "➕ Crea escrow");
 assert.equal(MAIN_MENU_MIEI_LABEL, "📋 I miei deal");
+assert.equal(MAIN_MENU_FEEDBACK_LABEL, "💬 Lascia un feedback");
 assert.match(
   menusSrc,
   /function mainMenuKeyboard\(\): InlineKeyboard \{\s*return new InlineKeyboard\(\)/,
