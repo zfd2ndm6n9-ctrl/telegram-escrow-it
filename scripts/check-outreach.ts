@@ -5,10 +5,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { outreachOpenBotKeyboard } from "../src/keyboards/menus.js";
 import {
   OUTREACH_BOT_USERNAME,
-  OUTREACH_BUTTON_LABEL,
   OUTREACH_ESCROW_BODY,
   OUTREACH_SELLER_BODY,
   OUTREACH_USAGE,
@@ -28,7 +26,6 @@ const outreachSrc = readFileSync(
 assert.equal(OUTREACH_BOT_USERNAME, "ESCROWITAbot");
 assert.equal(outreachBotUrl(), "https://t.me/ESCROWITAbot");
 assert.equal(outreachBotUrl("@ESCROWITAbot"), "https://t.me/ESCROWITAbot");
-assert.equal(OUTREACH_BUTTON_LABEL, "Apri @ESCROWITAbot");
 
 assert.equal(resolveOutreachAudience("escrow"), "escrow");
 assert.equal(resolveOutreachAudience("MM"), "escrow");
@@ -40,40 +37,46 @@ assert.equal(resolveOutreachAudience("xyz"), undefined);
 
 assert.equal(outreachBody("escrow"), OUTREACH_ESCROW_BODY);
 assert.equal(outreachBody("seller"), OUTREACH_SELLER_BODY);
+assert.equal(
+  outreachBody("escrow", "OtherBot"),
+  OUTREACH_ESCROW_BODY.replaceAll(
+    "https://t.me/ESCROWITAbot",
+    "https://t.me/OtherBot",
+  ),
+);
 
+assert.match(OUTREACH_ESCROW_BODY, /Ciao, siamo \*Escrowita\*/);
 assert.match(OUTREACH_ESCROW_BODY, /@ESCROWITAbot/);
 assert.match(OUTREACH_ESCROW_BODY, /codice invito/i);
-assert.match(OUTREACH_ESCROW_BODY, /\*SOL\*/);
-assert.doesNotMatch(OUTREACH_ESCROW_BODY, /\bLTC\b|\bETH\b/);
+assert.match(OUTREACH_ESCROW_BODY, /https:\/\/t\.me\/ESCROWITAbot/);
+assert.doesNotMatch(OUTREACH_ESCROW_BODY, /\bSOL\b|\bLTC\b|\bETH\b/);
+assert.doesNotMatch(OUTREACH_ESCROW_BODY, /escrow automatico/i);
 
+assert.match(OUTREACH_SELLER_BODY, /Ciao, siamo \*Escrowita\*/);
 assert.match(OUTREACH_SELLER_BODY, /@ESCROWITAbot/);
 assert.match(OUTREACH_SELLER_BODY, /24\/7/);
 assert.match(OUTREACH_SELLER_BODY, /doppia conferma/i);
-assert.match(OUTREACH_SELLER_BODY, /exit-scam/i);
+assert.match(OUTREACH_SELLER_BODY, /chiave e indirizzo/i);
+assert.match(OUTREACH_SELLER_BODY, /codice invito/i);
 assert.match(OUTREACH_SELLER_BODY, /5%/);
 assert.match(OUTREACH_SELLER_BODY, /2\.5%/);
-assert.match(OUTREACH_SELLER_BODY, /\*SOL\*/);
-assert.doesNotMatch(OUTREACH_SELLER_BODY, /\bLTC\b|\bETH\b/);
+assert.match(OUTREACH_SELLER_BODY, /https:\/\/t\.me\/ESCROWITAbot/);
+assert.doesNotMatch(OUTREACH_SELLER_BODY, /exit-scam/i);
+assert.doesNotMatch(OUTREACH_SELLER_BODY, /\bSOL\b|\bLTC\b|\bETH\b/);
+assert.doesNotMatch(OUTREACH_SELLER_BODY, /escrow automatico/i);
 
 assert.match(OUTREACH_USAGE, /\/outreach escrow/);
 assert.match(OUTREACH_USAGE, /\/outreach seller/);
+assert.match(OUTREACH_USAGE, /Inoltra/i);
 
-const kb = outreachOpenBotKeyboard(outreachBotUrl());
-assert.equal(kb.inline_keyboard?.[0]?.[0]?.text, OUTREACH_BUTTON_LABEL);
-assert.equal(
-  kb.inline_keyboard?.[0]?.[0] && "url" in kb.inline_keyboard[0][0]
-    ? kb.inline_keyboard[0][0].url
-    : undefined,
-  "https://t.me/ESCROWITAbot",
-);
-
-assert.match(menusSrc, /outreachOpenBotKeyboard/);
+assert.doesNotMatch(menusSrc, /outreachOpenBotKeyboard/);
 assert.match(outreachSrc, /OUTREACH_ESCROW_BODY/);
 assert.match(outreachSrc, /OUTREACH_SELLER_BODY/);
 assert.match(startSrc, /bot\.command\("outreach"/);
 assert.match(startSrc, /resolveOutreachAudience/);
-assert.match(startSrc, /outreachOpenBotKeyboard/);
 assert.match(startSrc, /isAdminUser/);
 assert.match(startSrc, /chat\?\.type !== "private"/);
+assert.doesNotMatch(startSrc, /outreachOpenBotKeyboard/);
+assert.doesNotMatch(startSrc, /reply_markup:\s*outreachOpenBotKeyboard/);
 
 console.log("check-outreach: ok");
