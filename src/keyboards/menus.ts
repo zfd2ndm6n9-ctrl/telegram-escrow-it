@@ -76,14 +76,6 @@ export function openBotDmKeyboard(botUrl: string): InlineKeyboard {
   return new InlineKeyboard().url("Apri il bot", botUrl);
 }
 
-/** Outreach admin: URL button → t.me/<bot>. */
-export function outreachOpenBotKeyboard(
-  botUrl: string,
-  label = "Apri @ESCROWITAbot",
-): InlineKeyboard {
-  return new InlineKeyboard().url(label, botUrl);
-}
-
 /** @deprecated Prefer inline `crea_cancel` on role/asset prompts. */
 export function cancelKeyboard(): Keyboard {
   return new Keyboard().text("❌ Annulla").resized().oneTime();
