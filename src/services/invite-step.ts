@@ -1,6 +1,6 @@
 import type { BotContext } from "../context.js";
 import { config } from "../config.js";
-import { inviteSkipKeyboard } from "../keyboards/menus.js";
+import { invitePromptKeyboard } from "../keyboards/menus.js";
 import { it } from "../messages/it.js";
 import { isRetiredInviteCode } from "../store/invites.js";
 import { isValidSolAddress } from "./solana/index.js";
@@ -40,7 +40,10 @@ export async function dismissInviteStep(ctx: BotContext): Promise<void> {
   ctx.session.awaitingInviteCode = undefined;
 }
 
-/** Prompt invito su /crea: opzionale (`open`) o obbligatorio (`invite`). */
+/**
+ * Prompt invito su /crea: obbligatorio in soft-launch (`invite`);
+ * in `open` (solo dev) il testo non menziona skip — keyboard = solo Annulla.
+ */
 export async function askInviteOptional(ctx: BotContext): Promise<void> {
   ctx.session.awaitingInviteCode = true;
   if (ctx.chat && ctx.session.invitePromptMessageId != null) {
@@ -55,7 +58,7 @@ export async function askInviteOptional(ctx: BotContext): Promise<void> {
     required ? it.createGateInviteAsk : it.askInviteOptional,
     {
       parse_mode: "Markdown",
-      reply_markup: required ? undefined : inviteSkipKeyboard(),
+      reply_markup: invitePromptKeyboard(),
     },
   );
   ctx.session.invitePromptMessageId = msg.message_id;
