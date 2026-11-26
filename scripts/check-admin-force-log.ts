@@ -147,7 +147,7 @@ const base: Deal = {
     assert.match(full!, /ok ti mando il file stasera/);
     assert.match(full!, /ciao seller/);
 
-    // /deal: only deleted/cleared msgs (not full chat).
+    // /deal: deleted/cleared msgs (not full chat text).
     const deletedOnly = logs.formatDeletedTranscript(id);
     assert.ok(deletedOnly);
     assert.match(deletedOnly!, /payseller/);
@@ -155,6 +155,34 @@ const base: Deal = {
     assert.doesNotMatch(deletedOnly!, /ok ti mando il file stasera/);
     assert.doesNotMatch(deletedOnly!, /ciao seller/);
     assert.equal(logs.getDeletedEntries(id).length, 1);
+
+    // Media silent-log: metadata surfaces in /deal evidence even without [del].
+    logs.appendUserMessage(id, {
+      text: "[video] pack.mp4 · 12s · (senza caption — byte non ritrattenuti)",
+      fromId: SELLER,
+      username: "seller_y",
+      role: "seller",
+      messageId: 201,
+      mediaType: "video",
+    });
+    logs.appendUserMessage(id, {
+      text: "[photo] 1280×720 · caption: prova deposito",
+      fromId: BUYER,
+      username: "buyer_x",
+      role: "buyer",
+      messageId: 202,
+      mediaType: "photo",
+      deletedByBot: true,
+    });
+    const evidence = logs.formatAdminDealEvidence(id);
+    assert.ok(evidence);
+    assert.match(evidence!, /payseller/);
+    assert.match(evidence!, /\[video\]/);
+    assert.match(evidence!, /\[photo\]/);
+    assert.match(evidence!, /\[media\]/); // undeleted media flagged
+    assert.match(evidence!, /\[del\]/);
+    assert.doesNotMatch(evidence!, /ok ti mando il file stasera/);
+    assert.equal(logs.getAdminDealEvidenceEntries(id).length, 3);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -212,13 +240,18 @@ const base: Deal = {
   );
   assert.match(
     startSrc,
-    /formatDeletedTranscript\(dealId\)/,
-    "/deal shows deleted transcript only",
+    /formatAdminDealEvidence\(dealId\)/,
+    "/deal shows [del]+media evidence",
   );
   assert.match(
     startSrc,
-    /getDeletedEntries\(dealId\)/,
-    "/deal counts deleted entries",
+    /getAdminDealEvidenceEntries\(dealId\)/,
+    "/deal counts evidence entries",
+  );
+  assert.match(
+    startSrc,
+    /#\?\(\[a-fA-F0-9\]\{8\}\)\$/,
+    "/deal accepts bare hex id in admin DM",
   );
   // Full transcript remains on /log only (not inside replyAdminDealDm).
   const dealDm = startSrc.slice(
@@ -245,6 +278,11 @@ const base: Deal = {
     /appendUserMessage/,
     "hygiene retains human texts",
   );
+  assert.match(
+    hygieneSrc,
+    /summarizeMessageMedia|message:photo/,
+    "hygiene silent-logs media",
+  );
   // Must not gate logging on isParty — free chat + pre-assign humans count.
   const logBlock = hygieneSrc.slice(
     hygieneSrc.indexOf("Retention:"),
@@ -255,7 +293,6 @@ const base: Deal = {
     /isParty\(deal/,
     "logging not gated on isParty",
   );
-  assert.match(logBlock, /isAdminUser/, "admin texts get admin role");
 }
 
 console.log("check-admin-force-log: ok");

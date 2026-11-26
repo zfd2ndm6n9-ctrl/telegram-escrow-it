@@ -18,10 +18,22 @@ export const DEAL_LOG_RETENTION_DAYS = 30;
 
 export type DealLogKind = "user" | "event";
 
+/** Tipi media silent-log (Bot API non ritrattene i byte dopo delete utente). */
+export type DealLogMediaType =
+  | "photo"
+  | "video"
+  | "video_note"
+  | "animation"
+  | "document"
+  | "audio"
+  | "voice"
+  | "sticker"
+  | "other";
+
 export type DealLogEntry = {
   at: string;
   kind: DealLogKind;
-  /** Testo utente o descrizione evento. */
+  /** Testo utente, caption, o descrizione media/evento. */
   text: string;
   fromId?: number;
   username?: string;
@@ -29,6 +41,8 @@ export type DealLogEntry = {
   messageId?: number;
   /** true se il bot ha cancellato questo messaggio (igiene). */
   deletedByBot?: boolean;
+  /** Presente se il messaggio aveva media (foto/video/file…). */
+  mediaType?: DealLogMediaType;
 };
 
 type DealLogBucket = {
@@ -136,7 +150,7 @@ export class DealLogStore {
     this.persist();
   }
 
-  /** Messaggio testo da buyer/seller nel gruppo deal. */
+  /** Messaggio testo/media da buyer/seller nel gruppo deal. */
   appendUserMessage(
     dealId: string,
     opts: {
@@ -147,6 +161,7 @@ export class DealLogStore {
       messageId?: number;
       /** true se già cancellato (es. comando force non-admin). */
       deletedByBot?: boolean;
+      mediaType?: DealLogMediaType;
     },
   ): void {
     const text = clampText(opts.text);
@@ -160,6 +175,7 @@ export class DealLogStore {
       role: opts.role,
       messageId: opts.messageId,
       deletedByBot: opts.deletedByBot === true ? true : undefined,
+      mediaType: opts.mediaType,
     });
   }
 
@@ -216,6 +232,36 @@ export class DealLogStore {
   }
 
   /**
+   * Evidence pack admin `/deal`: messaggi `[del]` (igiene) **più** media
+   * silent-loggati (foto/video/file). Bot API non notifica delete utente e
+   * non ritrattene i byte: mostriamo metadata best-effort (tipo, chi, quando,
+   * caption/filename). Niente dump chat testo completa (`/log`).
+   */
+  getAdminDealEvidenceEntries(
+    dealId: string,
+    opts?: { limit?: number },
+  ): DealLogEntry[] {
+    const evidence = this.getEntries(dealId).filter(
+      (e) =>
+        e.kind === "user" &&
+        (e.deletedByBot === true || e.mediaType != null),
+    );
+    if (opts?.limit != null && opts.limit > 0 && evidence.length > opts.limit) {
+      return evidence.slice(-opts.limit);
+    }
+    return evidence;
+  }
+
+  formatAdminDealEvidence(
+    dealId: string,
+    opts?: { limit?: number },
+  ): string | null {
+    const entries = this.getAdminDealEvidenceEntries(dealId, opts);
+    if (entries.length === 0) return null;
+    return this.formatEntryLines(entries);
+  }
+
+  /**
    * Transcript per admin `/log`: messaggi umani + eventi chiave.
    * Include chat libera buyer↔seller (non solo reply al bot).
    * `[del]` = cancellato dal bot (igiene). Bot API non vede delete utente:
@@ -258,8 +304,9 @@ export class DealLogStore {
           ? `id:${e.fromId}`
           : "?";
       const role = e.role ? ` (${e.role})` : "";
-      const flag = e.deletedByBot ? " [del]" : "";
-      lines.push(`• [${time}] ${who}${role}${flag}: ${e.text}`);
+      const del = e.deletedByBot ? " [del]" : "";
+      const media = e.mediaType && !e.deletedByBot ? " [media]" : "";
+      lines.push(`• [${time}] ${who}${role}${del}${media}: ${e.text}`);
     }
     return lines.join("\n");
   }

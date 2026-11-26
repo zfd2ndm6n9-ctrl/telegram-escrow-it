@@ -216,9 +216,9 @@ async function completeStart(ctx: BotContext): Promise<void> {
 }
 
 /**
- * DM admin: fatti card + solo messaggi cancellati/cleared (igiene).
- * Condiviso da `/deal` e `/start deal_HEX`. Chat viva → gruppo in Archiviati.
- * `/log` resta il transcript completo.
+ * DM admin: fatti card + messaggi cancellati/cleared + media silent-log.
+ * Condiviso da `/deal`, deal-id nudo e `/start deal_HEX`.
+ * Chat viva → gruppo in Archiviati. `/log` resta il transcript completo.
  */
 async function replyAdminDealDm(
   ctx: BotContext,
@@ -230,10 +230,10 @@ async function replyAdminDealDm(
     return;
   }
   ctx.dealLogs.pruneExpired();
-  const deleted = ctx.dealLogs.getDeletedEntries(dealId);
+  const evidence = ctx.dealLogs.getAdminDealEvidenceEntries(dealId);
   const facts = formatDealEvidenceFacts(deal);
-  const header = it.dealAdminHeader(dealId, deleted.length);
-  const transcript = ctx.dealLogs.formatDeletedTranscript(dealId);
+  const header = it.dealAdminHeader(dealId, evidence.length);
+  const transcript = ctx.dealLogs.formatAdminDealEvidence(dealId);
   const chatBlock = transcript
     ? `${it.dealAdminDeletedTitle}\n${transcript}`
     : it.dealAdminNoDeleted(dealId);
@@ -386,8 +386,8 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
   });
 
   /**
-   * Admin DM: evidence pack — fatti card + solo messaggi cancellati (igiene).
-   * Uso: /deal 250538a0 | /deal #250538a0 | deep-link /start deal_HEX
+   * Admin DM: evidence pack — fatti card + [del] + media silent-log.
+   * Uso: /deal 250538a0 | /deal #250538a0 | id nudo | deep-link /start deal_HEX
    * Transcript completo: `/log`. Chat viva: gruppo Archiviati (cerca #id).
    */
   bot.command("deal", async (ctx) => {
@@ -750,6 +750,13 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     const text = ctx.message.text.trim();
     if (text.startsWith("/")) {
       await next();
+      return;
+    }
+
+    // Admin: deal id nudo (8 hex) → stesso evidence pack di `/deal`.
+    const bareDeal = text.match(/^#?([a-fA-F0-9]{8})$/);
+    if (bareDeal && isAdminUser(ctx.from.id)) {
+      await replyAdminDealDm(ctx, bareDeal[1]!.toLowerCase());
       return;
     }
 

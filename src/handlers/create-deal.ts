@@ -15,6 +15,7 @@ import {
   roleKeyboard,
 } from "../keyboards/menus.js";
 import {
+  isAdminUser,
   nextDmTermsStep,
   startGroupPayload,
   termsReadyForConfirm,
@@ -158,14 +159,20 @@ async function replaceCreatingPrompt(
 }
 
 /**
- * Avvia /crea in DM (dopo gate). Chiede invito opzionale, poi ruolo.
- * Esportato per deep-link `/start crea`.
+ * Avvia /crea in DM (dopo gate). Invito opzionale/obbligatorio/admin-only
+ * a seconda di `APP_ENV` / `CREATE_GATE`. Esportato per deep-link `/start crea`.
  */
 export async function beginCreateDealFlow(ctx: BotContext): Promise<void> {
   if (ctx.chat?.type !== "private" || !ctx.from) return;
   if (!(await requireRegistered(ctx))) return;
   if (!isSolanaConfigured()) {
     await ctx.reply(it.solanaNotConfigured);
+    return;
+  }
+
+  // Staging: solo admin crea (backtest). Soft-launch production: invite-only.
+  if (config.createGate === "admin" && !isAdminUser(ctx.from.id)) {
+    await ctx.reply(it.createGateAdminOnly, { parse_mode: "Markdown" });
     return;
   }
 
@@ -188,9 +195,22 @@ export async function beginCreateDealFlow(ctx: BotContext): Promise<void> {
       await proceedToRoleStep(ctx);
       return;
     }
+    if (config.createGate === "invite") {
+      await ctx.reply(it.createGateInviteRequired, { parse_mode: "Markdown" });
+      ctx.session.creating = { step: "invite" };
+      await askInviteOptional(ctx);
+      return;
+    }
   }
 
-  // Ogni /crea: invito opzionale (skip silenzioso → ruolo)
+  // Gate admin: niente prompt invito (admin può creare senza codice).
+  if (config.createGate === "admin") {
+    ctx.session.creating = { step: "role" };
+    await proceedToRoleStep(ctx);
+    return;
+  }
+
+  // open = invito opzionale; invite = codice obbligatorio (niente skip).
   ctx.session.creating = { step: "invite" };
   await askInviteOptional(ctx);
 }

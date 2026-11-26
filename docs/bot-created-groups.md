@@ -37,8 +37,8 @@ Senza helper: messaggio chiaro sul limite Bot API + istruzioni manuali **di emer
 
 | Comando | Contenuto |
 |---------|-----------|
-| `/deal <id>` (DM) | Fatti card + **solo** messaggi cancellati/cleared (`[del]` igiene). Non dumpa tutta la chat. |
-| `/log <id>` (DM) | Transcript completo (umani + eventi). |
+| `/deal <id>` o id nudo (DM) | Fatti card + messaggi `[del]` (igiene) + **media** silent-log (foto/video/file: tipo, chi, quando, caption/filename — byte non ritrattenuti). Non dumpa tutta la chat testo. |
+| `/log <id>` (DM) | Transcript completo (umani + eventi + media). |
 | Gruppo Telegram | Chat viva — helper owner, in **Archiviati**; cerca `#dealId` nel titolo. |
 
 ## Path manuale (degradato)

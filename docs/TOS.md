@@ -35,11 +35,11 @@ Con «Accetta» le parti fissano il loro accordo (prodotto/servizio, prezzo, con
 
 ## 6. Contestazioni
 
-Decide l’amministratore dopo aver analizzato i messaggi salvati. In caso di contestazione, conservate prove della consegna o dell’esecuzione del servizio (messaggi, file, accessi, conferme).
+Decide l’amministratore dopo aver analizzato i messaggi e i media salvati (testo + metadata foto/video/file). In caso di contestazione, conservate prove della consegna o dell’esecuzione del servizio (messaggi, file, accessi, conferme).
 
-## 7. Crash o gruppo sabotato
+## 7. Gruppo del deal (proprietà e sicurezza)
 
-In caso di crash del servizio o di proprietario del gruppo che agisce in mala fede, i fondi vengono rimborsati. Conservate sempre l’identificativo del deal.
+Il gruppo Telegram del deal è creato e **posseduto dall’account di supporto (helper)** del servizio, non dalle parti. Il bot è amministratore; le parti entrano come **membri** (senza diritti di admin: non possono kickare il bot, promuovere terzi, né cancellare messaggi altrui). Il gruppo viene **archiviato** automaticamente sull’account helper. In caso di crash del servizio o di compromissione tecnica del gruppo, i fondi in escrow vengono gestiti secondo il flusso di recovery previsto. Conservate sempre l’identificativo del deal.
 
 ## 8. Chiusura del deal e gruppo Telegram
 

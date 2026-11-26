@@ -1,4 +1,5 @@
 import type { BotContext } from "../context.js";
+import { config } from "../config.js";
 import { inviteSkipKeyboard } from "../keyboards/menus.js";
 import { it } from "../messages/it.js";
 import { isValidSolAddress } from "./solana/index.js";
@@ -38,7 +39,7 @@ export async function dismissInviteStep(ctx: BotContext): Promise<void> {
   ctx.session.awaitingInviteCode = undefined;
 }
 
-/** Prompt opzionale (usato su /crea, non su /start). */
+/** Prompt invito su /crea: opzionale (`open`) o obbligatorio (`invite`). */
 export async function askInviteOptional(ctx: BotContext): Promise<void> {
   ctx.session.awaitingInviteCode = true;
   if (ctx.chat && ctx.session.invitePromptMessageId != null) {
@@ -48,22 +49,34 @@ export async function askInviteOptional(ctx: BotContext): Promise<void> {
       ctx.session.invitePromptMessageId,
     );
   }
-  const msg = await ctx.reply(it.askInviteOptional, {
-    parse_mode: "Markdown",
-    reply_markup: inviteSkipKeyboard(),
-  });
+  const required = config.createGate === "invite";
+  const msg = await ctx.reply(
+    required ? it.createGateInviteAsk : it.askInviteOptional,
+    {
+      parse_mode: "Markdown",
+      reply_markup: required ? undefined : inviteSkipKeyboard(),
+    },
+  );
   ctx.session.invitePromptMessageId = msg.message_id;
 }
 
 /**
- * Skip invito solo se in attesa (tap bottone o /skip).
+ * Skip invito solo se in attesa (tap bottone o /skip) e gate `open`.
  * Silenzioso: cancella il prompt, niente «Ok, nessun codice.»
+ * Con `CREATE_GATE=invite` lo skip è rifiutato.
  */
 export async function completeInviteSkip(
   ctx: BotContext,
   opts?: { userMessageId?: number },
 ): Promise<boolean> {
   if (!ctx.session.awaitingInviteCode) return false;
+  if (config.createGate === "invite") {
+    const msg = await ctx.reply(it.createGateInviteRequired, {
+      parse_mode: "Markdown",
+    });
+    trackInviteEphemeral(ctx, msg.message_id);
+    return false;
+  }
   const userMsgId = opts?.userMessageId;
   await clearInvitePrompt(ctx);
   if (userMsgId != null && ctx.chat) {

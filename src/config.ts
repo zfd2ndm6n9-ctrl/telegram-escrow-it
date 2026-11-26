@@ -34,8 +34,52 @@ function parseAdminTelegramIds(): string[] {
 
 const adminTelegramIds = parseAdminTelegramIds();
 
+/**
+ * Ambiente operativo: influenza il default di `CREATE_GATE`.
+ * - `staging` → create solo admin (backtest)
+ * - `production` → soft-launch invite-only
+ * - `development` / unset → open (invite opzionale, comportamento storico)
+ */
+export type AppEnv = "staging" | "production" | "development";
+
+/** Gate su `/crea`: chi può aprire un deal. */
+export type CreateGate = "open" | "invite" | "admin";
+
+function parseAppEnv(): AppEnv {
+  const raw = (process.env.APP_ENV?.trim() || "").toLowerCase();
+  if (raw === "staging" || raw === "stage") return "staging";
+  if (raw === "production" || raw === "prod") return "production";
+  if (raw === "development" || raw === "dev") return "development";
+  // Compat: NODE_ENV=production senza APP_ENV → production soft-launch.
+  if ((process.env.NODE_ENV?.trim() || "").toLowerCase() === "production") {
+    return "production";
+  }
+  return "development";
+}
+
+function parseCreateGate(appEnv: AppEnv): CreateGate {
+  const raw = (process.env.CREATE_GATE?.trim() || "").toLowerCase();
+  if (raw === "open" || raw === "invite" || raw === "admin") return raw;
+  if (appEnv === "staging") return "admin";
+  if (appEnv === "production") return "invite";
+  return "open";
+}
+
+const appEnv = parseAppEnv();
+const createGate = parseCreateGate(appEnv);
+
 export const config = {
   botToken: process.env.TELEGRAM_BOT_TOKEN?.trim() ?? "",
+  /** `staging` | `production` | `development`. Vedi `CREATE_GATE`. */
+  appEnv,
+  /**
+   * Gate `/crea`:
+   * - `open` — invite opzionale (dev)
+   * - `invite` — codice obbligatorio (soft-launch production)
+   * - `admin` — solo ADMIN_TELEGRAM_ID(S) (staging backtest)
+   * Override: `CREATE_GATE=open|invite|admin`.
+   */
+  createGate,
   /**
    * Admin / supporto (dispute notify, `/log`, force payout, `/iscritti`, …).
    * Preferire `ADMIN_TELEGRAM_IDS` (lista). `ADMIN_TELEGRAM_ID` resta supportato.
