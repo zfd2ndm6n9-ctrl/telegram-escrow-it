@@ -1129,10 +1129,19 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   adminOnly: "Solo admin.",
 
   codiceUsage:
-    "Uso (admin): `/codice <WALLET_SOL> <@user|userId> [CODICE]`\nEs: `/codice So111… @mario`\nEs: `/codice So111… 123456789 ESC-PROMO1`",
+    "Uso (admin): `/codice <WALLET_SOL> <@user|userId> [CODICE]`\nEs: `/codice So111… @mario`\nEs: `/codice So111… 123456789 ESC-PROMO1`\nDisattiva: `/codiceoff CODICE`",
 
   codiceCreated: (code: string, wallet: string, who: string) =>
     `✅ Codice *${escMd(code)}*\nCollab: ${who}\nWallet: \`${wallet}\`\nL'utente: \`/invito ${code}\``,
+
+  codiceOffUsage:
+    "Uso (admin): `/codiceoff <CODICE>`\nEs: `/codiceoff ESC-A1B2C3`",
+
+  codiceOffOk: (code: string) =>
+    `🛑 Codice *${escMd(code)}* disattivato. Non vale più su \`/crea\`.`,
+
+  codiceOffMissing: (code: string) =>
+    `Codice *${escMd(code)}* non trovato.`,
 
   codiceListEmpty: "Nessun codice invito.",
 

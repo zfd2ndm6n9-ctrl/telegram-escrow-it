@@ -562,6 +562,29 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     }
   });
 
+  /**
+   * Admin: disattiva un codice (soft-launch / ritiro test).
+   * /codiceoff <CODICE>
+   */
+  bot.command(["codiceoff", "inviteoff"], async (ctx) => {
+    if (!ctx.from || !isAdminUser(ctx.from.id)) {
+      await ctx.reply(it.adminOnly);
+      return;
+    }
+    const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
+    const code = (parts[1] ?? "").trim();
+    if (!code) {
+      await ctx.reply(it.codiceOffUsage, { parse_mode: "Markdown" });
+      return;
+    }
+    const updated = ctx.invites.setActive(code, false);
+    if (!updated) {
+      await ctx.reply(it.codiceOffMissing(code), { parse_mode: "Markdown" });
+      return;
+    }
+    await ctx.reply(it.codiceOffOk(updated.code), { parse_mode: "Markdown" });
+  });
+
   /** Admin: elenco codici. */
   bot.command(["codici", "invitelist"], async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {

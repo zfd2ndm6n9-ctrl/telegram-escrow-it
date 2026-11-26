@@ -141,7 +141,7 @@ Admin in Telegram (dopo deploy):
 | Release + collab wallet **non attivo** / 2.5% **&lt; rent-exempt** | 95% seller · **5%** → `FEE_WALLET_PUBKEY` (2.5% collab *piegato* su admin; log + flag) |
 | Refund | 100% buyer · **0** fee servizio |
 
-**Rent gate:** `SystemProgram.transfer` verso un account inesistente richiede ≥ rent-exempt (~0.00065–0.00089 SOL). Deal piccoli con invito (es. KEYTEST) fallivano tutta la tx atomica; ora il collab soft-fail piega la quota su platform così il seller viene pagato.
+**Rent gate:** `SystemProgram.transfer` verso un account inesistente richiede ≥ rent-exempt (~0.00065–0.00089 SOL). Deal piccoli con invito + wallet collab vuoto fallivano tutta la tx atomica; ora il collab soft-fail piega la quota su platform così il seller viene pagato.
 
 ### Creare un codice (admin)
 
@@ -150,10 +150,11 @@ Admin in Telegram (dopo deploy):
 ```
 
 Esempio: `/codice So111…abc @mario` → genera `ESC-XXXXXX`.  
-L’utente: codice opzionale a ogni `/crea` (skip silenzioso), oppure `/invito ESC-XXXXXX`, oppure deep-link `/start ESC-XXXXXX` (applicato al prossimo `/crea`).  
+Soft-launch (`CREATE_GATE=invite` / `APP_ENV=production`): codice **obbligatorio** a ogni `/crea` (niente skip). Alternativa: `/invito ESC-XXXXXX` o deep-link `/start ESC-XXXXXX` (applicato al prossimo `/crea`).  
 I deal che **crea** ereditano il codice → split 2.5/2.5 alla release.
 
-Altri comandi admin: `/codici` (lista), `/fee` (riepilogo fee da deal released).
+Altri comandi admin: `/codici` (lista), `/codiceoff CODICE` (disattiva), `/fee` (riepilogo fee da deal released).  
+`KEYTEST` / `TESTKEY` sono ritirati in codice (non riutilizzabili).
 
 Persistenza: `DATA_DIR/invites.json`.
 

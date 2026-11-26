@@ -241,7 +241,7 @@ export async function payoutDealSol(
       );
       if (!collabReceivable.ok) {
         // Soft-fail collab: piega 2.5% su platform così seller+fee escono
-        // (wallet collab mai finanziato / 2.5% < rent — caso KEYTEST)
+        // (wallet collab mai finanziato / 2.5% < rent — soft-fail)
         console.warn(
           `payoutDealSol #${dealId}: collab ${collabPk.toBase58()} non finanziabile ` +
             `(${split.collaboratorLamports} < rent ${collabReceivable.rentExempt}); ` +

@@ -59,10 +59,28 @@ function parseAppEnv(): AppEnv {
 
 function parseCreateGate(appEnv: AppEnv): CreateGate {
   const raw = (process.env.CREATE_GATE?.trim() || "").toLowerCase();
-  if (raw === "open" || raw === "invite" || raw === "admin") return raw;
-  if (appEnv === "staging") return "admin";
-  if (appEnv === "production") return "invite";
-  return "open";
+  let gate: CreateGate;
+  if (raw === "open" || raw === "invite" || raw === "admin") {
+    gate = raw;
+  } else if (appEnv === "staging") {
+    gate = "admin";
+  } else if (appEnv === "production") {
+    gate = "invite";
+  } else {
+    gate = "open";
+  }
+
+  // Soft-launch fail-safe: never leave /crea open on a production Node process
+  // (forgotten CREATE_GATE=open, or APP_ENV missing while NODE_ENV=production).
+  const nodeProd =
+    (process.env.NODE_ENV?.trim() || "").toLowerCase() === "production";
+  if (gate === "open" && (appEnv === "production" || nodeProd)) {
+    console.warn(
+      `CREATE_GATE=open ignorato (APP_ENV=${appEnv}, NODE_ENV=${process.env.NODE_ENV ?? ""}): soft-launch → invite`,
+    );
+    return "invite";
+  }
+  return gate;
 }
 
 const appEnv = parseAppEnv();
@@ -74,10 +92,12 @@ export const config = {
   appEnv,
   /**
    * Gate `/crea`:
-   * - `open` — invite opzionale (dev)
+   * - `open` — invite opzionale (**solo** development locale)
    * - `invite` — codice obbligatorio (soft-launch production)
    * - `admin` — solo ADMIN_TELEGRAM_ID(S) (staging backtest)
    * Override: `CREATE_GATE=open|invite|admin`.
+   * Fail-safe: con `APP_ENV=production` o `NODE_ENV=production`,
+   * `CREATE_GATE=open` viene ignorato → `invite`.
    */
   createGate,
   /**

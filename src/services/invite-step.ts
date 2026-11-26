@@ -2,6 +2,7 @@ import type { BotContext } from "../context.js";
 import { config } from "../config.js";
 import { inviteSkipKeyboard } from "../keyboards/menus.js";
 import { it } from "../messages/it.js";
+import { isRetiredInviteCode } from "../store/invites.js";
 import { isValidSolAddress } from "./solana/index.js";
 import { deleteMessageSafe } from "./prompt-cleanup.js";
 
@@ -99,6 +100,10 @@ export function lookupDealInvite(
   const code = rawCode.trim().toUpperCase().replace(/^#/, "");
   if (!code || code.length < 4) {
     return { ok: false, reason: "not_found" };
+  }
+  // Soft-launch: KEYTEST/TESTKEY mai utilizzabili (anche se ancora su disco).
+  if (isRetiredInviteCode(code)) {
+    return { ok: false, reason: "inactive" };
   }
   const invite = ctx.invites.get(code);
   if (!invite) return { ok: false, reason: "not_found" };

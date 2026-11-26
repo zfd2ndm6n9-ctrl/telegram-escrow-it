@@ -56,7 +56,7 @@ npm run solana:keygen   # genera keypair; salva secret offline / su Render
 | `TELEGRAM_BOT_CREATES_GROUPS` | no | Default on (helper MTProto). `0` = solo path manuale |
 | `TELEGRAM_API_ID` / `HASH` / `HELPER_SESSION` | no | Helper crea gruppi (owner = account supporto) |
 | `APP_ENV` | no | `staging` \| `production` \| `development`. Imposta i default di `CREATE_GATE` |
-| `CREATE_GATE` | no | `open` \| `invite` \| `admin`. Soft-launch live = `invite`; staging = `admin` |
+| `CREATE_GATE` | no | `open` \| `invite` \| `admin`. Soft-launch live = `invite`; staging = `admin`. Con `NODE_ENV`/`APP_ENV=production`, `open` viene coercizzato a `invite` |
 
 Documentazione: [`docs/TOS.md`](./docs/TOS.md) (Termini; Mini App `/tos`) · [`docs/solana-escrow.md`](./docs/solana-escrow.md) · [`docs/bot-created-groups.md`](./docs/bot-created-groups.md). Staging/live: playbook store `docs/staging-live-promote.md`.
 
@@ -86,7 +86,7 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 ### In privato
 
 1. `/start` → iscrizione (anche senza `@`: «utente» + soft remind) → entra nel **canale reviews** (hard gate) → `/crea`
-2. Invito opzionale → ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) — solo **inline buttons** (niente reply keyboard Crea/I miei sotto la tastiera telefono) — **niente wallet in DM**
+2. Soft-launch: **codice invito obbligatorio** → ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) — solo **inline buttons** (niente reply keyboard Crea/I miei sotto la tastiera telefono) — **niente wallet in DM**
 3. Chi apre (`/crea`) risponde alle **3 domande** termini in DM (Prodotto/servizio → Prezzo € → Condizioni)
 4. **Path preferito (helper MTProto):** il servizio crea il gruppo → effimero «Sto creando il gruppo…» → DM «Il tuo gruppo è stato creato» + link + «entra nel gruppo e invita il buyer/seller» → nel gruppo due messaggi (link + *Invita il …*) → join → delete entrambi → bind → ToS. Path manuale (crea gruppo tu → bot admin → `/avvia`) solo emergenza / `TELEGRAM_BOT_CREATES_GROUPS=0`.
 
@@ -101,7 +101,7 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 11. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; in disputa admin forza release/refund con `/payseller` o `/refundbuyer` (salta dual-confirm e review)
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato, solo deal *conclusi* `released`/`refunded`), `/invito CODICE`.  
-Admin: `/deal <id>` (DM: fatti card + messaggi cancellati), `/log #dealId` (DM transcript completo), `/iscritti`, `/codice`, `/codici`, `/fee`, `/admin_wipe_deals` (DM: svuota `deals.json` + `deal-logs.json`; con saldi escrow richiede `FORCE`).
+Admin: `/deal <id>` (DM: fatti card + messaggi cancellati), `/log #dealId` (DM transcript completo), `/iscritti`, `/codice`, `/codiceoff`, `/codici`, `/fee`, `/admin_wipe_deals` (DM: svuota `deals.json` + `deal-logs.json`; con saldi escrow richiede `FORCE`).
 
 ### Admin force + log dispute
 
