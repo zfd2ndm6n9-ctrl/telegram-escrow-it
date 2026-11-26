@@ -228,7 +228,7 @@ Entra, poi *Sono entrato* o \`/start\`.`,
   askRole: "👤 Che ruolo hai in questo deal?",
   askAsset: "💎 Con quale crypto vuoi fare l'escrow?",
   assetComingSoon: (asset: string) =>
-    `*${asset}* sarà presto disponibile. Per ora scegli *SOL* o *LTC*.`,
+    `*${asset}* sarà presto disponibile. Per ora scegli *SOL*, *LTC* o *ETH*.`,
   assetNotConfigured: (asset: string) =>
     `Escrow *${asset}* non configurato sul server. Scegli un'altra crypto o avvisa il supporto.`,
   askAmount:
@@ -242,7 +242,7 @@ Entra, poi *Sono entrato* o \`/start\`.`,
   solanaNotConfigured:
     "Escrow SOL non configurato sul server. Avvisa il supporto.",
   escrowNotConfigured:
-    "Escrow on-chain non configurato sul server (manca SOLANA_PRIVATE_KEY / LTC_PRIVATE_KEY). Avvisa il supporto.",
+    "Escrow on-chain non configurato sul server (manca SOLANA_PRIVATE_KEY / LTC_PRIVATE_KEY / ETH_PRIVATE_KEY). Avvisa il supporto.",
   cancelled: "Operazione annullata.",
 
   /** Prompt DM: dopo tap «Lascia un feedback». */

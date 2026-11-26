@@ -15,6 +15,13 @@ import {
   startLtcDepositWatcher,
 } from "./services/ltc/index.js";
 import {
+  getMasterWallet as getEthMasterWallet,
+  getPlatformFeeWalletAddress as getEthPlatformFeeWalletAddress,
+  isEthConfigured,
+  walletToAddress as ethWalletToAddress,
+  startEthDepositWatcher,
+} from "./services/eth/index.js";
+import {
   getMtprotoHelper,
   isMtprotoHelperConfigured,
   stopMtprotoHelper,
@@ -78,9 +85,29 @@ async function main(): Promise<void> {
     );
   }
 
-  if (!isSolanaConfigured() && !isLtcConfigured()) {
+  if (isEthConfigured()) {
+    const master = getEthMasterWallet();
+    if (master) {
+      const masterAddr = ethWalletToAddress(master);
+      console.log(`Escrow ETH mainnet attivo. Master address: ${masterAddr}`);
+      const feeWallet = getEthPlatformFeeWalletAddress();
+      console.log(
+        `Fee piattaforma ETH (5% release): ${feeWallet ?? masterAddr}` +
+          (config.ethFeeAddress ? " (FEE_WALLET_ETH)" : " (= master)"),
+      );
+      console.log(
+        "⚠️ Hot wallet ETH: tieni solo importi di test piccoli. Secret solo su Render env.",
+      );
+    }
+  } else {
     console.warn(
-      "Nessuna chiave escrow (SOL/LTC): /crea on-chain disabilitato.",
+      "ETH_PRIVATE_KEY assente: deal ETH disabilitati finché non la imposti.",
+    );
+  }
+
+  if (!isSolanaConfigured() && !isLtcConfigured() && !isEthConfigured()) {
+    console.warn(
+      "Nessuna chiave escrow (SOL/LTC/ETH): /crea on-chain disabilitato.",
     );
   }
 
@@ -226,6 +253,13 @@ async function main(): Promise<void> {
       ? config.ltcWatchIntervalMs
       : 20_000,
   );
+  const ethWatcher = startEthDepositWatcher(
+    store,
+    bot.api,
+    Number.isFinite(config.ethWatchIntervalMs)
+      ? config.ethWatchIntervalMs
+      : 20_000,
+  );
 
   const groupBindExpiry = startGroupBindExpiryWatcher(store, bot.api, 30_000);
   // ~1 min post-payout: tick ogni 15s così la delete arriva vicino al minuto.
@@ -244,6 +278,7 @@ async function main(): Promise<void> {
   const stop = async () => {
     watcher.stop();
     ltcWatcher.stop();
+    ethWatcher.stop();
     groupBindExpiry.stop();
     groupCloseCleanup.stop();
     usernameRefresh.stop();

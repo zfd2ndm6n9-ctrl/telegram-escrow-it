@@ -74,7 +74,11 @@ const MENU_TEXTS = new Set([
   "🛒 Sono il buyer",
   "🏪 Sono il seller",
   "◎ SOL",
+  "Ξ ETH",
+  "ETH",
   "ETH (presto)",
+  "Ł LTC",
+  "LTC",
   "LTC (presto)",
 ]);
 
@@ -323,8 +327,13 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     await pickAsset(ctx, "LTC");
   });
 
+  bot.hears(["Ξ ETH", "ETH"], async (ctx) => {
+    await pickAsset(ctx, "ETH");
+  });
+
   bot.hears("ETH (presto)", async (ctx) => {
-    await assetComingSoon(ctx, "ETH");
+    // Legacy label pre-ETH-live
+    await pickAsset(ctx, "ETH");
   });
 
   bot.hears("LTC (presto)", async (ctx) => {
@@ -357,7 +366,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
     await ctx.answerCallbackQuery();
-    if (asset === "SOL" || asset === "LTC") {
+    if (asset === "SOL" || asset === "LTC" || asset === "ETH") {
       await pickAsset(ctx, asset);
       return;
     }
@@ -681,11 +690,7 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
     return;
   }
 
-  if (asset === "ETH" || !isAssetConfigured(asset)) {
-    if (asset === "ETH") {
-      await assetComingSoon(ctx, asset);
-      return;
-    }
+  if (!isAssetConfigured(asset)) {
     await replaceCreatingPrompt(ctx, () =>
       ctx.reply(it.assetNotConfigured(asset), {
         parse_mode: "Markdown",
@@ -704,7 +709,11 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
 
   const role = creating.role;
   const placeholder =
-    asset === "LTC" ? "PENDING_LTC_ESCROW" : "PENDING_SOL_ESCROW";
+    asset === "LTC"
+      ? "PENDING_LTC_ESCROW"
+      : asset === "ETH"
+        ? "PENDING_ETH_ESCROW"
+        : "PENDING_SOL_ESCROW";
   const creatorDisplayName = [ctx.from.first_name, ctx.from.last_name]
     .filter(Boolean)
     .join(" ");
