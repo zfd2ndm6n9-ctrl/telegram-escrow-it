@@ -376,11 +376,44 @@ export async function payoutDealSol(
       console.error(
         `payoutDealSol #${dealId} attempt ${attempt}/${MAX_PAYOUT_ATTEMPTS} failed: ${classified.code} — ${classified.message}`,
       );
+
+      // Timeout/confirm race: la tx può essere già landata → escrow a 0.
+      // Senza questo, retry con ix stale → "funds" e deal stuck pending.
+      try {
+        const balNow = BigInt(await connection.getBalance(escrow.publicKey));
+        if (balNow <= 0n) {
+          return {
+            ok: false,
+            error: "Saldo escrow a 0: niente da trasferire (già pagato?)",
+            errorCode: "empty_escrow",
+          };
+        }
+      } catch (balErr) {
+        console.warn(
+          `payoutDealSol #${dealId} post-fail getBalance:`,
+          balErr instanceof Error ? balErr.message : balErr,
+        );
+      }
+
       if (!isRetryableBlockhashError(err) || attempt === MAX_PAYOUT_ATTEMPTS) {
         break;
       }
       await sleep(400 * attempt);
     }
+  }
+
+  // Ultimo check: confirm timeout finale ma escrow già svuotato.
+  try {
+    const balFinal = BigInt(await connection.getBalance(escrow.publicKey));
+    if (balFinal <= 0n) {
+      return {
+        ok: false,
+        error: "Saldo escrow a 0: niente da trasferire (già pagato?)",
+        errorCode: "empty_escrow",
+      };
+    }
+  } catch {
+    // soft — fall through to classified error
   }
 
   const classified = classifyPayoutError(lastErr);

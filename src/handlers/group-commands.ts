@@ -1473,13 +1473,14 @@ async function handlePayOrRefund(
     const voteKey = kind === "release" ? "releaseVotes" : "refundVotes";
     const prevVotes = latest[voteKey];
 
-    // Già 2/2 release: riprendi review o payout (crash / re-tap / alreadyVoted).
-    if (
-      kind === "release" &&
-      prevVotes.length >= 2 &&
-      !latest.payoutCompleted
-    ) {
+    // Già 2/2: riprendi review/payout (crash / re-tap / alreadyVoted).
+    // Release e refund — senza questo, refund_pending resta stuck dopo fail RPC.
+    if (prevVotes.length >= 2 && !latest.payoutCompleted) {
       await answerCbOk(ctx);
+      if (kind === "refund") {
+        await runPayout(ctx, latest, "refund");
+        return;
+      }
       await afterReleaseVotesReady(ctx, latest);
       return;
     }
@@ -1862,6 +1863,17 @@ async function handleConfirmRefund(ctx: BotContext): Promise<void> {
   if (await rejectFrozenDealActions(ctx, deal)) return;
   const expectedId = pendingVoterId(deal, deal.refundVotes);
   if (expectedId == null) {
+    // 2/2 senza payout: riprendi (RPC fail / crash mid-payout).
+    if (
+      deal.refundVotes.length >= 2 &&
+      !deal.payoutCompleted &&
+      deal.status === "refund_pending"
+    ) {
+      await answerCbOk(ctx);
+      await stripCallbackKeyboard(ctx);
+      await runPayout(ctx, deal, "refund");
+      return;
+    }
     if (deal.refundVotes.includes(ctx.from.id)) {
       // 2/2 già chiuso / payout: togli Confermo sticky.
       if (deal.refundVotes.length >= 2 || payoutInFlight.has(deal.id)) {
@@ -1916,27 +1928,42 @@ async function handleCancelDualConfirm(
 
   const pendingStatus = kind === "release" ? "release_pending" : "refund_pending";
   const voteKey = kind === "release" ? "releaseVotes" : "refundVotes";
-  const votes = deal[voteKey];
+
+  // Rileggi: evita race con 2° voto / payout in flight.
+  const live = ctx.store.get(deal.id) ?? deal;
+  const votes = live[voteKey];
 
   // Solo con conferma aperta (1/2): niente da abortire altrimenti.
-  if (deal.status !== pendingStatus || votes.length === 0) {
+  if (live.status !== pendingStatus || votes.length === 0) {
     await answerCbOk(ctx);
     return;
   }
   // 2/2 già chiuso / payout in corso: troppo tardi.
-  if (votes.length >= 2 || deal.payoutCompleted) {
+  if (votes.length >= 2 || live.payoutCompleted || payoutInFlight.has(live.id)) {
     await answerCbOk(ctx);
     return;
   }
 
   await answerCbOk(ctx);
 
+  // CAS: solo se ancora 1/2 pending (2° voto non ha già scritto).
+  const again = ctx.store.get(live.id) ?? live;
+  if (
+    again.status !== pendingStatus ||
+    again[voteKey].length !== votes.length ||
+    again[voteKey].length >= 2 ||
+    again.payoutCompleted ||
+    payoutInFlight.has(again.id)
+  ) {
+    return;
+  }
+
   let updated =
-    ctx.store.update(deal.id, {
+    ctx.store.update(again.id, {
       [voteKey]: [],
       status: "funded",
       pendingSelfConfirm: undefined,
-    }) ?? deal;
+    }) ?? again;
 
   updated = await clearEphemeralReplies(ctx.api, ctx.store, updated);
   updated = await clearRoleError(ctx.api, ctx.store, updated);
