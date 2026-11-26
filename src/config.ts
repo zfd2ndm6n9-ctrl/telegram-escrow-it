@@ -173,6 +173,34 @@ export const config = {
       process.env.SOLANA_WATCH_INTERVAL_MS?.trim() ||
       "20000",
   ),
+  /**
+   * Secret Ethereum MAINNET (hex 32 byte, opz. `0x`). Solo env / Render — mai in repo.
+   * Opzionale a boot: senza chiave i deal ETH non partono.
+   * Master = derive escrow per-deal (HMAC) + default destinazione fee se
+   * `FEE_WALLET_ETH` assente. Gas nativo esce dal saldo escrow.
+   */
+  ethPrivateKey: process.env.ETH_PRIVATE_KEY?.trim() || undefined,
+  /**
+   * Destinazione fee piattaforma ETH (5% o 2.5% con invito + wallet ETH collab).
+   * Se assente → address della master (`ETH_PRIVATE_KEY`).
+   * Solo address mainnet (`0x…`) — niente secret.
+   */
+  ethFeeAddress:
+    process.env.FEE_WALLET_ETH?.trim() ||
+    process.env.ETH_FEE_ADDRESS?.trim() ||
+    undefined,
+  /**
+   * RPC Ethereum. Default: pubblico (publicnode).
+   * Consigliato in prod: Alchemy / Infura / QuickNode / Helius.
+   */
+  ethRpcUrl:
+    process.env.ETH_RPC_URL?.trim() || "https://ethereum.publicnode.com",
+  /** Intervallo poll depositi ETH (ms). Default = stesso di SOL. */
+  ethWatchIntervalMs: Number(
+    process.env.ETH_WATCH_INTERVAL_MS?.trim() ||
+      process.env.SOLANA_WATCH_INTERVAL_MS?.trim() ||
+      "20000",
+  ),
   defaultAsset: "SOL" as const,
   /**
    * Cartella persistente per deals.json, members.json, invites.json, …

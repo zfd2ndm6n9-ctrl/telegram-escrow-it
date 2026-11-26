@@ -94,7 +94,7 @@ export function roleKeyboard(): InlineKeyboard {
 }
 
 /**
- * Crypto step: SOL + LTC live; ETH coming soon.
+ * Crypto step: SOL + LTC + ETH live.
  * Inline so free text / phone keyboard does not hide choices.
  * Callbacks: `crea_asset:SOL` | `crea_asset:ETH` | `crea_asset:LTC` | `crea_cancel`.
  */
@@ -102,7 +102,7 @@ export function assetKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("◎ SOL", "crea_asset:SOL")
     .text("Ł LTC", "crea_asset:LTC")
-    .text("ETH (presto)", "crea_asset:ETH")
+    .text("Ξ ETH", "crea_asset:ETH")
     .row()
     .text("❌ Annulla", "crea_cancel");
 }

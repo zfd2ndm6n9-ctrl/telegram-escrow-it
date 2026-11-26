@@ -2,7 +2,6 @@
 
 **Per:** Francesco  
 **Asset:** LTC (mainnet), stesso flusso deal di SOL.  
-**Fuori scope in questo PR:** ETH.  
 **Secret:** solo env Render — mai repo / store / chat.
 
 ## Modello (allineato a SOL)

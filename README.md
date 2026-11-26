@@ -4,23 +4,23 @@ Bot Telegram di **escrow crypto** per il mercato italiano (**Escrowita**) — pe
 
 - Dopo `/crea`: crea un **gruppo privato**, aggiungi il bot come **admin**, poi `/avvia`
 - Buyer + seller + bot nel gruppo; il **supporto** entra solo in disputa
-- UI in italiano · asset MVP: **SOL** + **LTC** (mainnet) — soldi veri
-- Roadmap asset: ETH dopo (niente USDT)
+- UI in italiano · asset MVP: **SOL** + **LTC** + **ETH** (mainnet) — soldi veri
+- Niente USDT
 
-Stack: **Node.js + TypeScript + [grammY](https://grammy.dev) + [teleproto](https://docs.teleproto.dev) (opzionale) + [@solana/web3.js](https://github.com/solana-foundation/solana-web3.js) + [bitcoinjs-lib](https://github.com/bitcoinjs/bitcoinjs-lib) (LTC)** · store JSON (`data/deals.json`, `data/members.json`)
+Stack: **Node.js + TypeScript + [grammY](https://grammy.dev) + [teleproto](https://docs.teleproto.dev) (opzionale) + [@solana/web3.js](https://github.com/solana-foundation/solana-web3.js) + [bitcoinjs-lib](https://github.com/bitcoinjs/bitcoinjs-lib) (LTC) + [ethers](https://docs.ethers.org) (ETH)** · store JSON (`data/deals.json`, `data/members.json`)
 
 ## ⚠️ Sicurezza hot wallet
 
-- I fondi in escrow stanno su account **derivati** da una chiave master (`SOLANA_PRIVATE_KEY` / `LTC_PRIVATE_KEY`)
+- I fondi in escrow stanno su account **derivati** da una chiave master (`SOLANA_PRIVATE_KEY` / `LTC_PRIVATE_KEY` / `ETH_PRIVATE_KEY`)
 - È un modello **custodial** durante il deal: chi ha la chiave controlla i fondi
-- **Inizia con importi di test piccoli** (es. `0.01` SOL / poco LTC)
+- **Inizia con importi di test piccoli** (es. `0.01` SOL / poco LTC / poco ETH)
 - **Non** committare mai le chiavi private; mettile solo nelle env del servizio Render
 
 ## Requisiti
 
 - Node.js 20+
 - Bot da [@BotFather](https://t.me/BotFather)
-- `TELEGRAM_BOT_TOKEN` + almeno una tra `SOLANA_PRIVATE_KEY` / `LTC_PRIVATE_KEY` (mai committare)
+- `TELEGRAM_BOT_TOKEN` + almeno una tra `SOLANA_PRIVATE_KEY` / `LTC_PRIVATE_KEY` / `ETH_PRIVATE_KEY` (mai committare)
 - Helper MTProto **opzionale** (solo se `TELEGRAM_BOT_CREATES_GROUPS=1`) — vedi [`docs/bot-created-groups.md`](./docs/bot-created-groups.md)
 
 ## Setup
@@ -30,9 +30,10 @@ git clone https://github.com/zfd2ndm6n9-ctrl/telegram-escrow-it.git
 cd telegram-escrow-it
 npm install
 cp .env.example .env
-# Imposta TELEGRAM_BOT_TOKEN, SOLANA_PRIVATE_KEY e/o LTC_PRIVATE_KEY, opzionalmente ADMIN_TELEGRAM_ID(S)
+# Imposta TELEGRAM_BOT_TOKEN + almeno una chiave asset, opzionalmente ADMIN_TELEGRAM_ID(S)
 npm run solana:keygen   # genera keypair SOL; salva secret offline / su Render
 npm run ltc:keygen      # genera keypair LTC; salva secret offline / su Render
+npm run eth:keygen      # genera keypair ETH; salva secret offline / su Render
 ```
 
 ### Variabili d'ambiente (Render)
@@ -49,6 +50,10 @@ npm run ltc:keygen      # genera keypair LTC; salva secret offline / su Render
 | `LTC_API_URL` | no | Default `https://litecoinspace.org/api`. Alt: BlockCypher `https://api.blockcypher.com/v1/ltc/main` |
 | `LTC_API_TOKEN` | no | Token BlockCypher se usi quel provider |
 | `LTC_WATCH_INTERVAL_MS` | no | Poll depositi LTC (default = SOL o `20000`) |
+| `ETH_PRIVATE_KEY` | sì per deal ETH | Hex 32 byte (opz. `0x`). Solo env Render. Derive escrow per-deal |
+| `FEE_WALLET_ETH` | sì in prod (ETH) | Address fee 5% release ETH. Alias: `ETH_FEE_ADDRESS`. Se assente = master |
+| `ETH_RPC_URL` | no | RPC mainnet. Default `https://ethereum.publicnode.com`. Consigliato: Alchemy / Infura / QuickNode |
+| `ETH_WATCH_INTERVAL_MS` | no | Poll depositi ETH (default = SOL o `20000`) |
 | `ADMIN_TELEGRAM_ID` | sì in prod | User id admin (dispute + `/log` + force + `/iscritti` + `/codice` + `/admin_wipe_deals`) |
 | `ADMIN_TELEGRAM_IDS` | no | Lista admin (csv). Unita a `ADMIN_TELEGRAM_ID` |
 | `PUBLIC_BASE_URL` | sì in prod (Web) | Host HTTPS del servizio (es. `https://….onrender.com`). Mini App ToS = `/tos`. Fallback: `RENDER_EXTERNAL_URL` |
@@ -64,7 +69,7 @@ npm run ltc:keygen      # genera keypair LTC; salva secret offline / su Render
 | `APP_ENV` | no | `staging` \| `production` \| `development`. Imposta i default di `CREATE_GATE` |
 | `CREATE_GATE` | no | `open` \| `invite` \| `admin`. Soft-launch live = `invite`; staging = `admin`. Con `NODE_ENV`/`APP_ENV=production`, `open` viene coercizzato a `invite` |
 
-Documentazione: [`docs/TOS.md`](./docs/TOS.md) (Termini; Mini App `/tos`) · [`docs/solana-escrow.md`](./docs/solana-escrow.md) · [`docs/ltc-escrow.md`](./docs/ltc-escrow.md) · [`docs/bot-created-groups.md`](./docs/bot-created-groups.md). Staging/live: playbook store `docs/staging-live-promote.md`.
+Documentazione: [`docs/TOS.md`](./docs/TOS.md) (Termini; Mini App `/tos`) · [`docs/solana-escrow.md`](./docs/solana-escrow.md) · [`docs/ltc-escrow.md`](./docs/ltc-escrow.md) · [`docs/eth-escrow.md`](./docs/eth-escrow.md) · [`docs/bot-created-groups.md`](./docs/bot-created-groups.md). Staging/live: playbook store `docs/staging-live-promote.md`.
 
 **ToS in Telegram:** Mini App su `/tos` (sola lettura; serve **Web Service** HTTPS + `PUBLIC_BASE_URL` o `RENDER_EXTERNAL_URL`). Dopo bind controparte il bot **pinna** «Leggi i Termini» (opzionale). *Accetta* / *Proponi i ToS* restano callback sulla card gruppo (`tosok`), non Mini App. Canale vouch: teaser pinnato + menu button bot «📄 Termini» (soft-fail sul canale). Boot: re-pin solo se esiste `DATA_DIR/vouch-tos-pin.json`; creare/sostituire con admin `/pin_tos`.
 
@@ -77,7 +82,7 @@ npm run build && npm start
 npm run build && npm run start:forever
 ```
 
-Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /healthz`. Il bot resta in **long-polling** Telegram e avvia i **deposit watcher** SOL e LTC (se configurati).
+Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /healthz`. Il bot resta in **long-polling** Telegram e avvia i **deposit watcher** SOL, LTC e ETH (se configurati).
 
 ### Deploy always-on (Render)
 
@@ -92,7 +97,7 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 ### In privato
 
 1. `/start` → iscrizione (anche senza `@`: «utente» + soft remind) → entra nel **canale reviews** (hard gate) → `/crea`
-2. Soft-launch: **codice invito obbligatorio** → ruolo (*buyer* / *seller*) → crypto (*SOL* live; ETH/LTC presto) — solo **inline buttons** (niente reply keyboard Crea/I miei sotto la tastiera telefono) — **niente wallet in DM**
+2. Soft-launch: **codice invito obbligatorio** → ruolo (*buyer* / *seller*) → crypto (*SOL* / *LTC* / *ETH* live) — solo **inline buttons** (niente reply keyboard Crea/I miei sotto la tastiera telefono) — **niente wallet in DM**
 3. Chi apre (`/crea`) risponde alle **3 domande** termini in DM (Prodotto/servizio → Prezzo € → Condizioni)
 4. **Path preferito (helper MTProto):** il servizio crea il gruppo → effimero «Sto creando il gruppo…» → DM «Il tuo gruppo è stato creato» + link + «entra nel gruppo e invita il buyer/seller» → nel gruppo due messaggi (link + *Invita il …*) → join → delete entrambi → bind → ToS. Path manuale (crea gruppo tu → bot admin → `/avvia`) solo emergenza / `TELEGRAM_BOT_CREATES_GROUPS=0`.
 
@@ -171,7 +176,7 @@ Dettagli: [`docs/solana-escrow.md`](./docs/solana-escrow.md).
 
 - Hot wallet custodial (rischio chiave / exit)
 - Store file-based: senza Persistent Disk su Render i deal non sopravvivono al redeploy
-- Niente LTC/ETH ancora; niente fiat/SEPA
+- Niente fiat/SEPA
 - Niente partial pay / community / marketplace
 
 ## Licenza

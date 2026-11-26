@@ -260,7 +260,8 @@ export function amountConfirmed(deal: Deal): boolean {
  */
 export function lockedCryptoAmount(deal: Deal): string | null {
   if (!amountConfirmed(deal)) return null;
-  const maxDec = deal.asset === "LTC" ? 8 : 9;
+  const maxDec =
+    deal.asset === "LTC" ? 8 : deal.asset === "ETH" ? 18 : 9;
   return parseAmount(deal.amount, maxDec) ? deal.amount : null;
 }
 

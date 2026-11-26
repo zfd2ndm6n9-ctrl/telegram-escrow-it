@@ -39,7 +39,7 @@ export type PendingSelfConfirm = {
   userId: number;
 };
 
-/** SOL + LTC live; ETH roadmap. Niente USDT. */
+/** SOL + LTC + ETH live. Niente USDT. */
 export type Asset = "SOL" | "ETH" | "LTC";
 export type PartyRole = "buyer" | "seller";
 
