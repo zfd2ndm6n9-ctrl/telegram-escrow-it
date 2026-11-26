@@ -270,13 +270,14 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
     await ctx.answerCallbackQuery();
+    const skipped = await completeInviteSkip(ctx);
+    if (!skipped) return;
+    // Solo dopo skip ok: togli Annulla (con CREATE_GATE=invite resta).
     try {
       await ctx.editMessageReplyMarkup({ reply_markup: undefined });
     } catch {
       // ok
     }
-    const skipped = await completeInviteSkip(ctx);
-    if (!skipped) return;
     if (ctx.session.creating?.step === "invite") {
       await proceedToRoleStep(ctx);
     }
@@ -330,11 +331,11 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       await ctx.answerCallbackQuery();
       return;
     }
-    const step = ctx.session.creating?.step;
-    if (step !== "invite" && step !== "role") {
+    if (!ctx.session.creating) {
       await ctx.answerCallbackQuery({ text: "Niente da annullare" });
       return;
     }
+    // Qualsiasi step (incl. legacy "asset" da sessioni pre-SOL-only).
     await ctx.answerCallbackQuery({ text: "Annullato" });
     await cancelCreateWizard(ctx);
   });
@@ -456,7 +457,16 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    await next();
+    // Legacy / unknown step (es. "asset" pre-SOL-only): reset a ruolo.
+    ctx.session.creating = {
+      step: "role",
+      inviteCode: creating.inviteCode,
+      collaboratorUserId: creating.collaboratorUserId,
+      collaboratorWallet: creating.collaboratorWallet,
+    };
+    await replaceCreatingPrompt(ctx, () =>
+      ctx.reply(it.askRole, { reply_markup: roleKeyboard() }),
+    );
   });
 }
 
