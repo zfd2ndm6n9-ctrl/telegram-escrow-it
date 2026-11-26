@@ -3,6 +3,14 @@ import { PublicKey } from "@solana/web3.js";
 import type { BotContext } from "../context.js";
 import { isAdminUser } from "../services/deal-logic.js";
 import { formatDealEvidenceFacts, it } from "../messages/it.js";
+import {
+  OUTREACH_BOT_USERNAME,
+  OUTREACH_USAGE,
+  outreachBody,
+  outreachBotUrl,
+  resolveOutreachAudience,
+} from "../messages/outreach.js";
+import { outreachOpenBotKeyboard } from "../keyboards/menus.js";
 import { replyAdminDenied, replyWithMainMenu } from "../services/dm-hygiene.js";
 import { publishIscrittiCount } from "../services/public-count.js";
 import { registerHandleFromMessage } from "../services/registration.js";
@@ -701,6 +709,37 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       it.feeDisclosureShort(),
     ].join("\n");
     await ctx.reply(body, { parse_mode: "Markdown" });
+  });
+
+  /**
+   * Admin: preview outreach da inoltrare (DM).
+   * /outreach escrow | /outreach seller
+   */
+  bot.command("outreach", async (ctx) => {
+    if (!ctx.from || !isAdminUser(ctx.from.id)) {
+      await replyAdminDenied(ctx);
+      return;
+    }
+    if (ctx.chat?.type !== "private") {
+      await ctx.reply("Usa `/outreach` in privato col bot.", {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+
+    const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
+    const audience = resolveOutreachAudience(parts[1]);
+    if (!audience) {
+      await ctx.reply(OUTREACH_USAGE, { parse_mode: "Markdown" });
+      return;
+    }
+
+    const botUser = config.botUsername ?? OUTREACH_BOT_USERNAME;
+    const url = outreachBotUrl(botUser);
+    await ctx.reply(outreachBody(audience), {
+      parse_mode: "Markdown",
+      reply_markup: outreachOpenBotKeyboard(url),
+    });
   });
 
   /**
