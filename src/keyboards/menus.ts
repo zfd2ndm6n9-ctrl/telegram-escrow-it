@@ -50,9 +50,12 @@ export function inviteMissingPartyKeyboard(
   );
 }
 
-/** Invito opzionale su /crea: niente `/skip` tappable nel testo. */
-export function inviteSkipKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("Nessun codice", "invite_skip");
+/**
+ * Prompt invito su /crea: solo Annulla.
+ * Soft-launch: codice obbligatorio — nessun CTA di skip sulla keyboard.
+ */
+export function invitePromptKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("❌ Annulla", "crea_cancel");
 }
 
 /** Redirect gruppo → DM bot (deep-link opzionale `?start=crea`). */

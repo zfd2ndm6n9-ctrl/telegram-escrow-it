@@ -28,13 +28,30 @@ assert.doesNotMatch(startSrc, /askInviteOptional\(/);
 assert.match(startSrc, /pendingCrea/);
 assert.match(startSrc, /beginCreateDealFlow/);
 
-// /crea chiede invito + skip silenzioso
+// /crea chiede invito (skip solo legacy callback/comando; no CTA keyboard)
 assert.match(creaSrc, /askInviteOptional\(/);
 assert.match(creaSrc, /completeInviteSkip/);
 assert.match(creaSrc, /proceedToRoleStep/);
 assert.match(creaSrc, /creaInGroup/);
 assert.match(creaSrc, /openBotDmKeyboard/);
 assert.match(creaSrc, /start=crea/);
+assert.match(creaSrc, /step !== "invite"/); // crea_cancel anche su invite
+
+{
+  const menusSrc = readFileSync(resolve(root, "src/keyboards/menus.ts"), "utf8");
+  const inviteSrc = readFileSync(
+    resolve(root, "src/services/invite-step.ts"),
+    "utf8",
+  );
+  assert.match(menusSrc, /invitePromptKeyboard/);
+  assert.match(menusSrc, /crea_cancel/);
+  assert.doesNotMatch(menusSrc, /\.text\("Nessun codice"/);
+  assert.doesNotMatch(menusSrc, /"invite_skip"/);
+  assert.match(inviteSrc, /invitePromptKeyboard\(/);
+  assert.doesNotMatch(inviteSrc, /inviteSkipKeyboard/);
+  assert.doesNotMatch(it.askInviteOptional, /Nessun codice/i);
+  assert.doesNotMatch(it.createGateInviteAsk, /opzionale|tocca/i);
+}
 
 // Step invite sul creating session
 assert.match(creaSrc, /step: "invite"/);

@@ -349,7 +349,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
     const step = ctx.session.creating?.step;
-    if (step !== "role" && step !== "asset") {
+    if (step !== "invite" && step !== "role" && step !== "asset") {
       await ctx.answerCallbackQuery({ text: "Niente da annullare" });
       return;
     }
@@ -437,8 +437,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
         return;
       }
 
-      // Testo non-codice: ignora — cancella echo e ripropone inline «Nessun codice»
-      // così i bottoni restano in fondo anche dopo apertura tastiera telefono.
+      // Testo non-codice: ignora — cancella echo e ripropone prompt + Annulla.
       await repromptInviteStep(ctx);
       return;
     }
@@ -497,7 +496,7 @@ async function cancelCreateWizard(
   await replyWithMainMenu(ctx, it.cancelled);
 }
 
-/** Free text mid-invite: delete user echo + re-send prompt with inline skip. */
+/** Free text mid-invite: delete user echo + re-send prompt (codice + Annulla). */
 async function repromptInviteStep(ctx: BotContext): Promise<void> {
   if (ctx.chat?.type !== "private") return;
   if (ctx.message?.message_id != null) {

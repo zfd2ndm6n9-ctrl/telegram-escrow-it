@@ -162,9 +162,8 @@ ${inviteLink}
 
 Entra, poi *Sono entrato* o \`/start\`.`,
 
-  /** Opzionale su ogni /crea (si aggancia al deal). */
-  askInviteOptional:
-    "🔑 Codice invito? Invia il codice oppure tocca *Nessun codice*.",
+  /** Prompt invito su /crea (dev `open`; soft-launch usa createGateInviteAsk). */
+  askInviteOptional: "🔑 Codice invito? Invia il codice.",
 
   /**
    * @deprecated Apply invito è silenzioso in DM; il codice compare solo

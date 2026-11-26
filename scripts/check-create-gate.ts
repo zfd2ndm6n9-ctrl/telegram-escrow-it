@@ -117,6 +117,16 @@ function loadConfig(env: NodeJS.ProcessEnv): {
   assert.match(inviteSrc, /createGate === "invite"/);
   assert.match(inviteSrc, /createGateInviteAsk/);
   assert.match(inviteSrc, /isRetiredInviteCode/);
+  assert.match(inviteSrc, /invitePromptKeyboard/);
+  assert.doesNotMatch(inviteSrc, /inviteSkipKeyboard/);
+
+  const menusSrc = readFileSync(
+    resolve(root, "src/keyboards/menus.ts"),
+    "utf8",
+  );
+  assert.match(menusSrc, /function invitePromptKeyboard/);
+  assert.doesNotMatch(menusSrc, /\.text\("Nessun codice"/);
+  assert.doesNotMatch(menusSrc, /"invite_skip"/);
 
   const invitesSrc = readFileSync(
     resolve(root, "src/store/invites.ts"),
