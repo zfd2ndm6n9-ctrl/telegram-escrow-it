@@ -797,7 +797,7 @@ async function applyWallet(
 }
 
 /**
- * Stato: solo fase deposito (In attesa / Rilevato / Confermato) + SOL + EUR.
+ * Stato: una riga In attesa / Rilevato / Confermato + progresso € (niente SOL).
  * Se il check fonda il deal → pin DEPOSITO CONFERMATO + ship ask (niente summary `#id — Confermato`).
  * Altrimenti reply con ← Indietro (igiene: niente tastiera azioni duplicate).
  */
@@ -833,6 +833,7 @@ async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
       depositLine = "• Deposito: verifica non riuscita";
     } else {
       depositLine = it.depositStatusBullets(
+        current,
         result.balanceSol,
         result.expectedSol,
         result.funded,

@@ -11,6 +11,7 @@ import { registerDealViewHandlers } from "./handlers/deals.js";
 import { registerGroupHygieneHandlers } from "./handlers/group-hygiene.js";
 import { registerGroupLifecycleHandlers } from "./handlers/group-lifecycle.js";
 import { registerGroupCommandHandlers } from "./handlers/group-commands.js";
+import { setGroupCompromiseDealLogs } from "./services/group-compromise.js";
 import { deleteMessageSafe } from "./services/prompt-cleanup.js";
 
 export type CreatedBot = {
@@ -26,6 +27,7 @@ export function createBot(token: string): CreatedBot {
   const members = new MemberStore(config.dataDir);
   const invites = new InviteStore(config.dataDir);
   const dealLogs = new DealLogStore(config.dataDir);
+  setGroupCompromiseDealLogs(dealLogs);
   const bot = new Bot<BotContext>(token);
 
   bot.use(async (ctx, next) => {

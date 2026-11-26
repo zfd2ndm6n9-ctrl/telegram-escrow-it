@@ -1,8 +1,16 @@
 import type { Api } from "grammy";
 import { config } from "../config.js";
 import { it } from "../messages/it.js";
+import type { DealLogStore } from "../store/deal-logs.js";
 import type { DealStore } from "../store/deals.js";
 import type { Deal, DealStatus, GroupCompromiseReason } from "../types.js";
+
+/** Opzionale: log silenzioso su wipe card (niente reply in gruppo). */
+let dealLogsRef: DealLogStore | undefined;
+
+export function setGroupCompromiseDealLogs(logs: DealLogStore): void {
+  dealLogsRef = logs;
+}
 
 const TERMINAL: DealStatus[] = ["released", "refunded", "cancelled"];
 
@@ -70,6 +78,17 @@ export async function markGroupCompromised(
     `Group compromised #${updated.id} reason=${reason}` +
       (opts?.detail ? ` (${opts.detail})` : ""),
   );
+
+  // Log silenzioso per /deal|/log — mai reply di igiene in gruppo su delete.
+  try {
+    dealLogsRef?.appendEvent(
+      updated.id,
+      `group_compromised:${reason}` +
+        (opts?.detail ? ` (${opts.detail.slice(0, 80)})` : ""),
+    );
+  } catch {
+    // store log best-effort
+  }
 
   await notifyAdminsGroupCompromised(api, updated, reason);
   return store.get(updated.id) ?? updated;

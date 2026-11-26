@@ -198,6 +198,25 @@ export async function clearCounterpartInviteMessages(
 }
 
 /**
+ * Cancella i DM invite-link del creator (e simili) quando la controparte entra.
+ * Best-effort: messaggio già cancellato / chat privata → skip.
+ */
+export async function clearCreatorInviteDms(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  const ids = deal.dmCreatorInviteMessageIds;
+  if (!ids?.length) return deal;
+  for (const msgId of ids) {
+    await deleteMessageSafe(api, deal.creatorId, msgId);
+  }
+  return (
+    store.update(deal.id, { dmCreatorInviteMessageIds: undefined }) ?? deal
+  );
+}
+
+/**
  * Helper awaiting: due messaggi separati —
  * (A) solo invite link, (B) «Invita il buyer/seller».
  * Idempotente se entrambi già tracciati.
@@ -274,6 +293,13 @@ export async function refreshGroupSetupCard(
     current.counterpartInviteHintMessageId != null
   ) {
     current = await clearCounterpartInviteMessages(api, store, current);
+  }
+  // Controparte presente → pulisci anche i DM invite del creator.
+  if (
+    bothPartiesPresent(current) &&
+    (current.dmCreatorInviteMessageIds?.length ?? 0) > 0
+  ) {
+    current = await clearCreatorInviteDms(api, store, current);
   }
 
   if (

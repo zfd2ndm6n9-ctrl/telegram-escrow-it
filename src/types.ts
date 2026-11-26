@@ -278,6 +278,11 @@ export interface Deal {
    */
   dmGroupInstructionsMessageId?: number;
   /**
+   * DM creator col link invito gruppo (post-create helper).
+   * Cancellati quando la controparte entra (chat DM pulita).
+   */
+  dmCreatorInviteMessageIds?: number[];
+  /**
    * Message id del notice «deal scaduto» in DM del creator
    * (cancellato al prossimo /crea).
    */

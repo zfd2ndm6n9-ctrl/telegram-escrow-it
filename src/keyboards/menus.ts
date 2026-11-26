@@ -143,12 +143,12 @@ export function vouchTosUrlKeyboard(tosWebAppUrl: string): InlineKeyboard {
 
 /** Gruppo: pin Mini App ToS in sola lettura (niente Accetta). */
 export function groupTosMiniAppKeyboard(tosUrl: string): InlineKeyboard {
-  return new InlineKeyboard().webApp("📄 Leggi i Termini", tosUrl);
+  return new InlineKeyboard().webApp("Leggi", tosUrl);
 }
 
 /** Fallback URL se il gruppo rifiuta `web_app`. */
 export function groupTosMiniAppUrlKeyboard(tosUrl: string): InlineKeyboard {
-  return new InlineKeyboard().url("📄 Leggi i Termini", tosUrl);
+  return new InlineKeyboard().url("Leggi", tosUrl);
 }
 
 /** @deprecated Conferma ruolo rimossa: auto-bind su /avvia. */

@@ -42,6 +42,8 @@ export const BOT_ADMIN_RIGHTS = new Api.ChatAdminRights({
 /**
  * Default banned rights per i membri umani.
  * `true` = azione vietata. Lasciamo messaggi/testo per ToS e wallet.
+ * Nota Telegram: non esiste flag per vietare «cancella i propri messaggi»;
+ * le parti restano non-admin (niente can_delete_messages su altrui/bot).
  */
 export const MEMBER_DEFAULT_BANNED = new Api.ChatBannedRights({
   viewMessages: false,
@@ -67,7 +69,11 @@ export const MEMBER_DEFAULT_BANNED = new Api.ChatBannedRights({
   untilDate: 0,
 });
 
-/** Specchio Bot API di MEMBER_DEFAULT_BANNED (dopo che il bot è admin). */
+/**
+ * Specchio Bot API di MEMBER_DEFAULT_BANNED (dopo che il bot è admin).
+ * Niente invite/pin/change_info — solo chat deal. Delete altrui resta admin-only
+ * (helper/bot); demoteNonOwnerHumanAdmins toglie can_delete_messages alle parti.
+ */
 export const BOT_API_MEMBER_PERMISSIONS = {
   can_send_messages: true,
   can_send_audios: false,

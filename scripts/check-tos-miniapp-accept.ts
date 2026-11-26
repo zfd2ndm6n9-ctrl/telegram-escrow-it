@@ -69,8 +69,8 @@ if (!cardJson.includes("tospropose:abc")) {
 const pinUrl = "https://example.com/tos";
 const kbPin = groupTosMiniAppKeyboard(pinUrl);
 const pinJson = JSON.stringify(kbPin.inline_keyboard);
-if (!pinJson.includes("web_app") || !pinJson.includes("Leggi i Termini")) {
-  throw new Error("group pin must be web_app «Leggi i Termini»");
+if (!pinJson.includes("web_app") || !pinJson.includes('"Leggi"')) {
+  throw new Error("group pin must be web_app «Leggi»");
 }
 if (pinJson.includes("Accetta")) {
   throw new Error("group pin must not say Accetta");
@@ -78,8 +78,8 @@ if (pinJson.includes("Accetta")) {
 
 const kbUrl = groupTosMiniAppUrlKeyboard(pinUrl);
 const urlJson = JSON.stringify(kbUrl.inline_keyboard);
-if (!urlJson.includes("url") || !urlJson.includes("Leggi i Termini")) {
-  throw new Error("group pin url fallback must be «Leggi i Termini»");
+if (!urlJson.includes("url") || !urlJson.includes('"Leggi"')) {
+  throw new Error("group pin url fallback must be «Leggi»");
 }
 
 console.log("check-tos-miniapp-accept: ok");

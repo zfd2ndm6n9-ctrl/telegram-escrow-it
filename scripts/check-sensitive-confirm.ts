@@ -169,7 +169,7 @@ const baseDeal = {
   assert.match(it.buyerAfterShip(baseDeal), /Chiedi il rimborso/i);
 }
 
-// Stato bottone: solo fase deposito + SOL + EUR; niente seller/buyer/fee
+// Stato bottone: una riga fase + €; niente SOL / Importo / Prezzo clutter
 {
   const status = formatDepositStato({
     ...baseDeal,
@@ -177,9 +177,10 @@ const baseDeal = {
     priceEur: "10",
     inviteCode: "KEYTEST",
   });
-  assert.match(status, /• Deposito: \*In attesa\*/);
-  assert.match(status, /• Importo: \*0\.1 SOL\*/);
-  assert.match(status, /• Prezzo: \*10 €\*/);
+  assert.match(status, /• Deposito: \*In attesa\* — \*0\* \/ \*10 €\*/);
+  assert.ok(!/SOL/.test(status), "niente SOL in Stato");
+  assert.ok(!/• Importo:/.test(status));
+  assert.ok(!/• Prezzo:/.test(status));
   assert.ok(!/#deadbeef/.test(status));
   assert.ok(!/Seller/.test(status));
   assert.ok(!/Buyer/.test(status));
@@ -189,42 +190,65 @@ const baseDeal = {
   assert.ok(!/Invito:/.test(status));
 }
 
-// Stato + riga deposito: In attesa (0) → Rilevato → Confermato
+// Stato + riga deposito: In attesa (0 €) → Rilevato → Confermato
 {
+  const priced = { ...baseDeal, priceEur: "10" };
   assert.match(
-    it.depositStatusBullets("0", "0.1", false),
-    /• Deposito: \*In attesa\* — \*0\* \/ \*0\.1 SOL\*/,
+    it.depositStatusBullets(priced, "0", "0.1", false),
+    /• Deposito: \*In attesa\* — \*0\* \/ \*10 €\*/,
   );
   assert.match(
-    it.depositStatusBullets("0.01", "0.1", false),
-    /• Deposito: \*Rilevato\* — \*0\.01\* \/ \*0\.1 SOL\*/,
+    it.depositStatusBullets(priced, "0.01", "0.1", false),
+    /• Deposito: \*Rilevato\* — \*1 €\* \/ \*10 €\*/,
   );
   assert.match(
-    it.depositStatusBullets("0.1", "0.1", true),
-    /• Deposito: \*Confermato\* \(\*0\.1 SOL\*\)/,
+    it.depositStatusBullets(priced, "0.1", "0.1", true),
+    /• Deposito: \*Confermato\* — \*10 €\* \/ \*10 €\*/,
+  );
+  assert.ok(
+    !/SOL/.test(it.depositStatusBullets(priced, "0.01", "0.1", false)),
   );
   const withDep = formatDepositStato(
     { ...baseDeal, status: "awaiting_deposit", priceEur: "10" },
     {
-      depositLine: it.depositStatusBullets("0.01", "0.1", false),
+      depositLine: it.depositStatusBullets(priced, "0.01", "0.1", false),
       depositPhase: "rilevato",
     },
   );
   assert.match(withDep, /• Deposito: \*Rilevato\*/);
-  assert.match(withDep, /• Prezzo: \*10 €\*/);
+  assert.ok(!/• Prezzo:/.test(withDep));
+  assert.ok(!/• Importo:/.test(withDep));
   assert.ok(!/In attesa deposito/.test(withDep));
   assert.ok(!/Seller/.test(withDep));
   assert.ok(!withDep.includes(baseDeal.escrowAddress));
   const confirmed = formatDepositStato(
     { ...baseDeal, status: "funded", priceEur: "10" },
     {
-      depositLine: it.depositStatusBullets("0.1", "0.1", true),
+      depositLine: it.depositStatusBullets(priced, "0.1", "0.1", true),
       depositPhase: "confermato",
     },
   );
   assert.match(confirmed, /• Deposito: \*Confermato\*/);
   assert.ok(!/In attesa deposito/.test(confirmed));
   assert.ok(!/#deadbeef — Confermato/.test(confirmed));
+}
+
+// Dispute admin DM: solo #id + link
+{
+  const body = it.disputeAdminNotify(
+    baseDeal,
+    99,
+    "opener",
+    "https://t.me/+inviteAdmin",
+  );
+  assert.match(body, /🚨 Disputa #deadbeef/);
+  assert.match(body, /https:\/\/t\.me\/\+inviteAdmin/);
+  assert.ok(!/Escrow:/.test(body));
+  assert.ok(!/payseller/.test(body));
+  assert.ok(!/refundbuyer/.test(body));
+  assert.ok(!/Archiviati/.test(body));
+  assert.ok(!/wallet/i.test(body));
+  assert.equal(it.groupTosMiniAppPin, "📄 *ESCROWITA TOS*");
 }
 
 // formatDealStatus legacy ancora con parti (fallback)
@@ -437,15 +461,15 @@ const baseDeal = {
   assert.match(it.supportDm.toLowerCase(), /quando serve/);
 }
 
-// Admin DM fail: CTA invite + deep-link (niente vicolo cieco)
+// Admin DM fail: body slim (#id + link); keyboard keep invite/start
 {
   const start = "https://t.me/ESCROWITAbot?start=deal_deadbeef";
   const invite = "https://t.me/+invite";
   const fail = it.disputeAdminDmFailed(baseDeal, invite, start);
-  assert.match(fail, /non riesco a scrivere/i);
-  assert.match(fail, /\/deal deadbeef/);
-  assert.ok(fail.includes(start));
+  assert.match(fail, /Disputa #deadbeef/);
   assert.ok(fail.includes(invite));
+  assert.ok(!/payseller/.test(fail));
+  assert.ok(!/non riesco a scrivere/i.test(fail));
   const kb = disputeAdminFallbackKeyboard({
     inviteLink: invite,
     startLink: start,

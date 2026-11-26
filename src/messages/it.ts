@@ -4,6 +4,7 @@ import {
   bothPartiesPresent,
   commercialReleaseSplitEur,
   escMd,
+  formatEuroNumber,
   formatEuroPrice,
   formatTosBullets,
   isTermsProposer,
@@ -16,6 +17,7 @@ import {
   tosAccepted,
   type EssentialTermsField,
 } from "../services/deal-logic.js";
+import { euroDisplayToNumber } from "../services/fx/sol-eur.js";
 
 const ESSENTIAL_LABELS: Record<EssentialTermsField, string> = {
   product: "Prodotto/servizio",
@@ -317,11 +319,9 @@ Poi invita l'altra parte.`;
       deal.creatorRole === "seller" ? "buyer" : "seller";
     // escMd: i link t.me/+… spesso contengono `_` → senza escape Telegram
     // rifiuta parse_mode Markdown e il DM invito non parte (regressione #84).
-    return `✅ *Il tuo gruppo è stato creato*
+    return `✅ *Gruppo creato* · deal *#${escMd(deal.id)}*
 
-Deal *#${escMd(deal.id)}* · ruolo *${deal.creatorRole}* · *${deal.asset}*
-
-Entra nel gruppo e invita il *${missing}*:
+Entra e invita il *${missing}*:
 ${escMd(links.creatorLink)}`;
   },
 
@@ -363,10 +363,9 @@ Nel frattempo (emergenza): crea un *gruppo privato* → aggiungi il bot come adm
 
   /**
    * Pin nel gruppo dopo bind controparte.
-   * Bottone → Mini App ToS in sola lettura (niente Accetta).
+   * Solo titolo bold; bottone «Leggi» apre Mini App (sola lettura).
    */
-  groupTosMiniAppPin:
-    "📄 *ESCROWITA TOS* — termini di servizio. Tocca per leggerli (opzionale).",
+  groupTosMiniAppPin: "📄 *ESCROWITA TOS*",
 
   /** Bot non admin: una sola riga. */
   needBotAdmin: "Per iniziare il deal il bot deve essere amministratore.",
@@ -908,22 +907,45 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
       : `⏳ #${deal.id}: *${balanceSol}* / *${deal.amount} SOL* (target lockato)\n\`${deal.escrowAddress}\``,
 
   /**
-   * Riga deposito per reply Stato (pre-deposito):
-   * In attesa (0/amount) → Rilevato (parziale) → Confermato (matched).
+   * Riga unica Stato deposito (pre-deposito):
+   * In attesa / Rilevato / Confermato + progresso 0/X € (niente SOL / prezzo).
    */
   depositStatusBullets: (
+    deal: Deal,
     balanceSol: string,
-    expectedSol: string,
+    _expectedSol: string,
     funded: boolean,
   ) => {
+    void _expectedSol;
     const phase = depositPhaseFromBalance(balanceSol, funded);
+    const eurRaw = deal.priceEur?.trim();
+    const eur = eurRaw ? formatEuroPrice(eurRaw) : null;
+    if (!eur) {
+      return `• Deposito: *${DEPOSIT_PHASE_LABELS[phase]}*`;
+    }
     if (phase === "confermato") {
-      return `• Deposito: *Confermato* (*${balanceSol} SOL*)`;
+      return `• Deposito: *Confermato* — *${escMd(eur)}* / *${escMd(eur)}*`;
     }
     if (phase === "in_attesa") {
-      return `• Deposito: *In attesa* — *0* / *${expectedSol} SOL*`;
+      return `• Deposito: *In attesa* — *0* / *${escMd(eur)}*`;
     }
-    return `• Deposito: *Rilevato* — *${balanceSol}* / *${expectedSol} SOL*`;
+    // Parziale on-chain → stima € dal rapporto saldo/target (niente SOL in UI).
+    const targetEur = eurRaw ? euroDisplayToNumber(eurRaw) : null;
+    const targetSol = Number(deal.amount);
+    const bal = Number(balanceSol);
+    let progressLabel = "0";
+    if (
+      targetEur != null &&
+      Number.isFinite(targetSol) &&
+      targetSol > 0 &&
+      Number.isFinite(bal) &&
+      bal > 0
+    ) {
+      progressLabel = formatEuroPrice(
+        formatEuroNumber((bal / targetSol) * targetEur),
+      );
+    }
+    return `• Deposito: *Rilevato* — *${escMd(progressLabel)}* / *${escMd(eur)}*`;
   },
 
   markFundedAdmin: (deal: Deal) =>
@@ -1238,45 +1260,31 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   blockchainMissing:
     "Nessuna tx di payout ancora. Dopo il rilascio usa di nuovo /blockchain.",
 
+  /** DM admin su disputa: solo #id + link gruppo (niente dump comandi/wallet). */
   disputeAdminNotify: (
     deal: Deal,
-    fromId: number,
-    fromUsername: string | undefined,
+    _fromId: number,
+    _fromUsername: string | undefined,
     link?: string,
-  ) =>
-    `🚨 Disputa deal #${deal.id}
-Da: ${fromUsername ? `@${fromUsername}` : fromId} (${fromId})
-Importo: ${deal.amount || "n/d"} ${deal.asset}
-Escrow: ${deal.escrowAddress}
-Stato: ${deal.status}
-Gruppo chat id: ${deal.groupChatId ?? "n/d"}
-${link ? `Link one-time admin:\n${link}` : "Nessun link (bot senza permesso invita)."}
-
-Cerca in *Archiviati* Telegram: #${deal.id} (sei owner).
-DM bot: \`/deal ${deal.id}\` → fatti + messaggi cancellati; \`/log ${deal.id}\` → transcript.
-In gruppo (disputa): \`/payseller\` o \`/refundbuyer\` → force on-chain.`,
+  ) => {
+    void _fromId;
+    void _fromUsername;
+    const lines = [`🚨 Disputa #${deal.id}`];
+    if (link) lines.push(link);
+    return lines.join("\n");
+  },
 
   /**
-   * DM admin fallita: niente vicolo cieco — invite gruppo + deep-link /deal.
+   * DM admin fallita: fallback corto in gruppo — #id + link.
    */
   disputeAdminDmFailed: (
     deal: Deal,
     inviteLink?: string,
-    startLink?: string,
+    _startLink?: string,
   ) => {
-    const lines = [
-      `Disputa aperta (#${deal.id}) ma non riesco a scrivere all'admin in privato.`,
-      "",
-      startLink
-        ? `Admin: apri il bot → ${startLink}`
-        : `Admin: apri il bot in privato, poi \`/deal ${deal.id}\`.`,
-      `Poi in DM: \`/deal ${deal.id}\`.`,
-    ];
-    if (inviteLink) {
-      lines.push(`Entra nel gruppo: ${inviteLink}`);
-    } else {
-      lines.push("Entra nel gruppo del deal (invite admin) e risolvi lì.");
-    }
+    void _startLink;
+    const lines = [`Disputa #${deal.id} — avvisa l'admin in privato.`];
+    if (inviteLink) lines.push(inviteLink);
     return lines.join("\n");
   },
 
@@ -1297,8 +1305,8 @@ export function statusLabel(status: Deal["status"]): string {
 }
 
 /**
- * Bottone Stato: solo fase deposito (In attesa / Rilevato / Confermato) + SOL + EUR.
- * Niente seller/buyer/fee/supporto (quelli in Altre info).
+ * Bottone Stato: una sola riga — fase deposito + progresso €.
+ * Niente SOL / Importo / Prezzo / seller / fee (quelli in Altre info).
  */
 export function formatDepositStato(
   deal: Deal,
@@ -1308,6 +1316,9 @@ export function formatDepositStato(
   if (deal.status === "disputed") {
     return it.disputeInfoBlocked;
   }
+  if (opts?.depositLine) {
+    return opts.depositLine;
+  }
   // Disputa solo post-deposito → disputed e stati chiusi contano come confermato.
   const phase: DepositPhase =
     opts?.depositPhase &&
@@ -1316,21 +1327,12 @@ export function formatDepositStato(
       : deal.status === "awaiting_deposit"
         ? "in_attesa"
         : "confermato";
-  const lines: string[] = [];
-  if (opts?.depositLine) {
-    lines.push(opts.depositLine);
-  } else {
-    lines.push(`• Deposito: *${DEPOSIT_PHASE_LABELS[phase]}*`);
-  }
-  if (deal.amount) {
-    lines.push(`• Importo: *${deal.amount} ${deal.asset}*`);
-  } else {
-    lines.push(`• Importo: *—* (${deal.asset})`);
-  }
-  if (deal.priceEur) {
-    lines.push(`• Prezzo: *${escMd(formatEuroPrice(deal.priceEur))}*`);
-  }
-  return lines.join("\n");
+  return it.depositStatusBullets(
+    deal,
+    phase === "in_attesa" ? "0" : deal.amount || "0",
+    deal.amount || "0",
+    phase === "confermato",
+  );
 }
 
 /**

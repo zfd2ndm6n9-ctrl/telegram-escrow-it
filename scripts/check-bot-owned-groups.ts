@@ -41,6 +41,22 @@ assert.equal(it.groupClosingSoonNotice, "Il gruppo si chiude tra 1 minuto.");
 assert.equal(BOT_API_MEMBER_PERMISSIONS.can_invite_users, false);
 assert.equal(BOT_API_MEMBER_PERMISSIONS.can_change_info, false);
 assert.equal(BOT_API_MEMBER_PERMISSIONS.can_pin_messages, false);
+// Parti = membri: niente diritti admin delete (demote + DEMOTE_RIGHTS).
+{
+  const root = resolve(import.meta.dirname, "..");
+  const creatorSrc = readFileSync(
+    resolve(root, "src/services/group-creator.ts"),
+    "utf8",
+  );
+  assert.match(creatorSrc, /can_delete_messages:\s*false/);
+  assert.match(creatorSrc, /demoteNonOwnerHumanAdmins/);
+  const setupSrc = readFileSync(
+    resolve(root, "src/services/group-setup.ts"),
+    "utf8",
+  );
+  assert.match(setupSrc, /clearCreatorInviteDms/);
+  assert.match(setupSrc, /dmCreatorInviteMessageIds/);
+}
 
 // Default prefer create (unless TELEGRAM_BOT_CREATES_GROUPS=0)
 assert.equal(typeof config.telegramBotCreatesGroups, "boolean");
@@ -111,9 +127,9 @@ const ready = it.groupReady(
   },
   true, // even if MTProto-invited: never «ti ho già aggiunto»
 );
-assert.match(ready, /Il tuo gruppo è stato creato/i);
+assert.match(ready, /Gruppo creato/i);
 assert.match(ready, /https:\/\/t\.me\/\+creator/);
-assert.match(ready, /Entra nel gruppo e invita il \*seller\*/i);
+assert.match(ready, /Entra e invita il \*seller\*/i);
 assert.ok(!/ti ho già aggiunto/i.test(ready));
 assert.ok(!/gestito da Escrowita/i.test(ready));
 assert.ok(!/Nel gruppo trovi/i.test(ready));
