@@ -39,9 +39,10 @@ import {
   type RequiredBotPerm,
 } from "../services/group-setup.js";
 import {
-  getDealEscrowAddress,
-  isSolanaConfigured,
-} from "../services/solana/index.js";
+  getEscrowAddressForAsset,
+  isAnyEscrowConfigured,
+  isAssetConfigured,
+} from "../services/asset-crypto.js";
 import { requireRegistered } from "../services/registration.js";
 import {
   cancelLeftoverCreaForNewFlow,
@@ -173,8 +174,8 @@ async function replaceCreatingPrompt(
 export async function beginCreateDealFlow(ctx: BotContext): Promise<void> {
   if (ctx.chat?.type !== "private" || !ctx.from) return;
   if (!(await requireRegistered(ctx))) return;
-  if (!isSolanaConfigured()) {
-    await ctx.reply(it.solanaNotConfigured);
+  if (!isAnyEscrowConfigured()) {
+    await ctx.reply(it.escrowNotConfigured);
     return;
   }
 
@@ -318,12 +319,17 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     await pickAsset(ctx, "SOL");
   });
 
+  bot.hears(["Ł LTC", "LTC"], async (ctx) => {
+    await pickAsset(ctx, "LTC");
+  });
+
   bot.hears("ETH (presto)", async (ctx) => {
     await assetComingSoon(ctx, "ETH");
   });
 
   bot.hears("LTC (presto)", async (ctx) => {
-    await assetComingSoon(ctx, "LTC");
+    // Legacy label pre-LTC-live
+    await pickAsset(ctx, "LTC");
   });
 
   bot.callbackQuery(/^crea_role:(buyer|seller)$/, async (ctx) => {
@@ -351,7 +357,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       return;
     }
     await ctx.answerCallbackQuery();
-    if (asset === "SOL") {
+    if (asset === "SOL" || asset === "LTC") {
       await pickAsset(ctx, asset);
       return;
     }
@@ -675,12 +681,21 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
     return;
   }
 
-  if (asset !== "SOL") {
-    await assetComingSoon(ctx, asset);
+  if (asset === "ETH" || !isAssetConfigured(asset)) {
+    if (asset === "ETH") {
+      await assetComingSoon(ctx, asset);
+      return;
+    }
+    await replaceCreatingPrompt(ctx, () =>
+      ctx.reply(it.assetNotConfigured(asset), {
+        parse_mode: "Markdown",
+        reply_markup: assetKeyboard(),
+      }),
+    );
     return;
   }
 
-  // Igiene: cancella ask crypto + risposta «◎ SOL» prima del wizard termini.
+  // Igiene: cancella ask crypto + risposta asset prima del wizard termini.
   // Reply KB resta stripata per termini + helper create (menu = inline a fine flusso).
   await clearCreatingEphemeral(ctx);
   if (ctx.message?.message_id != null) {
@@ -688,7 +703,8 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
   }
 
   const role = creating.role;
-  const placeholder = "PENDING_SOL_ESCROW";
+  const placeholder =
+    asset === "LTC" ? "PENDING_LTC_ESCROW" : "PENDING_SOL_ESCROW";
   const creatorDisplayName = [ctx.from.first_name, ctx.from.last_name]
     .filter(Boolean)
     .join(" ");
@@ -707,11 +723,11 @@ async function pickAsset(ctx: BotContext, asset: Asset): Promise<void> {
     ...inviteAttribution,
   });
 
-  const escrowAddress = await getDealEscrowAddress(deal.id);
+  const escrowAddress = await getEscrowAddressForAsset(asset, deal.id);
   if (!escrowAddress) {
     ctx.store.setStatus(deal.id, "cancelled");
     ctx.session.creating = undefined;
-    await ctx.reply(it.solanaNotConfigured);
+    await ctx.reply(it.assetNotConfigured(asset), { parse_mode: "Markdown" });
     return;
   }
 

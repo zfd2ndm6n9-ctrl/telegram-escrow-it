@@ -65,15 +65,20 @@ import {
   remapDealGroupChatId,
 } from "../services/group-chat-remap.js";
 import {
-  checkDealDeposit,
-  classifyPayoutError,
+  checkDealDepositForAsset,
+  classifyAssetPayoutError,
+  formatBaseUnits,
+  getEscrowBalanceBaseUnits,
+  isValidWalletForAsset,
+  looksLikeWalletAttempt,
+  payoutDealAsset,
+  payoutExplorerUrl,
+} from "../services/asset-crypto.js";
+import {
   deriveDealKeypair,
   getEscrowBalanceLamports,
   getMasterKeypair,
-  isValidSolAddress,
   lamportsToSolString,
-  looksLikeSolAddressAttempt,
-  payoutDealSol,
 } from "../services/solana/index.js";
 import type { Deal, DealStatus, SelfConfirmKind } from "../types.js";
 
@@ -583,9 +588,9 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
         await rejectWrongRole(ctx, deal, it.walletWrongTurn(deal, expected));
         return;
       }
-      if (!isValidSolAddress(text)) {
+      if (!isValidWalletForAsset(deal.asset, text)) {
         // Solo se sembra un wallet: delete + errore. Chat libera → next().
-        if (!looksLikeSolAddressAttempt(text)) {
+        if (!looksLikeWalletAttempt(deal.asset, text)) {
           await next();
           return;
         }
@@ -593,9 +598,15 @@ export function registerGroupCommandHandlers(bot: Bot<BotContext>): void {
         const msgId = ctx.message.message_id;
         ctx.dealLogs.markDeletedByBot(deal.id, msgId);
         await deleteMessageSafe(ctx.api, chatId, msgId);
-        await replaceRoleError(ctx.api, ctx.store, deal, it.invalidWallet, {
-          parse_mode: "Markdown",
-        });
+        await replaceRoleError(
+          ctx.api,
+          ctx.store,
+          deal,
+          it.invalidWallet(deal.asset),
+          {
+            parse_mode: "Markdown",
+          },
+        );
         return;
       }
       await applyWallet(ctx, deal, text);
@@ -644,7 +655,7 @@ async function setWallet(ctx: BotContext): Promise<void> {
     const text = ctx.message?.text ?? "";
     const parsed = parseWalletCommand(text);
     const address = parsed.address;
-    if (!address || !isValidSolAddress(address)) {
+    if (!address || !isValidWalletForAsset(fresh.asset, address)) {
       // Delete comando invalido + reminder corto (no stack usage lungo)
       const chatId = fresh.groupChatId ?? ctx.chat?.id;
       const msgId = ctx.message?.message_id;
@@ -652,9 +663,15 @@ async function setWallet(ctx: BotContext): Promise<void> {
         ctx.dealLogs.markDeletedByBot(fresh.id, msgId);
         await deleteMessageSafe(ctx.api, chatId, msgId);
       }
-      await replaceRoleError(ctx.api, ctx.store, fresh, it.invalidWallet, {
-        parse_mode: "Markdown",
-      });
+      await replaceRoleError(
+        ctx.api,
+        ctx.store,
+        fresh,
+        it.invalidWallet(fresh.asset),
+        {
+          parse_mode: "Markdown",
+        },
+      );
       return;
     }
 
@@ -827,7 +844,7 @@ async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
     current.escrowAddress
   ) {
     const wasAwaiting = current.status === "awaiting_deposit";
-    const result = await checkDealDeposit(ctx.store, current.id);
+    const result = await checkDealDepositForAsset(ctx.store, current);
     current = ctx.store.get(current.id) ?? current;
 
     if (!result.ok) {
@@ -835,13 +852,13 @@ async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
     } else {
       depositLine = it.depositStatusBullets(
         current,
-        result.balanceSol,
-        result.expectedSol,
+        result.balanceStr,
+        result.expectedStr,
         result.funded,
       );
       if (wasAwaiting || current.status === "awaiting_deposit") {
         depositPhase = depositPhaseFromBalance(
-          result.balanceSol,
+          result.balanceStr,
           result.funded,
         );
       }
@@ -942,7 +959,7 @@ async function verifyDeposit(
     return;
   }
 
-  const result = await checkDealDeposit(ctx.store, deal.id);
+  const result = await checkDealDepositForAsset(ctx.store, deal);
   if (!result.ok) {
     await replyResult(
       deal,
@@ -963,7 +980,7 @@ async function verifyDeposit(
     await clearEphemeralReplies(ctx.api, ctx.store, fresh);
     await replyResult(
       fresh,
-      it.depositCheckResult(fresh, result.balanceSol, true),
+      it.depositCheckResult(fresh, result.balanceStr, true),
       false,
     );
     return;
@@ -971,7 +988,7 @@ async function verifyDeposit(
   // Underpay: testo effimero senza re-attaccare Verifica (resta sulla card stage).
   await replyResult(
     fresh,
-    it.depositCheckResult(fresh, result.balanceSol, result.funded),
+    it.depositCheckResult(fresh, result.balanceStr, result.funded),
     false,
   );
 }
@@ -987,10 +1004,11 @@ function markPayoutCompleted(
   kind: "release" | "refund",
   result: {
     signature: string;
-    lamports: bigint;
-    sellerLamports?: bigint;
-    platformFeeLamports?: bigint;
-    collaboratorFeeLamports?: bigint;
+    /** Base units paid to seller (release) or buyer (refund). */
+    baseUnits: bigint;
+    sellerBaseUnits?: bigint;
+    platformFeeBaseUnits?: bigint;
+    collaboratorFeeBaseUnits?: bigint;
   },
 ): Deal | undefined {
   const doneStatus = kind === "release" ? "released" : "refunded";
@@ -999,20 +1017,20 @@ function markPayoutCompleted(
     payoutTxSig: result.signature,
     payoutCompleted: true,
     sellerPayoutLamports:
-      kind === "release" && result.sellerLamports != null
-        ? String(result.sellerLamports)
+      kind === "release" && result.sellerBaseUnits != null
+        ? String(result.sellerBaseUnits)
         : kind === "refund"
-          ? String(result.lamports)
+          ? String(result.baseUnits)
           : undefined,
     platformFeeLamports:
-      kind === "release" && result.platformFeeLamports != null
-        ? String(result.platformFeeLamports)
+      kind === "release" && result.platformFeeBaseUnits != null
+        ? String(result.platformFeeBaseUnits)
         : kind === "release"
           ? "0"
           : undefined,
     collaboratorFeeLamports:
-      kind === "release" && result.collaboratorFeeLamports != null
-        ? String(result.collaboratorFeeLamports)
+      kind === "release" && result.collaboratorFeeBaseUnits != null
+        ? String(result.collaboratorFeeBaseUnits)
         : kind === "release"
           ? "0"
           : undefined,
@@ -1112,7 +1130,7 @@ async function runPayout(
         ? fresh.collaboratorWallet.trim()
         : undefined;
 
-    const result = await payoutDealSol(fresh.id, dest, {
+    const result = await payoutDealAsset(fresh, dest, {
       kind,
       collaboratorWallet: collab,
     });
@@ -1124,7 +1142,7 @@ async function runPayout(
       }
       if (result.errorCode === "empty_escrow") {
         const bal = fresh.escrowAddress
-          ? await getEscrowBalanceLamports(fresh.escrowAddress).catch(() => 0n)
+          ? await getEscrowBalanceBaseUnits(fresh).catch(() => 0n)
           : 0n;
         if (bal === 0n) {
           const reconciled = await reconcileEmptyEscrow(ctx, fresh, kind);
@@ -1146,7 +1164,13 @@ async function runPayout(
       progressMsgId = undefined;
     }
 
-    let updated = markPayoutCompleted(ctx, fresh.id, kind, result)!;
+    let updated = markPayoutCompleted(ctx, fresh.id, kind, {
+      signature: result.signature,
+      baseUnits: result.paidBaseUnits,
+      sellerBaseUnits: result.sellerBaseUnits,
+      platformFeeBaseUnits: result.platformFeeBaseUnits,
+      collaboratorFeeBaseUnits: result.collaboratorFeeBaseUnits,
+    })!;
     updated = await clearRoleError(ctx.api, ctx.store, updated);
     updated = await clearBotPrompts(ctx.api, ctx.store, updated);
     await clearEphemeralReplies(ctx.api, ctx.store, updated);
@@ -1166,19 +1190,25 @@ async function runPayout(
       }
     }
 
-    const body = it.payoutSuccess(updated, kind, result.signature, result.sol, {
-      platformFeeSol:
-        result.platformFeeLamports != null
-          ? lamportsToSolString(result.platformFeeLamports)
-          : undefined,
-      collaboratorFeeSol:
-        result.collaboratorFeeLamports != null &&
-        result.collaboratorFeeLamports > 0n
-          ? lamportsToSolString(result.collaboratorFeeLamports)
-          : undefined,
-      feeWallet: result.feeWallet,
-      collaboratorWallet: result.collaboratorWallet,
-    });
+    const body = it.payoutSuccess(
+      updated,
+      kind,
+      result.signature,
+      result.amountStr,
+      {
+        platformFeeSol:
+          result.platformFeeBaseUnits != null
+            ? formatBaseUnits(fresh, result.platformFeeBaseUnits)
+            : undefined,
+        collaboratorFeeSol:
+          result.collaboratorFeeBaseUnits != null &&
+          result.collaboratorFeeBaseUnits > 0n
+            ? formatBaseUnits(fresh, result.collaboratorFeeBaseUnits)
+            : undefined,
+        feeWallet: result.feeWallet,
+        collaboratorWallet: result.collaboratorWallet,
+      },
+    );
     // Nessun link tx nel body: solo bottone Hash (sig in chiaro al tap).
     await ctx.reply(body, {
       parse_mode: "Markdown",
@@ -1190,7 +1220,7 @@ async function runPayout(
     if (progressMsgId != null && ctx.chat) {
       await deleteMessageSafe(ctx.api, ctx.chat.id, progressMsgId);
     }
-    const classified = classifyPayoutError(err);
+    const classified = classifyAssetPayoutError(fresh.asset, err);
     console.error(
       `runPayout #${fresh.id} kind=${kind} uncaught: ${classified.code} — ${classified.message}`,
       err instanceof Error ? err.message : err,
@@ -1954,7 +1984,7 @@ async function handleAltreInfo(ctx: BotContext): Promise<void> {
     current.escrowAddress
   ) {
     const wasAwaiting = current.status === "awaiting_deposit";
-    const result = await checkDealDeposit(ctx.store, current.id);
+    const result = await checkDealDepositForAsset(ctx.store, current);
     current = ctx.store.get(current.id) ?? current;
 
     // Appena fondato da questa verifica → pin DEPOSITO CONFERMATO + ship (niente summary).
@@ -2035,7 +2065,7 @@ async function replyBlockchain(ctx: BotContext): Promise<void> {
     await ctx.reply(it.blockchainMissing);
     return;
   }
-  const url = `https://solscan.io/tx/${deal.payoutTxSig}`;
+  const url = payoutExplorerUrl(deal, deal.payoutTxSig);
   await ctx.reply(it.blockchainLink(deal, url), { parse_mode: "Markdown" });
 }
 
@@ -2685,20 +2715,29 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
     { parse_mode: "Markdown" },
   );
 
+  const orphanAsset = (live?.asset ?? profile?.asset ?? "SOL") as Deal["asset"];
+  const orphanEscrow =
+    live?.escrowAddress ?? profile?.escrowAddress ?? undefined;
+  const orphanCollab = live?.collaboratorWallet;
+  const assetDeal: Deal = live
+    ? live
+    : ({
+        id: dealId,
+        asset: orphanAsset,
+        escrowAddress: orphanEscrow,
+        collaboratorWallet: orphanCollab,
+      } as Deal);
+
   payoutInFlight.add(dealId);
   try {
-    const result = await payoutDealSol(dealId, dest, {
+    const result = await payoutDealAsset(assetDeal, dest, {
       kind,
       collaboratorWallet:
         kind === "release" ? live?.collaboratorWallet : undefined,
     });
     if (!result.ok) {
       if (result.errorCode === "empty_escrow") {
-        const escrowAddr =
-          live?.escrowAddress ?? profile?.escrowAddress ?? undefined;
-        const bal = escrowAddr
-          ? await getEscrowBalanceLamports(escrowAddr).catch(() => 0n)
-          : 0n;
+        const bal = await getEscrowBalanceBaseUnits(assetDeal).catch(() => 0n);
         if (bal === 0n && live) {
           const reconciled = await reconcileEmptyEscrow(ctx, live, kind);
           await ctx.reply(it.payoutReconciledEmpty(reconciled), {
@@ -2715,7 +2754,13 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
 
     let updated: Deal | undefined;
     if (live || ctx.store.get(dealId)) {
-      updated = markPayoutCompleted(ctx, dealId, kind, result);
+      updated = markPayoutCompleted(ctx, dealId, kind, {
+        signature: result.signature,
+        baseUnits: result.paidBaseUnits,
+        sellerBaseUnits: result.sellerBaseUnits,
+        platformFeeBaseUnits: result.platformFeeBaseUnits,
+        collaboratorFeeBaseUnits: result.collaboratorFeeBaseUnits,
+      });
     }
 
     await ctx.reply(
@@ -2723,6 +2768,7 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
         updated ??
           ({
             id: dealId,
+            asset: orphanAsset,
             sellerWallet: who === "seller" ? dest : live?.sellerWallet,
             buyerWallet: who === "buyer" ? dest : live?.buyerWallet,
             sellerUsername: live?.sellerUsername,
@@ -2732,16 +2778,16 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
           } as Deal),
         kind,
         result.signature,
-        result.sol,
+        result.amountStr,
         {
           platformFeeSol:
-            result.platformFeeLamports != null
-              ? lamportsToSolString(result.platformFeeLamports)
+            result.platformFeeBaseUnits != null
+              ? formatBaseUnits(assetDeal, result.platformFeeBaseUnits)
               : undefined,
           collaboratorFeeSol:
-            result.collaboratorFeeLamports != null &&
-            result.collaboratorFeeLamports > 0n
-              ? lamportsToSolString(result.collaboratorFeeLamports)
+            result.collaboratorFeeBaseUnits != null &&
+            result.collaboratorFeeBaseUnits > 0n
+              ? formatBaseUnits(assetDeal, result.collaboratorFeeBaseUnits)
               : undefined,
           feeWallet: result.feeWallet,
           collaboratorWallet: result.collaboratorWallet,
@@ -2753,7 +2799,7 @@ async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
       },
     );
   } catch (err) {
-    const classified = classifyPayoutError(err);
+    const classified = classifyAssetPayoutError(orphanAsset, err);
     console.error(
       `admin_payout #${dealId} kind=${kind} uncaught: ${classified.code} — ${classified.message}`,
       err instanceof Error ? err.message : err,

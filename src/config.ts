@@ -142,6 +142,37 @@ export const config = {
   solanaWatchIntervalMs: Number(
     process.env.SOLANA_WATCH_INTERVAL_MS?.trim() || "20000",
   ),
+  /**
+   * Secret Litecoin MAINNET (WIF o hex 32 byte). Solo env / Render — mai in repo.
+   * Opzionale a boot: senza chiave i deal LTC non partono.
+   * Master = derive escrow per-deal (HMAC) + default destinazione fee se
+   * `FEE_WALLET_LTC` assente. Fee di rete UTXO escono dagli input escrow.
+   */
+  ltcPrivateKey: process.env.LTC_PRIVATE_KEY?.trim() || undefined,
+  /**
+   * Destinazione fee piattaforma LTC (5% o 2.5% con invito + wallet LTC collab).
+   * Se assente → indirizzo della master (`LTC_PRIVATE_KEY`).
+   * Solo address mainnet (`ltc1…` / `L…`) — niente secret.
+   */
+  ltcFeeAddress:
+    process.env.FEE_WALLET_LTC?.trim() ||
+    process.env.LTC_FEE_ADDRESS?.trim() ||
+    undefined,
+  /**
+   * API Litecoin (saldo / UTXO / broadcast).
+   * Default: https://litecoinspace.org/api (stile mempool).
+   * Alternativa: https://api.blockcypher.com/v1/ltc/main (+ `LTC_API_TOKEN`).
+   */
+  ltcApiUrl:
+    process.env.LTC_API_URL?.trim() || "https://litecoinspace.org/api",
+  /** Token opzionale (BlockCypher `token=` query). */
+  ltcApiToken: process.env.LTC_API_TOKEN?.trim() || undefined,
+  /** Intervallo poll depositi LTC (ms). Default = stesso di SOL. */
+  ltcWatchIntervalMs: Number(
+    process.env.LTC_WATCH_INTERVAL_MS?.trim() ||
+      process.env.SOLANA_WATCH_INTERVAL_MS?.trim() ||
+      "20000",
+  ),
   defaultAsset: "SOL" as const,
   /**
    * Cartella persistente per deals.json, members.json, invites.json, …

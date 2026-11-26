@@ -228,17 +228,21 @@ Entra, poi *Sono entrato* o \`/start\`.`,
   askRole: "👤 Che ruolo hai in questo deal?",
   askAsset: "💎 Con quale crypto vuoi fare l'escrow?",
   assetComingSoon: (asset: string) =>
-    `*${asset}* sarà presto disponibile. Per ora scegli *SOL*.`,
+    `*${asset}* sarà presto disponibile. Per ora scegli *SOL* o *LTC*.`,
+  assetNotConfigured: (asset: string) =>
+    `Escrow *${asset}* non configurato sul server. Scegli un'altra crypto o avvisa il supporto.`,
   askAmount:
     "Quanto vuoi mettere in escrow? Importo in *SOL* (es. `0.01`).\n⚠️ Mainnet reale: usa importi di test piccoli.",
   askWallet:
-    "Invia `/wallet` seguito dal tuo indirizzo Solana.",
+    "Invia `/wallet` seguito dal tuo indirizzo.",
   invalidAmount:
-    "Importo non valido. Invia un numero positivo in SOL (es. `0.01`).",
-  invalidWallet:
-    "Indirizzo Solana non valido. Usa `/wallet` + indirizzo.",
+    "Importo non valido. Invia un numero positivo (es. `0.01`).",
+  invalidWallet: (asset = "crypto") =>
+    `Indirizzo *${asset}* non valido. Usa \`/wallet\` + indirizzo.`,
   solanaNotConfigured:
     "Escrow SOL non configurato sul server. Avvisa il supporto.",
+  escrowNotConfigured:
+    "Escrow on-chain non configurato sul server (manca SOLANA_PRIVATE_KEY / LTC_PRIVATE_KEY). Avvisa il supporto.",
   cancelled: "Operazione annullata.",
 
   /** Prompt DM: dopo tap «Lascia un feedback». */
@@ -577,9 +581,9 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
   tosLocked:
     "Termini già accettati: non si possono più modificare.",
 
-  /** Conversione €→SOL fallita al momento dell'Accetto. */
-  rateUnavailable:
-    "Tasso €→SOL non disponibile al momento. Riprova tra poco con *Accetta*.",
+  /** Conversione €→crypto fallita al momento dell'Accetto. */
+  rateUnavailable: (asset = "crypto") =>
+    `Tasso €→${asset} non disponibile al momento. Riprova tra poco con *Accetta*.`,
 
   missingCommercialPrice:
     "Manca il prezzo in euro (termini DM). Completa *Prezzo* in privato.",
@@ -901,12 +905,12 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
 
   depositCheckResult: (
     deal: Deal,
-    balanceSol: string,
+    balanceStr: string,
     funded: boolean,
   ) =>
     funded
-      ? `✅ #${deal.id} fondato: *${balanceSol} SOL*.`
-      : `⏳ #${deal.id}: *${balanceSol}* / *${deal.amount} SOL* (target lockato)\n\`${deal.escrowAddress}\``,
+      ? `✅ #${deal.id} fondato: *${balanceStr} ${deal.asset}*.`
+      : `⏳ #${deal.id}: *${balanceStr}* / *${deal.amount} ${deal.asset}* (target lockato)\n\`${deal.escrowAddress}\``,
 
   /**
    * Riga unica Stato deposito (pre-deposito):
@@ -1091,7 +1095,7 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
       if (split) {
         return `✅ *Rimborso completato* (#${deal.id}).\n• ${buyer}: *${split.totalEur} €*`;
       }
-      return `✅ *Rimborso completato* (#${deal.id}).\n• ${buyer}: *${sol} SOL*`;
+      return `✅ *Rimborso completato* (#${deal.id}).\n• ${buyer}: *${sol} ${deal.asset}*`;
     }
     const seller = mentionUser(deal.sellerUsername, deal.sellerId, "seller");
     const split = commercialReleaseSplitEur(deal);
@@ -1107,7 +1111,7 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
       return lines.join("\n");
     }
     // Fallback senza priceEur (deal legacy): niente wallet/pubkey in chiaro.
-    return `✅ *Rilascio completato* (#${deal.id}).\n• ${seller}: *${sol} SOL*\n• admin: fee trattenuta`;
+    return `✅ *Rilascio completato* (#${deal.id}).\n• ${seller}: *${sol} ${deal.asset}*\n• admin: fee trattenuta`;
   },
 
   payoutHashReveal: (sig: string) => `\`${sig}\``,

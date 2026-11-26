@@ -1,10 +1,11 @@
 import type { Deal, DmTermsStep, PartyRole } from "../types.js";
 import { config } from "../config.js";
 
-export function parseAmount(raw: string): string | null {
+export function parseAmount(raw: string, maxDecimals = 9): string | null {
   const normalized = raw.trim().replace(",", ".");
-  // SOL: fino a 9 decimali
-  if (!/^\d+(\.\d{1,9})?$/.test(normalized)) return null;
+  const dec = Math.max(0, Math.min(18, Math.floor(maxDecimals)));
+  const re = new RegExp(`^\\d+(\\.\\d{1,${dec}})?$`);
+  if (!re.test(normalized)) return null;
   const n = Number(normalized);
   if (!Number.isFinite(n) || n <= 0) return null;
   return normalized;
@@ -253,13 +254,19 @@ export function amountConfirmed(deal: Deal): boolean {
 }
 
 /**
- * Target SOL lockato per deposito (stringa decimale).
+ * Target crypto lockato per deposito (stringa decimale).
  * Dopo Accetto/`amountConfirmedAt` non si ricalcola da FX live.
  * `null` se non ancora fissato.
  */
-export function lockedSolAmount(deal: Deal): string | null {
+export function lockedCryptoAmount(deal: Deal): string | null {
   if (!amountConfirmed(deal)) return null;
-  return parseAmount(deal.amount) ? deal.amount : null;
+  const maxDec = deal.asset === "LTC" ? 8 : 9;
+  return parseAmount(deal.amount, maxDec) ? deal.amount : null;
+}
+
+/** @deprecated alias — usa `lockedCryptoAmount`. */
+export function lockedSolAmount(deal: Deal): string | null {
+  return lockedCryptoAmount(deal);
 }
 
 /** Escape minimo per testo utente in Markdown legacy Telegram. */
