@@ -1,6 +1,4 @@
 import type { Api } from "grammy";
-import { config } from "../config.js";
-import { it } from "../messages/it.js";
 import type { DealLogStore } from "../store/deal-logs.js";
 import type { DealStore } from "../store/deals.js";
 import type { Deal, DealStatus, GroupCompromiseReason } from "../types.js";
@@ -49,11 +47,12 @@ export function isMessageMissingError(err: unknown): boolean {
 }
 
 /**
- * Marca deal compromesso (idempotente) e DM admin con id + stato corto.
+ * Marca deal compromesso (idempotente). Nessun DM admin.
  * Skip su deal già chiusi (release/refund/cancel) — leave post-cleanup non è alert.
+ * `api` tenuto nella firma per call-site stabili (ex notify path).
  */
 export async function markGroupCompromised(
-  api: Api,
+  _api: Api,
   store: DealStore,
   deal: Deal,
   reason: GroupCompromiseReason,
@@ -90,11 +89,10 @@ export async function markGroupCompromised(
     // store log best-effort
   }
 
-  await notifyAdminsGroupCompromised(api, updated, reason);
   return store.get(updated.id) ?? updated;
 }
 
-/** Se l'errore API indica gruppo perso / wipe critico → marca + DM. */
+/** Se l'errore API indica gruppo perso / wipe critico → marca (niente DM). */
 export async function maybeCompromiseFromApiError(
   api: Api,
   store: DealStore,
@@ -115,31 +113,4 @@ export async function maybeCompromiseFromApiError(
     });
   }
   return store.get(deal.id) ?? deal;
-}
-
-async function notifyAdminsGroupCompromised(
-  api: Api,
-  deal: Deal,
-  reason: GroupCompromiseReason,
-): Promise<void> {
-  const ids = config.adminTelegramIds;
-  if (!ids.length) {
-    console.warn(
-      `Group compromise #${deal.id}: nessun ADMIN_TELEGRAM_ID/S — skip DM`,
-    );
-    return;
-  }
-  const body = it.groupCompromisedAdminDm(deal, reason);
-  for (const adminId of ids) {
-    try {
-      await api.sendMessage(Number(adminId), body, {
-        parse_mode: "Markdown",
-      });
-    } catch (err) {
-      console.error(
-        `DM admin ${adminId} group-compromise #${deal.id} fallita:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-  }
 }

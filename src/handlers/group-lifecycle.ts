@@ -295,7 +295,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     const update = ctx.myChatMember;
     const status = update.new_chat_member.status;
 
-    // Bot kickato / uscito / gruppo cancellato → DM admin + freeze.
+    // Bot kickato / uscito / gruppo cancellato → freeze (niente DM admin).
     if (status === "left" || status === "kicked") {
       const deal = ctx.store.findByGroupChatId(chat.id);
       if (deal) {
@@ -1130,7 +1130,7 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     const user = member.user;
     const oldStatus = ctx.chatMember.old_chat_member.status;
 
-    // Admin supporto kickato / uscito dal gruppo deal → stesso alert + freeze.
+    // Admin supporto kickato / uscito dal gruppo deal → freeze (niente DM).
     const leftOrKicked =
       member.status === "left" || member.status === "kicked";
     if (
