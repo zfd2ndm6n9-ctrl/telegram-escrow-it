@@ -155,20 +155,34 @@ export class InviteStore {
       .slice(0, Math.max(0, limit));
   }
 
+  /**
+   * Crea un codice nuovo, oppure riattiva/aggiorna uno *inattivo* esistente
+   * (stesso nome: es. CVVBYPASS dopo /codiceoff).
+   * Codice *attivo* già presente → errore «già esistente».
+   */
   create(input: {
     collaboratorUserId: number;
     collaboratorUsername?: string;
     collaboratorWallet: string;
     createdByAdminId: number;
     code?: string;
-  }): InviteCode {
+  }): InviteCode & { reactivated?: boolean } {
     let code = input.code ? normalizeCode(input.code) : newInviteCode();
     if (input.code && RETIRED_INVITE_CODES.has(code)) {
       throw new Error(
         `Codice ritirato (non riutilizzabile): ${code}. Scegline un altro.`,
       );
     }
-    if (this.invites.has(code)) {
+    const existing = this.invites.get(code);
+    if (existing) {
+      if (input.code && !existing.active) {
+        return this.reactivate(code, {
+          collaboratorUserId: input.collaboratorUserId,
+          collaboratorUsername: input.collaboratorUsername,
+          collaboratorWallet: input.collaboratorWallet,
+          createdByAdminId: input.createdByAdminId,
+        });
+      }
       if (input.code) {
         throw new Error(`Codice già esistente: ${code}`);
       }
@@ -192,6 +206,48 @@ export class InviteStore {
     this.invites.set(code, invite);
     this.persist();
     return invite;
+  }
+
+  /**
+   * Riattiva un codice off e aggiorna wallet + collab.
+   * Conserva `createdAt` / `redemptions`. Ritirati (KEYTEST) → errore.
+   */
+  reactivate(
+    code: string,
+    patch: {
+      collaboratorUserId?: number;
+      collaboratorUsername?: string;
+      collaboratorWallet?: string;
+      createdByAdminId?: number;
+    } = {},
+  ): InviteCode & { reactivated: true } {
+    const key = normalizeCode(code);
+    if (RETIRED_INVITE_CODES.has(key)) {
+      throw new Error(
+        `Codice ritirato (non riutilizzabile): ${key}. Scegline un altro.`,
+      );
+    }
+    const invite = this.invites.get(key);
+    if (!invite) {
+      throw new Error(`Codice non trovato: ${key}`);
+    }
+    const next: InviteCode = {
+      ...invite,
+      active: true,
+      collaboratorUserId:
+        patch.collaboratorUserId ?? invite.collaboratorUserId,
+      collaboratorUsername:
+        patch.collaboratorUsername !== undefined
+          ? patch.collaboratorUsername
+          : invite.collaboratorUsername,
+      collaboratorWallet: patch.collaboratorWallet
+        ? patch.collaboratorWallet.trim()
+        : invite.collaboratorWallet,
+      createdByAdminId: patch.createdByAdminId ?? invite.createdByAdminId,
+    };
+    this.invites.set(key, next);
+    this.persist();
+    return { ...next, reactivated: true };
   }
 
   /**

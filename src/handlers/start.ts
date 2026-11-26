@@ -532,9 +532,9 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
         createdByAdminId: ctx.from.id,
         code: customCode,
       });
-      const who = collaboratorUsername
-        ? `@${collaboratorUsername}`
-        : String(collaboratorUserId);
+      const who = invite.collaboratorUsername
+        ? `@${invite.collaboratorUsername}`
+        : String(invite.collaboratorUserId);
       let warn = "";
       try {
         if (isSolanaConfigured()) {
@@ -551,13 +551,52 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
       } catch {
         // soft: creazione codice ok anche se RPC fallisce
       }
-      await ctx.reply(
-        it.codiceCreated(invite.code, invite.collaboratorWallet, who) + warn,
-        { parse_mode: "Markdown" },
-      );
+      const body = invite.reactivated
+        ? it.codiceReactivated(invite.code, invite.collaboratorWallet, who)
+        : it.codiceCreated(invite.code, invite.collaboratorWallet, who);
+      await ctx.reply(body + warn, { parse_mode: "Markdown" });
     } catch (err) {
       await ctx.reply(
         err instanceof Error ? err.message : "Creazione codice fallita.",
+      );
+    }
+  });
+
+  /**
+   * Admin: riattiva un codice off senza cambiare wallet/collab.
+   * /codiceon <CODICE>
+   * Per aggiornare wallet + assignee: riusa `/codice … CODICE` (stesso nome).
+   */
+  bot.command(["codiceon", "inviteon"], async (ctx) => {
+    if (!ctx.from || !isAdminUser(ctx.from.id)) {
+      await ctx.reply(it.adminOnly);
+      return;
+    }
+    const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
+    const code = (parts[1] ?? "").trim();
+    if (!code) {
+      await ctx.reply(it.codiceOnUsage, { parse_mode: "Markdown" });
+      return;
+    }
+    const existing = ctx.invites.get(code);
+    if (!existing) {
+      await ctx.reply(it.codiceOffMissing(code), { parse_mode: "Markdown" });
+      return;
+    }
+    if (existing.active) {
+      await ctx.reply(it.codiceOnAlready(existing.code), {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+    try {
+      const updated = ctx.invites.reactivate(code, {
+        createdByAdminId: ctx.from.id,
+      });
+      await ctx.reply(it.codiceOnOk(updated.code), { parse_mode: "Markdown" });
+    } catch (err) {
+      await ctx.reply(
+        err instanceof Error ? err.message : "Riattivazione fallita.",
       );
     }
   });

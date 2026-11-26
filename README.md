@@ -101,7 +101,7 @@ Se `PORT` è impostato (default su Docker/Render/Fly: 8080), espone anche `GET /
 11. `/dispute` / `/support` → stato `disputed`, link one-time all’admin; in disputa admin forza release/refund con `/payseller` o `/refundbuyer` (salta dual-confirm e review)
 
 Altri: `/indirizzo`, `/stato`, `/blockchain`, `/miei` (privato, solo deal *conclusi* `released`/`refunded`), `/invito CODICE`.  
-Admin: `/deal <id>` (DM: fatti card + messaggi cancellati), `/log #dealId` (DM transcript completo), `/iscritti`, `/codice`, `/codiceoff`, `/codici` (attivi; `all` = anche off), `/fee`, `/admin_wipe_deals` (DM: svuota `deals.json` + `deal-logs.json`; con saldi escrow richiede `FORCE`).
+Admin: `/deal <id>` (DM: fatti card + messaggi cancellati), `/log #dealId` (DM transcript completo), `/iscritti`, `/codice` (riattiva se off), `/codiceoff`, `/codiceon`, `/codici` (attivi; `all` = anche off), `/fee`, `/admin_wipe_deals` (DM: svuota `deals.json` + `deal-logs.json`; con saldi escrow richiede `FORCE`).
 
 ### Admin force + log dispute
 

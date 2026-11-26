@@ -104,6 +104,67 @@ try {
   const withOff = store.list(30, { includeInactive: true }).map((i) => i.code);
   assert.ok(withOff.includes("ESC-LIVE1"));
   assert.ok(withOff.includes("KEYTEST"));
+
+  // Inactive + /codice same name → reactivate + update wallet/assignee
+  const cvvDir = mkdtempSync(join(tmpdir(), "escrow-cvv-"));
+  try {
+    writeFileSync(
+      join(cvvDir, "invites.json"),
+      JSON.stringify({
+        invites: [
+          {
+            code: "CVVBYPASS",
+            collaboratorUserId: 9053518384,
+            collaboratorUsername: "work33d",
+            collaboratorWallet: "4FDGcNFzCit5cRXgymNumPvTgyqJjsaUGmbgkszdkxuL",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            createdByAdminId: 1,
+            active: false,
+            redemptions: [{ userId: 1, redeemedAt: "2026-01-01T00:00:00.000Z" }],
+          },
+        ],
+      }),
+      "utf8",
+    );
+    const cvv = new InviteStore(cvvDir);
+    const reused = cvv.create({
+      collaboratorUserId: 7296738488,
+      collaboratorUsername: undefined,
+      collaboratorWallet: "3QuVwKEditBJJ17XxEmcHha7dKnSH7edrvvfPedCBCTM",
+      createdByAdminId: 99,
+      code: "Cvvbypass",
+    });
+    assert.equal(reused.code, "CVVBYPASS");
+    assert.equal(reused.active, true);
+    assert.equal(reused.reactivated, true);
+    assert.equal(reused.collaboratorUserId, 7296738488);
+    assert.equal(
+      reused.collaboratorWallet,
+      "3QuVwKEditBJJ17XxEmcHha7dKnSH7edrvvfPedCBCTM",
+    );
+    assert.equal(reused.redemptions.length, 1, "keeps redemptions");
+    assert.equal(reused.createdAt, "2026-01-01T00:00:00.000Z");
+
+    assert.throws(
+      () =>
+        cvv.create({
+          collaboratorUserId: 1,
+          collaboratorWallet: "3QuVwKEditBJJ17XxEmcHha7dKnSH7edrvvfPedCBCTM",
+          createdByAdminId: 1,
+          code: "CVVBYPASS",
+        }),
+      /già esistente/i,
+      "active duplicate still errors",
+    );
+
+    cvv.setActive("CVVBYPASS", false);
+    const on = cvv.reactivate("CVVBYPASS");
+    assert.equal(on.active, true);
+    assert.equal(on.reactivated, true);
+    assert.equal(on.collaboratorUserId, 7296738488);
+  } finally {
+    rmSync(cvvDir, { recursive: true, force: true });
+  }
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

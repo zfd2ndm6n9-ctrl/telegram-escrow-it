@@ -1129,10 +1129,22 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   adminOnly: "Solo admin.",
 
   codiceUsage:
-    "Uso (admin): `/codice <WALLET_SOL> <@user|userId> [CODICE]`\nEs: `/codice So111… @mario`\nEs: `/codice So111… 123456789 ESC-PROMO1`\nDisattiva: `/codiceoff CODICE`",
+    "Uso (admin): `/codice <WALLET_SOL> <@user|userId> [CODICE]`\nEs: `/codice So111… @mario`\nEs: `/codice So111… 123456789 ESC-PROMO1`\nOff → stesso nome riattiva. Disattiva: `/codiceoff CODICE` · On: `/codiceon CODICE`",
 
   codiceCreated: (code: string, wallet: string, who: string) =>
     `✅ Codice *${escMd(code)}*\nCollab: ${who}\nWallet: \`${wallet}\`\nL'utente: \`/invito ${code}\``,
+
+  codiceReactivated: (code: string, wallet: string, who: string) =>
+    `♻️ Codice *${escMd(code)}* riattivato.\nCollab: ${who}\nWallet: \`${wallet}\`\nL'utente: \`/invito ${code}\``,
+
+  codiceOnUsage:
+    "Uso (admin): `/codiceon <CODICE>`\nEs: `/codiceon CVVBYPASS`\n(riattiva senza cambiare wallet/collab; per aggiornare usa `/codice …`)",
+
+  codiceOnOk: (code: string) =>
+    `♻️ Codice *${escMd(code)}* riattivato (stesso wallet/collab).`,
+
+  codiceOnAlready: (code: string) =>
+    `Codice *${escMd(code)}* è già attivo.`,
 
   codiceOffUsage:
     "Uso (admin): `/codiceoff <CODICE>`\nEs: `/codiceoff ESC-A1B2C3`",
