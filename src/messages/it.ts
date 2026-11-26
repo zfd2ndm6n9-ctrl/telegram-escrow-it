@@ -1030,27 +1030,38 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     `Log deal #${dealId} (${n} voci)\n` +
     `_Messaggi parte + eventi. Cap dimensione/età. Solo supporto dispute._`,
 
-  /** Admin DM `/deal <id>`: fatti card + solo messaggi cancellati (igiene). */
+  /** Admin DM `/deal <id>`: fatti card + [del] + media silent-log. */
   dealAdminUsage:
-    "Uso: `/deal 250538a0` (solo admin, in privato).\nMostra fatti + messaggi cancellati. Transcript completo: `/log`.",
+    "Uso: `/deal 250538a0` oppure solo l’id (solo admin, in privato).\nMostra fatti + messaggi cancellati + media (metadata). Transcript completo: `/log`.",
 
   dealAdminUnknown: (dealId: string) =>
     `Deal #${dealId} non trovato nello store.`,
 
-  dealAdminHeader: (dealId: string, deletedN: number) =>
-    `Deal #${dealId} — messaggi cancellati (${deletedN})` +
+  dealAdminHeader: (dealId: string, evidenceN: number) =>
+    `Deal #${dealId} — evidence (${evidenceN}: [del] + media)` +
     ` · transcript completo: \`/log ${dealId}\`` +
-    `\n_Cerca il gruppo in Archiviati Telegram col codice #${dealId}._`,
+    `\n_Cerca il gruppo in Archiviati Telegram col codice #${dealId}._` +
+    `\n_Media: solo metadata (tipo/chi/quando/caption) — Telegram non consegna i byte dopo delete._`,
 
   dealAdminFactsTitle: "— Fatti deal (card) —",
 
   /** @deprecated prefer dealAdminDeletedTitle */
-  dealAdminChatTitle: "— Messaggi cancellati (igiene) —",
+  dealAdminChatTitle: "— Cancellati + media (silent-log) —",
 
-  dealAdminDeletedTitle: "— Messaggi cancellati (igiene) —",
+  dealAdminDeletedTitle: "— Cancellati + media (silent-log) —",
 
   dealAdminNoDeleted: (dealId: string) =>
-    `Nessun messaggio cancellato trattenuto per #${dealId}.\nChat viva: Archiviati Telegram (cerca #${dealId}). Transcript completo: \`/log ${dealId}\`.`,
+    `Nessun messaggio cancellato né media trattenuto per #${dealId}.\nChat viva: Archiviati Telegram (cerca #${dealId}). Transcript completo: \`/log ${dealId}\`.`,
+
+  /** Gate /crea: soft-launch invite-only o staging admin-only. */
+  createGateInviteRequired:
+    "🔒 Soft-launch: serve un *codice invito* valido per creare un deal.\nInvia il codice (niente skip).",
+
+  createGateAdminOnly:
+    "🔒 Staging: solo admin può creare deal su questo bot.",
+
+  createGateInviteAsk:
+    "🔑 Soft-launch: invia il *codice invito* (obbligatorio).",
 
   /** Admin digita /payseller fuori disputa. */
   adminForceOnlyDisputed:

@@ -67,6 +67,14 @@ async function main(): Promise<void> {
   console.log(
     `Persistenza log dispute: ${dealLogs.path} (cap ${200} voci/deal, retention 30g).`,
   );
+  console.log(
+    `APP_ENV=${config.appEnv} · CREATE_GATE=${config.createGate}` +
+      (config.createGate === "admin"
+        ? " (staging: solo admin /crea)"
+        : config.createGate === "invite"
+          ? " (soft-launch: invito obbligatorio)"
+          : " (dev: invito opzionale)"),
+  );
   if (config.adminTelegramIds.length) {
     console.log(
       `Admin ids: ${config.adminTelegramIds.join(", ")} (ADMIN_TELEGRAM_ID/S)`,

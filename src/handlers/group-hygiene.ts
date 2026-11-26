@@ -1,6 +1,7 @@
 import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { it } from "../messages/it.js";
+import { summarizeMessageMedia } from "../services/deal-log-media.js";
 import {
   detectIdentityChange,
   isAdminUser,
@@ -11,6 +12,57 @@ import {
   kickUnauthorized,
   refreshGroupSetupCard,
 } from "../services/group-setup.js";
+import type { Deal } from "../types.js";
+
+function partyRoleForLog(
+  deal: Deal,
+  userId: number,
+): "buyer" | "seller" | "admin" | "other" {
+  if (deal.buyerId === userId) return "buyer";
+  if (deal.sellerId === userId) return "seller";
+  if (isAdminUser(userId)) return "admin";
+  return "other";
+}
+
+/** Silent retention: testo + media (metadata) prima che igiene/handler cancellino. */
+function silentLogHumanMessage(
+  ctx: BotContext,
+  deal: Deal,
+  opts: { text?: string; mediaOnly?: boolean },
+): void {
+  if (
+    deal.status === "released" ||
+    deal.status === "refunded" ||
+    deal.status === "cancelled" ||
+    !ctx.from ||
+    !ctx.message
+  ) {
+    return;
+  }
+  const role = partyRoleForLog(deal, ctx.from.id);
+  const media = summarizeMessageMedia(ctx.message);
+  if (media) {
+    ctx.dealLogs.appendUserMessage(deal.id, {
+      text: media.text,
+      fromId: ctx.from.id,
+      username: ctx.from.username,
+      role,
+      messageId: ctx.message.message_id,
+      mediaType: media.mediaType,
+    });
+    return;
+  }
+  if (opts.mediaOnly) return;
+  const text = opts.text?.trim() ?? "";
+  if (!text) return;
+  ctx.dealLogs.appendUserMessage(deal.id, {
+    text,
+    fromId: ctx.from.id,
+    username: ctx.from.username,
+    role,
+    messageId: ctx.message.message_id,
+  });
+}
 
 function isForwardedMessage(msg: {
   forward_origin?: unknown;
@@ -101,34 +153,11 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
 
     // Retention: ogni testo umano nel gruppo deal (chat libera buyer↔seller,
     // comandi, non solo reply al bot) — prima che igiene/handler cancellino.
-    // Admin /deal = solo [del]; /log = transcript. Cap in store.
+    // Admin /deal = [del] + media metadata; /log = transcript. Cap in store.
     // Delete utente: Bot API non notifica. Niente reply/igiene in chat su
     // cancellazioni — solo log silenzioso (markDeletedByBot / eventi).
     // Parti non-admin: non possono cancellare messaggi altrui/bot (demote).
-    if (
-      deal.status !== "released" &&
-      deal.status !== "refunded" &&
-      deal.status !== "cancelled"
-    ) {
-      const text = ctx.message?.text?.trim() ?? "";
-      if (text) {
-        const role =
-          deal.buyerId === ctx.from.id
-            ? "buyer"
-            : deal.sellerId === ctx.from.id
-              ? "seller"
-              : isAdminUser(ctx.from.id)
-                ? "admin"
-                : "other";
-        ctx.dealLogs.appendUserMessage(deal.id, {
-          text,
-          fromId: ctx.from.id,
-          username: ctx.from.username,
-          role,
-          messageId: ctx.message?.message_id,
-        });
-      }
-    }
+    silentLogHumanMessage(ctx, deal, { text: ctx.message?.text });
 
     // Identity alerts solo per le parti assegnate.
     if (!isParty(deal, ctx.from.id)) {
@@ -167,6 +196,39 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
 
     await next();
   });
+
+  // Media humani (foto/video/file…): silent-log metadata — Bot API non
+  // ritrattene i byte dopo delete utente. /deal li mostra come evidence.
+  bot.on(
+    [
+      "message:photo",
+      "message:video",
+      "message:video_note",
+      "message:animation",
+      "message:document",
+      "message:audio",
+      "message:voice",
+      "message:sticker",
+    ],
+    async (ctx, next) => {
+      if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
+        await next();
+        return;
+      }
+      const deal = await findDealForGroupChat(
+        ctx.api,
+        ctx.store,
+        ctx.chat.id,
+        ctx.from?.id,
+      );
+      if (!deal || !ctx.from || ctx.from.is_bot) {
+        await next();
+        return;
+      }
+      silentLogHumanMessage(ctx, deal, { mediaOnly: true });
+      await next();
+    },
+  );
 }
 
 /** Kick bot estranei (non il bot stesso) in un gruppo deal. */
