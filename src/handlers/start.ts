@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import type { BotContext } from "../context.js";
 import { isAdminUser } from "../services/deal-logic.js";
 import { formatDealEvidenceFacts, it } from "../messages/it.js";
-import { replyWithMainMenu } from "../services/dm-hygiene.js";
+import { replyAdminDenied, replyWithMainMenu } from "../services/dm-hygiene.js";
 import { publishIscrittiCount } from "../services/public-count.js";
 import { registerHandleFromMessage } from "../services/registration.js";
 import { deleteMessageSafe } from "../services/prompt-cleanup.js";
@@ -349,7 +349,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
    */
   bot.command("log", async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
-      await ctx.reply(it.adminOnly);
+      await replyAdminDenied(ctx);
       return;
     }
     if (ctx.chat?.type !== "private") {
@@ -392,7 +392,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
    */
   bot.command("deal", async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
-      await ctx.reply(it.adminOnly);
+      await replyAdminDenied(ctx);
       return;
     }
     if (ctx.chat?.type !== "private") {
@@ -418,7 +418,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
    */
   bot.command(["pin_tos", "pintos"], async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
-      await ctx.reply(it.adminOnly);
+      await replyAdminDenied(ctx);
       return;
     }
     if (ctx.chat?.type !== "private") {
@@ -459,7 +459,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
   /** Admin: conteggio iscritti (+ ultimi recenti). */
   bot.command("iscritti", async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
-      await ctx.reply(it.adminOnly);
+      await replyAdminDenied(ctx);
       return;
     }
     const total = ctx.members.registeredCount;
@@ -482,7 +482,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
    */
   bot.command(["codice", "invitecreate"], async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
-      await ctx.reply(it.adminOnly);
+      await replyAdminDenied(ctx);
       return;
     }
     const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
@@ -569,7 +569,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
    */
   bot.command(["codiceon", "inviteon"], async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
-      await ctx.reply(it.adminOnly);
+      await replyAdminDenied(ctx);
       return;
     }
     const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
@@ -607,7 +607,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
    */
   bot.command(["codiceoff", "inviteoff"], async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
-      await ctx.reply(it.adminOnly);
+      await replyAdminDenied(ctx);
       return;
     }
     const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
@@ -638,7 +638,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
   /** Admin: elenco codici *attivi* (default). `/codici all` = anche off. */
   bot.command(["codici", "invitelist"], async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
-      await ctx.reply(it.adminOnly);
+      await replyAdminDenied(ctx);
       return;
     }
     const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
@@ -671,7 +671,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
   /** Admin: riepilogo fee da deal released. */
   bot.command(["fee", "feesummary"], async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
-      await ctx.reply(it.adminOnly);
+      await replyAdminDenied(ctx);
       return;
     }
     const all = [
@@ -710,7 +710,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
    */
   bot.command(["admin_wipe_deals", "adminwipedeals"], async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
-      await ctx.reply(it.adminOnly);
+      await replyAdminDenied(ctx);
       return;
     }
     if (ctx.chat?.type !== "private") {

@@ -48,6 +48,55 @@ export async function deleteMessageSafe(
   }
 }
 
+/**
+ * Cancella un messaggio; se Telegram blocca delete, prova edit minimale poi delete.
+ * Usato per clutter effimero («Solo admin.», «Operazione annullata.»).
+ */
+export async function deleteMessageForce(
+  api: Api,
+  chatId: number,
+  messageId: number,
+): Promise<void> {
+  try {
+    await api.deleteMessage(chatId, messageId);
+    return;
+  } catch {
+    // fall through: edit → delete
+  }
+  try {
+    await api.editMessageText(chatId, messageId, "·");
+  } catch {
+    // non editabile
+  }
+  await deleteMessageSafe(api, chatId, messageId);
+}
+
+/** TTL breve per notice DM da non lasciare in chat. */
+export const EPHEMERAL_NOTICE_MS = 2_000;
+
+/**
+ * Schedula cancellazione (edit→delete fallback) dopo `delayMs`.
+ * Fire-and-forget: non blocca l'handler.
+ */
+export function scheduleMessageCleanup(
+  api: Api,
+  chatId: number,
+  messageIds: Array<number | undefined | null>,
+  delayMs: number = EPHEMERAL_NOTICE_MS,
+): void {
+  const ids = messageIds.filter(
+    (id): id is number => typeof id === "number" && Number.isFinite(id),
+  );
+  if (ids.length === 0) return;
+  setTimeout(() => {
+    void (async () => {
+      for (const id of ids) {
+        await deleteMessageForce(api, chatId, id);
+      }
+    })();
+  }, delayMs);
+}
+
 function isNotModifiedError(err: unknown): boolean {
   const msg =
     err && typeof err === "object" && "description" in err

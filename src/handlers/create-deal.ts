@@ -47,6 +47,8 @@ import {
   cancelMidCreaBeforeGroupBind,
   clearCreatingEphemeral,
   clearTermsErrorMessages,
+  replyAdminDenied,
+  replyEphemeralNotice,
   replyWithMainMenu,
   trackCreatingEphemeral,
 } from "../services/dm-hygiene.js";
@@ -172,7 +174,9 @@ export async function beginCreateDealFlow(ctx: BotContext): Promise<void> {
 
   // Staging: solo admin crea (backtest). Soft-launch production: invite-only.
   if (config.createGate === "admin" && !isAdminUser(ctx.from.id)) {
-    await ctx.reply(it.createGateAdminOnly, { parse_mode: "Markdown" });
+    await replyAdminDenied(ctx, it.createGateAdminOnly, {
+      parse_mode: "Markdown",
+    });
     return;
   }
 
@@ -353,7 +357,7 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       await ctx.answerCallbackQuery({ text: "Niente da annullare" });
       return;
     }
-    await ctx.answerCallbackQuery();
+    await ctx.answerCallbackQuery({ text: "Annullato" });
     await cancelCreateWizard(ctx);
   });
 
@@ -482,7 +486,11 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
   });
 }
 
-/** Annulla wizard /crea (hears ❌ o callback crea_cancel). */
+/**
+ * Annulla wizard /crea (hears ❌ o callback crea_cancel).
+ * Cancella prompt invito / ephemeral; non restacca Crea / I miei —
+ * resta il menu precedente. Feedback: toast callback o notice effimero.
+ */
 async function cancelCreateWizard(
   ctx: BotContext,
   opts?: { userMessageId?: number },
@@ -493,7 +501,10 @@ async function cancelCreateWizard(
   if (userMsgId != null) {
     await deleteMessageSafe(ctx.api, ctx.chat.id, userMsgId);
   }
-  await replyWithMainMenu(ctx, it.cancelled);
+  // Callback path: toast già in answerCallbackQuery. Hears: notice senza menu.
+  if (userMsgId != null) {
+    await replyEphemeralNotice(ctx, it.cancelled);
+  }
 }
 
 /** Free text mid-invite: delete user echo + re-send prompt (codice + Annulla). */

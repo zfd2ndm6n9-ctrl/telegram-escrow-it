@@ -42,6 +42,7 @@ import {
   postDealActivated,
   postShipAsk,
 } from "../services/group-setup.js";
+import { replyAdminDenied } from "../services/dm-hygiene.js";
 import {
   clearBotPrompts,
   clearEphemeralReplies,
@@ -1219,7 +1220,7 @@ async function handleAdminForcePayoutDm(
   kind: "release" | "refund",
 ): Promise<void> {
   if (!ctx.from || !isAdminUser(ctx.from.id)) {
-    await ctx.reply(it.adminOnly);
+    await replyAdminDenied(ctx);
     return;
   }
   const raw = (ctx.message?.text ?? "").trim();
@@ -2506,7 +2507,7 @@ export async function openDispute(
 
 async function adminRipristina(ctx: BotContext): Promise<void> {
   if (!ctx.from || !isAdminUser(ctx.from.id)) {
-    await ctx.reply(it.adminOnly);
+    await replyAdminDenied(ctx);
     return;
   }
   if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
@@ -2613,7 +2614,7 @@ async function adminRipristina(ctx: BotContext): Promise<void> {
 
 async function adminPayoutOrphan(ctx: BotContext): Promise<void> {
   if (!ctx.from || !isAdminUser(ctx.from.id)) {
-    await ctx.reply(it.adminOnly);
+    await replyAdminDenied(ctx);
     return;
   }
 

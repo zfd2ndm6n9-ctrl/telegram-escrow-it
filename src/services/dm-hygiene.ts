@@ -1,8 +1,13 @@
 import type { BotContext } from "../context.js";
 import { mainMenuKeyboard } from "../keyboards/menus.js";
+import { it } from "../messages/it.js";
 import { clearDmTermsUi } from "./dm-terms.js";
 import { dismissInviteStep } from "./invite-step.js";
-import { deleteMessageSafe } from "./prompt-cleanup.js";
+import {
+  deleteMessageSafe,
+  EPHEMERAL_NOTICE_MS,
+  scheduleMessageCleanup,
+} from "./prompt-cleanup.js";
 
 /**
  * Risposta DM con menu inline (Crea / I miei) sul messaggio stesso.
@@ -16,6 +21,53 @@ export async function replyWithMainMenu(
   return ctx.reply(text, {
     ...extra,
     reply_markup: mainMenuKeyboard(),
+  });
+}
+
+/**
+ * Notice breve senza tastiera; auto-delete (bot + opz. echo utente).
+ * Usato per «Operazione annullata.» senza restackare Crea / I miei.
+ */
+export async function replyEphemeralNotice(
+  ctx: BotContext,
+  text: string,
+  opts?: {
+    parse_mode?: "Markdown" | "HTML";
+    userMessageId?: number;
+    delayMs?: number;
+  },
+): Promise<void> {
+  if (!ctx.chat) return;
+  let botMsgId: number | undefined;
+  try {
+    const msg = await ctx.reply(text, {
+      parse_mode: opts?.parse_mode,
+    });
+    botMsgId = msg.message_id;
+  } catch {
+    return;
+  }
+  scheduleMessageCleanup(
+    ctx.api,
+    ctx.chat.id,
+    [botMsgId, opts?.userMessageId],
+    opts?.delayMs ?? EPHEMERAL_NOTICE_MS,
+  );
+}
+
+/**
+ * Path admin-only per non-admin: «Solo admin.» (o simile) poi sweep.
+ * Cancella anche il comando utente se Telegram lo permette.
+ */
+export async function replyAdminDenied(
+  ctx: BotContext,
+  text: string = it.adminOnly,
+  opts?: { parse_mode?: "Markdown" | "HTML"; delayMs?: number },
+): Promise<void> {
+  await replyEphemeralNotice(ctx, text, {
+    parse_mode: opts?.parse_mode,
+    userMessageId: ctx.message?.message_id,
+    delayMs: opts?.delayMs,
   });
 }
 
