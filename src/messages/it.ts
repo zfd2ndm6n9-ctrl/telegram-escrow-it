@@ -1,4 +1,4 @@
-import type { Deal, DmTermsStep, GroupCompromiseReason } from "../types.js";
+import type { Deal, DmTermsStep } from "../types.js";
 import {
   amountConfirmed,
   bothPartiesPresent,
@@ -817,36 +817,6 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   /** Gruppo compromesso: freeze azioni parti (bottoni / comandi in gruppo). */
   frozenGroupCompromised:
     "Gruppo non sicuro. Deal congelato — aspetta l'admin.",
-
-  /**
-   * DM admin: gruppo perso / bot o admin kickati / wipe card critica.
-   * Corto: id + stato + motivo. Recovery: `/deal` + force payout in DM.
-   */
-  groupCompromisedAdminDm: (deal: Deal, reason: GroupCompromiseReason) => {
-    const reasonIt: Record<GroupCompromiseReason, string> = {
-      bot_kicked: "bot kickato dal gruppo",
-      group_gone: "gruppo cancellato o irraggiungibile",
-      critical_msgs_deleted: "messaggi critici del bot cancellati",
-      admin_kicked: "admin kickato dal gruppo deal",
-    };
-    const status = STATUS_LABELS[deal.status];
-    const lines = [
-      `⚠️ *Gruppo compromesso* — deal \`#${deal.id}\``,
-      `• Stato: *${status}*`,
-      `• Motivo: ${reasonIt[reason]}`,
-    ];
-    if (deal.amount) {
-      lines.push(`• Importo: *${deal.amount} ${deal.asset}*`);
-    } else if (deal.priceEur) {
-      lines.push(`• Prezzo: *${deal.priceEur} €*`);
-    }
-    lines.push(
-      "",
-      `DM: \`/deal ${deal.id}\``,
-      `Force (solo disputa): \`/payseller ${deal.id}\` · \`/refundbuyer ${deal.id}\``,
-    );
-    return lines.join("\n");
-  },
 
   adminForceDmUsage: (kind: "release" | "refund") =>
     kind === "release"

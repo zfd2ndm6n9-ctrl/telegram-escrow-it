@@ -58,9 +58,11 @@ assert.equal(isMessageMissingError({ description: "message is not modified" }), 
 const released = store.upsert({ ...base, id: "deadbeef", status: "released" });
 assert.equal(isTerminalDeal(released), true);
 
+let dmCalls = 0;
 const fakeApi = {
   sendMessage: async () => {
-    throw new Error("should not DM in unit without admin env — catch ok");
+    dmCalls += 1;
+    throw new Error("DM must not be sent on group compromise");
   },
 } as never;
 
@@ -72,8 +74,7 @@ const afterTerm = await markGroupCompromised(
 );
 assert.equal(afterTerm.groupCompromisedAt, undefined, "terminal: no mark");
 
-// live deal mark (idempotent)
-process.env.ADMIN_TELEGRAM_IDS = ""; // no DM targets
+// live deal mark (idempotent) — freeze only, no admin DM
 const live = store.get("abcd1234")!;
 assert.equal(isGroupActionsFrozen(live), false);
 
@@ -81,6 +82,7 @@ const marked = await markGroupCompromised(fakeApi, store, live, "bot_kicked");
 assert.ok(marked.groupCompromisedAt);
 assert.equal(marked.groupCompromisedReason, "bot_kicked");
 assert.equal(isGroupActionsFrozen(marked), true);
+assert.equal(dmCalls, 0, "no admin DM on first compromise mark");
 
 const again = await markGroupCompromised(
   fakeApi,
@@ -94,14 +96,7 @@ assert.equal(
   "reason sticky first-wins",
 );
 assert.equal(again.groupCompromisedAt, marked.groupCompromisedAt);
-
-// DM copy
-const body = it.groupCompromisedAdminDm(marked, "bot_kicked");
-assert.match(body, /abcd1234/);
-assert.match(body, /bot kickato/i);
-assert.match(body, /\/payseller abcd1234/);
-assert.match(body, /\/refundbuyer abcd1234/);
-assert.match(body, /\/deal abcd1234/);
+assert.equal(dmCalls, 0, "no admin DM on idempotent re-mark");
 
 assert.match(it.frozenGroupCompromised, /congelato/i);
 
