@@ -312,6 +312,7 @@ async function main(): Promise<void> {
     kind,
     collaboratorWallet:
       dest.label === "seller" ? existingDeal?.collaboratorWallet : undefined,
+    feePayer: dest.label === "seller" ? existingDeal?.feePayer : undefined,
   });
   if (!result.ok) {
     console.error(`Payout fallito: ${result.error}`);

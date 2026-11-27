@@ -43,8 +43,15 @@ export type PendingSelfConfirm = {
 export type Asset = "SOL";
 export type PartyRole = "buyer" | "seller";
 
-/** Step del wizard termini in DM (proponente corrente). */
-export type DmTermsStep = "product" | "price" | "conditions";
+/**
+ * Chi paga la fee di servizio 5% a release.
+ * - `seller` (default / legacy): buyer deposita il prezzo; seller riceve 95%.
+ * - `buyer`: buyer deposita prezzo + 5%; seller riceve il 100% del prezzo.
+ */
+export type FeePayer = "buyer" | "seller";
+
+/** Step del wizard termini in DM / gruppo (proponente corrente). */
+export type DmTermsStep = "product" | "price" | "conditions" | "fee_payer";
 
 export interface Deal {
   id: string;
@@ -72,6 +79,11 @@ export interface Deal {
    * Non è l'importo on-chain: quello resta in `amount`.
    */
   priceEur?: string;
+  /**
+   * Chi paga la fee 5% (scelta wizard termini / Proponi i ToS).
+   * Assente su deal legacy → trattato come `seller`.
+   */
+  feePayer?: FeePayer;
   /**
    * Campo strutturato: Condizioni.
    * Nome storico `tosConditions` (prima etichettato «Tempi»); in UI è «Condizioni».

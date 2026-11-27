@@ -1,4 +1,5 @@
-import type { Deal, DmTermsStep, PartyRole } from "../types.js";
+import type { Deal, DmTermsStep, FeePayer, PartyRole } from "../types.js";
+import { effectiveFeePayer } from "./solana/fees.js";
 import { config } from "../config.js";
 
 export function parseAmount(raw: string, maxDecimals = 9): string | null {
@@ -75,8 +76,9 @@ export function formatEuroNumber(n: number): string {
 }
 
 /**
- * Split commerciale in € per messaggio di rilascio (UI only; fee on-chain invariata).
- * 95% seller · 5% fee (2.5/2.5 se collaboratore).
+ * Split commerciale in € per messaggio di rilascio (UI only).
+ * - feePayer seller: 95% seller · 5% fee (2.5/2.5 se collab)
+ * - feePayer buyer: 100% prezzo → seller · 5% fee (buyer ha depositato +5%)
  */
 export function commercialReleaseSplitEur(deal: Deal): {
   sellerEur: string;
@@ -92,7 +94,10 @@ export function commercialReleaseSplitEur(deal: Deal): {
 
   const hasCollab = Boolean(deal.collaboratorWallet?.trim());
   const feeTotal = Math.round(total * 0.05 * 100) / 100;
-  const seller = Math.round((total - feeTotal) * 100) / 100;
+  const sellerPays = effectiveFeePayer(deal.feePayer) === "seller";
+  const seller = sellerPays
+    ? Math.round((total - feeTotal) * 100) / 100
+    : total;
   if (!hasCollab) {
     return {
       totalEur: formatEuroNumber(total),
@@ -108,6 +113,11 @@ export function commercialReleaseSplitEur(deal: Deal): {
     adminEur: formatEuroNumber(admin),
     collaboratorEur: formatEuroNumber(collab),
   };
+}
+
+/** Label corta per card termini / riepilogo. */
+export function feePayerLabel(feePayer?: FeePayer | null): string {
+  return effectiveFeePayer(feePayer) === "buyer" ? "Buyer" : "Seller";
 }
 
 export function isParty(deal: Deal, userId: number): boolean {
@@ -317,14 +327,19 @@ export function normalizeTosField(
 /** Lunghezza minima per Prodotto / Condizioni. */
 export const MIN_TOS_FIELD = 2;
 
-export type EssentialTermsField = "product" | "price" | "conditions";
+export type EssentialTermsField =
+  | "product"
+  | "price"
+  | "conditions"
+  | "fee_payer";
 
-/** Prodotto + Prezzo € + Condizioni pronti per Accetto. */
+/** Prodotto + Prezzo € + Condizioni + fee payer pronti per Accetto. */
 export function termsReadyForConfirm(deal: Deal): boolean {
   return Boolean(
     deal.tosProduct &&
       deal.priceEur &&
       deal.tosConditions &&
+      deal.feePayer &&
       deal.tosText,
   );
 }
@@ -334,19 +349,21 @@ export function missingEssentialTerms(deal: Deal): EssentialTermsField[] {
   if (!deal.tosProduct) missing.push("product");
   if (!deal.priceEur) missing.push("price");
   if (!deal.tosConditions) missing.push("conditions");
+  if (!deal.feePayer) missing.push("fee_payer");
   return missing;
 }
 
-/** Prossimo step del wizard DM (null = completo). */
+/** Prossimo step del wizard DM / gruppo (null = completo). */
 export function nextDmTermsStep(deal: Deal): DmTermsStep | null {
   if (!deal.tosProduct) return "product";
   if (!deal.priceEur) return "price";
   if (!deal.tosConditions) return "conditions";
+  if (!deal.feePayer) return "fee_payer";
   return null;
 }
 
 /**
- * Elenco puntato fisso Prodotto/servizio / Prezzo € / Condizioni.
+ * Elenco puntato fisso Prodotto/servizio / Prezzo € / Condizioni / Fee.
  * Campi vuoti → `—` (card sempre completa).
  */
 export function formatTosBullets(deal: Deal): string {
@@ -371,10 +388,12 @@ export function formatTosBullets(deal: Deal): string {
       ? stripRepeatedLabel(deal.tosNotes, "Condizioni")
       : "";
   const conditions = conditionsRaw ? escMd(conditionsRaw) : "—";
+  const fee = deal.feePayer ? feePayerLabel(deal.feePayer) : "—";
   return (
     `• Prodotto/servizio: ${product}\n` +
     `• Prezzo: ${price}\n` +
-    `• Condizioni: ${conditions}`
+    `• Condizioni: ${conditions}\n` +
+    `• Fee a carico: ${fee}`
   );
 }
 
@@ -383,14 +402,19 @@ export function composeTosText(
   product: string,
   priceEur: string,
   conditions: string,
+  feePayer?: FeePayer | null,
 ): string {
   const p = normalizeTosField(product, "Prodotto");
   const c = normalizeTosField(conditions, "Condizioni");
-  return [
+  const lines = [
     `• Prodotto/servizio: ${p}`,
     `• Prezzo: ${formatEuroPrice(priceEur)}`,
     `• Condizioni: ${c}`,
-  ].join("\n");
+  ];
+  if (feePayer) {
+    lines.push(`• Fee a carico: ${feePayerLabel(feePayer)}`);
+  }
+  return lines.join("\n");
 }
 
 /** Stati precedenti al deposito escrow (termini / wallet ancora aperti). */
@@ -520,6 +544,7 @@ export function blankTermsPatch(
     tosProduct: undefined,
     priceEur: undefined,
     tosConditions: undefined,
+    feePayer: undefined,
     tosText: undefined,
     tosNotes: undefined,
     tosAcceptedAt: undefined,

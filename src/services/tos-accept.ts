@@ -9,7 +9,7 @@ import {
   termsReadyForConfirm,
   tosAccepted,
 } from "./deal-logic.js";
-import { convertPriceEurToAsset } from "./asset-crypto.js";
+import { convertPriceEurToDepositAmount } from "./asset-crypto.js";
 import { clearGroupTosMiniAppPin } from "./group-tos-pin.js";
 import { postAskSellerWallet, refreshGroupSetupCard, refreshGroupTitle } from "./group-setup.js";
 import {
@@ -69,9 +69,10 @@ export async function acceptDealTerms(
     if (!current.priceEur) {
       return { ok: false, reason: "missing_price", deal: current };
     }
-    const converted = await convertPriceEurToAsset(
+    const converted = await convertPriceEurToDepositAmount(
       current.asset,
       current.priceEur,
+      current.feePayer,
     );
     if (!converted) {
       return { ok: false, reason: "rate_unavailable", deal: current };

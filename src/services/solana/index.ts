@@ -22,9 +22,13 @@ export {
 } from "./transfer.js";
 export {
   computeReleaseFeeSplit,
+  depositLamportsForFeePayer,
+  effectiveFeePayer,
   cannotFundNewAccount,
   PLATFORM_FEE_BPS,
   COLLAB_FEE_BPS,
+  BUYER_GROSS_BPS,
+  BPS_DENOMINATOR,
   feeBpsLabel,
 } from "./fees.js";
 export {

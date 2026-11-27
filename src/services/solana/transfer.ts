@@ -14,6 +14,7 @@ import {
   getSolanaConnection,
 } from "./client.js";
 import { lamportsToSolString } from "./amounts.js";
+import type { FeePayer } from "../../types.js";
 import {
   cannotFundNewAccount,
   computeReleaseFeeSplit,
@@ -25,6 +26,11 @@ export type PayoutOptions = {
   kind: PayoutKind;
   /** Solo release: wallet collaboratore (2.5%). Se assente → 5% tutto a platform. */
   collaboratorWallet?: string;
+  /**
+   * Chi paga la fee 5% (default seller = split storico sul saldo).
+   * `buyer` → fee = saldo × 500/10500 (deposito era prezzo+5%).
+   */
+  feePayer?: FeePayer;
 };
 
 export type TransferResult =
@@ -70,7 +76,8 @@ async function resolveFeeWalletPubkey(
 /**
  * Payout escrow → destinazione.
  * - refund: intero saldo → buyer (nessuna fee servizio)
- * - release: 95% seller + 5% fee (split 2.5/2.5 se collaboratore)
+ * - release seller-fee: 95% seller + 5% fee (2.5/2.5 se collaboratore)
+ * - release buyer-fee: seller = prezzo (≈100/105 del saldo) + fee 5% del prezzo
  *
  * Fee di rete pagata dalla master (hot wallet).
  * Una sola tx atomica (multi-ix) — fail-safe: o tutto o niente.
@@ -211,7 +218,11 @@ export async function payoutDealSol(
       }
     }
 
-    const split = computeReleaseFeeSplit(balance, Boolean(collabPk));
+    const split = computeReleaseFeeSplit(
+      balance,
+      Boolean(collabPk),
+      options.feePayer,
+    );
     sellerLamports = split.sellerLamports;
     platformFeeLamports = split.platformLamports;
     collaboratorFeeLamports = split.collaboratorLamports;

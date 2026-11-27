@@ -1,7 +1,8 @@
 import type { Api } from "grammy";
-import type { Deal, DmTermsStep } from "../types.js";
+import type { Deal, DmTermsStep, FeePayer } from "../types.js";
 import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
+import { feePayerKeyboard } from "../keyboards/menus.js";
 import {
   blankTermsPatch,
   composeTosText,
@@ -150,7 +151,12 @@ export async function askDmTermsStep(
     const msg = await api.sendMessage(
       proposerChatId,
       it.dmTermsAsk(step, current),
-      { parse_mode: "Markdown" },
+      {
+        parse_mode: "Markdown",
+        ...(step === "fee_payer"
+          ? { reply_markup: feePayerKeyboard(current.id) }
+          : {}),
+      },
     );
     return (
       store.update(current.id, { dmTermsPromptMessageId: msg.message_id }) ??
@@ -251,7 +257,12 @@ export async function askGroupTermsStep(
     const msg = await api.sendMessage(
       chatId,
       `${who}: ${it.dmTermsAsk(step, current)}`,
-      { parse_mode: "Markdown" },
+      {
+        parse_mode: "Markdown",
+        ...(step === "fee_payer"
+          ? { reply_markup: feePayerKeyboard(current.id) }
+          : {}),
+      },
     );
     return (
       store.update(current.id, {
@@ -326,12 +337,13 @@ export type ApplyTermsAnswerResult =
   | {
       ok: false;
       deal: Deal;
-      reason: "short" | "price" | "empty" | "wrong_user";
+      reason: "short" | "price" | "empty" | "wrong_user" | "need_button";
     };
 
 /**
  * Applica la risposta del proponente a uno step, igiene messaggi, aggiorna summary.
  * Se completo: compose tosText e status awaiting_tos_confirm (se già in gruppo).
+ * Step `fee_payer` → solo bottoni (`applyFeePayerChoice`).
  */
 export async function applyTermsAnswer(
   api: Api,
@@ -343,6 +355,10 @@ export async function applyTermsAnswer(
   rawText: string,
   userMessageId?: number,
 ): Promise<ApplyTermsAnswerResult> {
+  if (step === "fee_payer") {
+    return { ok: false, deal, reason: "need_button" };
+  }
+
   const proposer = termsProposerId(deal) ?? deal.tosProposedBy;
   if (proposer != null && proposer !== userId) {
     return { ok: false, deal, reason: "wrong_user" };
@@ -414,6 +430,7 @@ export async function applyTermsAnswer(
     current.tosProduct!,
     current.priceEur!,
     current.tosConditions!,
+    current.feePayer,
   );
 
   const inGroup =
@@ -435,6 +452,106 @@ export async function applyTermsAnswer(
   return { ok: true, deal: current, done: true };
 }
 
+/**
+ * Scelta fee payer via bottone (DM o gruppo).
+ */
+export async function applyFeePayerChoice(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+  userId: number,
+  feePayer: FeePayer,
+  opts?: { inGroup?: boolean },
+): Promise<ApplyTermsAnswerResult> {
+  const inGroup = opts?.inGroup === true;
+  const proposer = termsProposerId(deal) ?? deal.tosProposedBy;
+  if (proposer != null && proposer !== userId) {
+    return { ok: false, deal, reason: "wrong_user" };
+  }
+  if (nextDmTermsStep(deal) !== "fee_payer" && deal.feePayer) {
+    // Già scelto / wizard oltre — no-op safe
+    if (termsReadyForConfirm(deal)) {
+      return { ok: true, deal, done: true };
+    }
+  }
+
+  let current =
+    store.update(deal.id, {
+      feePayer,
+      tosProposedBy: userId,
+      tosAcceptedAt: undefined,
+      amountConfirmedAt: undefined,
+      amount: "",
+      amountVotes: [],
+      ...(inGroup ? { termsWizardInGroup: true } : {}),
+    }) ?? deal;
+
+  if (inGroup) {
+    const chatId = current.groupChatId;
+    if (chatId == null) {
+      return { ok: false, deal: current, reason: "wrong_user" };
+    }
+    current = await clearGroupTermsPrompt(api, store, current);
+
+    const next = nextDmTermsStep(current);
+    if (next) {
+      current = await askGroupTermsStep(api, store, current, next);
+      return { ok: true, deal: current, done: false, nextStep: next };
+    }
+
+    const tosText = composeTosText(
+      current.tosProduct!,
+      current.priceEur!,
+      current.tosConditions!,
+      current.feePayer,
+    );
+    current =
+      store.update(current.id, {
+        tosText,
+        tosProposedBy: userId,
+        tosAcceptedAt: undefined,
+        status: "awaiting_tos_confirm",
+        termsWizardInGroup: undefined,
+        groupTermsPromptMessageId: undefined,
+      }) ?? current;
+    return { ok: true, deal: current, done: true };
+  }
+
+  const proposerChatId = userId;
+  current = await clearDmPrompt(api, store, current, proposerChatId);
+  current = await upsertDmTermsSummary(api, store, current, proposerChatId);
+
+  const next = nextDmTermsStep(current);
+  if (next) {
+    current = await askDmTermsStep(api, store, current, proposerChatId, next);
+    return { ok: true, deal: current, done: false, nextStep: next };
+  }
+
+  const tosText = composeTosText(
+    current.tosProduct!,
+    current.priceEur!,
+    current.tosConditions!,
+    current.feePayer,
+  );
+
+  const dealInGroup =
+    current.groupChatId != null &&
+    (current.status === "awaiting_tos" ||
+      current.status === "awaiting_tos_confirm" ||
+      current.status === "awaiting_counterpart");
+
+  current =
+    store.update(current.id, {
+      tosText,
+      tosProposedBy: userId,
+      tosAcceptedAt: undefined,
+      status: dealInGroup ? "awaiting_tos_confirm" : current.status,
+      dmTermsPromptMessageId: undefined,
+    }) ?? current;
+
+  return { ok: true, deal: current, done: true };
+}
+
 /** @deprecated alias → applyTermsAnswer */
 export const applySellerTermsAnswer = applyTermsAnswer;
 
@@ -452,6 +569,10 @@ export async function applyGroupTermsAnswer(
   rawText: string,
   userMessageId?: number,
 ): Promise<ApplyTermsAnswerResult> {
+  if (step === "fee_payer") {
+    return { ok: false, deal, reason: "need_button" };
+  }
+
   const chatId = deal.groupChatId;
   if (chatId == null) {
     return { ok: false, deal, reason: "wrong_user" };
@@ -526,6 +647,7 @@ export async function applyGroupTermsAnswer(
     current.tosProduct!,
     current.priceEur!,
     current.tosConditions!,
+    current.feePayer,
   );
 
   current =
