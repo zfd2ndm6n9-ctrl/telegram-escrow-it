@@ -48,6 +48,20 @@ assert.match(dmSrc, /feePayerKeyboard/);
 assert.match(creaSrc, /terms_fee:\(buyer\|seller\)/);
 assert.match(lifeSrc, /terms_fee:\(buyer\|seller\)/);
 assert.match(tosSrc, /convertPriceEurToDepositAmount/);
+// Button tap → sweep free-text fee errors + ask (no orphan after group create)
+assert.match(
+  creaSrc,
+  /terms_fee:[\s\S]*?clearTermsErrorMessages[\s\S]*?applyFeePayerChoice/,
+);
+assert.match(
+  creaSrc,
+  /async function finishDealReady[\s\S]*?clearTermsErrorMessages/,
+);
+// Role tap: delete ask (ephemeral + callback message)
+assert.match(
+  creaSrc,
+  /async function pickRole[\s\S]*?clearCreatingEphemeral[\s\S]*?callbackQuery\?\.message/,
+);
 
 const kb = feePayerKeyboard("abcdef12");
 assert.equal(kb.inline_keyboard?.[0]?.length, 2);
@@ -104,9 +118,11 @@ assert.match(formatTosBullets(deal), /Fee a carico: Buyer/);
 assert.equal(feePayerLabel("seller"), "Seller");
 
 const ask = it.dmTermsAsk("fee_payer", deal);
-assert.match(ask, /Chi paga la fee/);
-assert.match(ask, /\+5%/);
-assert.match(ask, /−5%/);
+assert.match(ask, /Chi paga le fee del \*5%\*/);
+assert.doesNotMatch(ask, /\+5%/);
+assert.doesNotMatch(ask, /−5%/);
+assert.doesNotMatch(ask, /deposito/);
+assert.equal(ask.includes("\n"), false);
 
 const blank = blankTermsPatch(42, { inGroup: true });
 assert.equal(blank.feePayer, undefined);

@@ -295,11 +295,7 @@ ${escMd(body)}`;
     if (step === "conditions") {
       return "3️⃣ Quali sono le *Condizioni*? (consegna, tempi, formato…)";
     }
-    return (
-      "4️⃣ Chi paga la fee del *5%*?\n" +
-      "• *Buyer* → +5% sul deposito\n" +
-      "• *Seller* → −5% al seller"
-    );
+    return "4️⃣ Chi paga le fee del *5%*?";
   },
 
   /** Free text sullo step fee (servono i bottoni). */

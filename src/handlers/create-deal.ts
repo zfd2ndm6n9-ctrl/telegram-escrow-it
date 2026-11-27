@@ -368,6 +368,9 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
       text: feePayer === "buyer" ? "Fee: Buyer" : "Fee: Seller",
     });
 
+    // Igiene: errori free-text («Scegli Buyer o Seller…») + domanda con bottoni.
+    await clearTermsErrorMessages(ctx);
+
     const result = await applyFeePayerChoice(
       ctx.api,
       ctx.store,
@@ -653,14 +656,15 @@ async function handlePrivateTermsReply(
       errText = it.dmTermsTooShort;
     }
     if (errText) {
+      // Un solo errore vivo (no stack di «Scegli Buyer…» / prezzo).
+      await clearTermsErrorMessages(ctx);
       const err = await ctx.reply(errText, { parse_mode: "Markdown" });
-      const prev = ctx.session.termsErrorMessageIds ?? [];
-      ctx.session.termsErrorMessageIds = [...prev, err.message_id];
+      ctx.session.termsErrorMessageIds = [err.message_id];
     }
     return true;
   }
 
-  // Step valido: togli errori prezzo/corto precedenti.
+  // Step valido: togli errori prezzo/corto / fee-button precedenti.
   await clearTermsErrorMessages(ctx);
 
   if (!result.done && result.nextStep) {
@@ -703,8 +707,13 @@ async function pickRole(ctx: BotContext, role: PartyRole): Promise<void> {
     return;
   }
 
-  // Igiene: cancella ask ruolo (+ tap) prima del wizard termini.
+  // Igiene: cancella ask ruolo (+ eventuale re-prompt da free-text) prima dei termini.
+  // Callback: ctx.callbackQuery.message = la domanda con bottoni.
   await clearCreatingEphemeral(ctx);
+  const rolePromptId = ctx.callbackQuery?.message?.message_id;
+  if (rolePromptId != null) {
+    await deleteMessageSafe(ctx.api, ctx.chat.id, rolePromptId);
+  }
   if (ctx.message?.message_id != null) {
     await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
   }
@@ -772,6 +781,8 @@ async function finishDealReady(
 ): Promise<void> {
   if (!ctx.from || ctx.chat?.type !== "private") return;
 
+  // Sweep errori termini (es. «Scegli Buyer o Seller…») prima di creare il gruppo.
+  await clearTermsErrorMessages(ctx);
   let current = await clearDmTermsUi(ctx.api, ctx.store, deal, ctx.chat.id);
 
   // Path preferito: servizio crea il gruppo (helper MTProto). Bot API non può.
