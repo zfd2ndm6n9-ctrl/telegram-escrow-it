@@ -43,10 +43,17 @@ assert.match(startSrc, /replyAdminDenied\(ctx\)/);
 assert.match(groupSrc, /replyAdminDenied\(ctx\)/);
 assert.match(creaSrc, /replyAdminDenied\(ctx,\s*it\.createGateAdminOnly/);
 
-// Invite prompt: Annulla → crea_cancel
+// Invite prompt: Annulla → crea_cancel (qualsiasi step creating, incl. invite)
 const inviteKb = invitePromptKeyboard();
 assert.equal(inviteKb.inline_keyboard?.[0]?.[0]?.callback_data, "crea_cancel");
-assert.match(creaSrc, /step !== "invite"/);
+{
+  const cancelBlock = creaSrc.slice(
+    creaSrc.indexOf('callbackQuery("crea_cancel"'),
+    creaSrc.indexOf('callbackQuery("tos"'),
+  );
+  assert.match(cancelBlock, /cancelCreateWizard/);
+  assert.doesNotMatch(cancelBlock, /step === "role"/);
+}
 
 // Cancel: cleanup leftover, no stacked main menu on cancel
 assert.match(creaSrc, /cancelLeftoverCreaForNewFlow/);

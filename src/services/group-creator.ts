@@ -186,6 +186,7 @@ export async function createEscrowGroup(input: {
     const chatId = channelToBotApiChatId(channel);
 
     // Bot admin con diritti forti (in megagroup i bot entrano solo come admin).
+    // Deve completarsi prima di permessi / invite / link (Bot API).
     await client.invoke(
       new Api.channels.EditAdmin({
         channel,
@@ -195,30 +196,33 @@ export async function createEscrowGroup(input: {
       }),
     );
 
-    try {
-      await client.invoke(
-        new Api.messages.EditChatDefaultBannedRights({
-          peer: channel,
-          bannedRights: MEMBER_DEFAULT_BANNED,
-        }),
-      );
-    } catch (err) {
-      console.warn("default banned rights via MTProto failed:", err);
-    }
-
-    try {
-      await input.botApi.setChatPermissions(chatId, BOT_API_MEMBER_PERMISSIONS);
-    } catch (err) {
-      console.warn("setChatPermissions failed:", err);
-    }
-
-    let creatorInvited = false;
+    // Dopo EditAdmin: permessi + invite creator + dual invite links in parallelo.
+    // Titolo già impostato in CreateChannel — niente setChatTitle ridondante
+    // (evita round-trip + eventuale «ha cambiato il nome»).
     const inviteTarget =
       input.creatorUsername != null && input.creatorUsername.length > 0
         ? input.creatorUsername
         : undefined;
 
-    if (inviteTarget) {
+    const bannedRightsP = client
+      .invoke(
+        new Api.messages.EditChatDefaultBannedRights({
+          peer: channel,
+          bannedRights: MEMBER_DEFAULT_BANNED,
+        }),
+      )
+      .catch((err: unknown) => {
+        console.warn("default banned rights via MTProto failed:", err);
+      });
+
+    const botPermsP = input.botApi
+      .setChatPermissions(chatId, BOT_API_MEMBER_PERMISSIONS)
+      .catch((err: unknown) => {
+        console.warn("setChatPermissions failed:", err);
+      });
+
+    const inviteCreatorP = (async (): Promise<boolean> => {
+      if (!inviteTarget) return false;
       try {
         await client.invoke(
           new Api.channels.InviteToChannel({
@@ -226,29 +230,33 @@ export async function createEscrowGroup(input: {
             users: [inviteTarget],
           }),
         );
-        creatorInvited = true;
+        return true;
       } catch (err) {
         console.warn(
           `Invite creator @${inviteTarget} failed (userà il link):`,
           err,
         );
+        return false;
       }
-    }
+    })();
 
-    const creatorInviteLink = await exportPartyInviteLink(
+    const linkA = exportPartyInviteLink(
       input.botApi,
       client,
       channel,
       chatId,
       `deal-${input.deal.id}-a`,
     );
-    const counterpartInviteLink = await exportPartyInviteLink(
+    const linkB = exportPartyInviteLink(
       input.botApi,
       client,
       channel,
       chatId,
       `deal-${input.deal.id}-b`,
     );
+
+    const [creatorInviteLink, counterpartInviteLink, creatorInvited] =
+      await Promise.all([linkA, linkB, inviteCreatorP, bannedRightsP, botPermsP]);
 
     if (!creatorInviteLink || !counterpartInviteLink) {
       return {
@@ -258,17 +266,11 @@ export async function createEscrowGroup(input: {
       };
     }
 
-    try {
-      await input.botApi.setChatTitle(chatId, title);
-    } catch {
-      // ok
-    }
-
-    // Demote eventuali admin umani subito (parti non devono restare admin).
-    await demoteNonOwnerHumanAdmins(input.botApi, chatId);
-
-    // Archiviati sul helper: fuori dalla inbox principale (soft-fail).
-    const archived = await archiveHelperPeer(channel);
+    // Demote + archive in parallelo (indipendenti; soft-fail).
+    const [, archived] = await Promise.all([
+      demoteNonOwnerHumanAdmins(input.botApi, chatId),
+      archiveHelperPeer(channel),
+    ]);
     if (archived) {
       console.log(
         `Helper: deal #${input.deal.id} chat ${chatId} → Archiviati (folder 1).`,
@@ -342,16 +344,22 @@ export async function hardenGroupPermissions(
  * On helper-created groups the owner is the helper — parties become editable admins
  * only if someone promotes them; bot can strip those rights.
  */
+/** Cache getMe.id per demote (evita round-trip a ogni create/startDeal). */
+let cachedBotUserId: number | undefined;
+
 export async function demoteNonOwnerHumanAdmins(
   botApi: GrammyApi,
   chatId: number,
 ): Promise<number> {
   let demoted = 0;
-  let meId: number;
-  try {
-    meId = (await botApi.getMe()).id;
-  } catch {
-    return 0;
+  let meId = cachedBotUserId;
+  if (meId == null) {
+    try {
+      meId = (await botApi.getMe()).id;
+      cachedBotUserId = meId;
+    } catch {
+      return 0;
+    }
   }
 
   let admins: Awaited<ReturnType<GrammyApi["getChatAdministrators"]>>;
@@ -362,23 +370,29 @@ export async function demoteNonOwnerHumanAdmins(
     return 0;
   }
 
-  for (const admin of admins) {
-    if (admin.status === "creator") continue;
-    if (admin.user.is_bot && admin.user.id === meId) continue;
-    if (admin.user.is_bot) {
-      // Extra bots: prefer kick elsewhere; skip demote.
-      continue;
-    }
-    if (admin.status !== "administrator") continue;
-    if (!admin.can_be_edited) continue;
+  const demoteTargets = admins.filter(
+    (admin) =>
+      admin.status === "administrator" &&
+      !admin.user.is_bot &&
+      admin.can_be_edited,
+  );
 
-    try {
-      await botApi.promoteChatMember(chatId, admin.user.id, { ...DEMOTE_RIGHTS });
-      demoted += 1;
-    } catch (err) {
-      console.warn(`demote admin ${admin.user.id} in ${chatId}:`, err);
-    }
-  }
+  if (demoteTargets.length === 0) return 0;
+
+  const results = await Promise.all(
+    demoteTargets.map(async (admin) => {
+      try {
+        await botApi.promoteChatMember(chatId, admin.user.id, {
+          ...DEMOTE_RIGHTS,
+        });
+        return 1;
+      } catch (err) {
+        console.warn(`demote admin ${admin.user.id} in ${chatId}:`, err);
+        return 0;
+      }
+    }),
+  );
+  for (const n of results) demoted += n;
   return demoted;
 }
 

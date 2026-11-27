@@ -89,6 +89,7 @@ export function startDepositWatcher(
           `Deal #${deal.id} funded on-chain: ${lamportsToSolString(balance)} SOL`,
         );
 
+        // postShipAsk è idempotente (lock + deliveryCta): safe se Verifica parallela.
         if (updated.groupChatId != null) {
           try {
             await postShipAsk(api, store, updated);
@@ -153,7 +154,9 @@ export async function checkDealDeposit(
     const balance = await getEscrowBalanceLamports(deal.escrowAddress);
     const balanceSol = lamportsToSolString(balance);
     // Confronto solo vs target lockato — mai conversione €→SOL live.
-    if (balance >= expected && deal.status === "awaiting_deposit") {
+    // Re-read: watcher può aver già fondato mentre verificavamo on-chain.
+    const latest = store.get(deal.id) ?? deal;
+    if (balance >= expected && latest.status === "awaiting_deposit") {
       store.update(deal.id, {
         status: "funded",
         depositLamports: balance.toString(),
@@ -166,9 +169,10 @@ export async function checkDealDeposit(
         expectedSol: targetSol,
       };
     }
+    const after = store.get(deal.id) ?? latest;
     return {
       ok: true,
-      funded: deal.status === "funded" || balance >= expected,
+      funded: after.status === "funded" || balance >= expected,
       balanceSol,
       expectedSol: targetSol,
     };

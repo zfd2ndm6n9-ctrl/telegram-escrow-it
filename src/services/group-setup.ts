@@ -681,24 +681,21 @@ export async function bindGroupToDeal(
 
   // Foto branding una sola volta (non a ogni rename / /avvia).
   // setChatPhoto su basic group spesso triggera migrazione → nuovo id.
+  // Niente getChat preliminare: stesso path su super/basic (migrazione gestita sotto).
   let groupPhotoSetAt = deal.groupPhotoSetAt;
+  let liveId: number;
   if (!groupPhotoSetAt) {
-    const chat = await api.getChat(chatId).catch(() => null);
-    if (chat?.type === "supergroup") {
-      const ok = await ensureEscrowitaGroupPhoto(api, chatId);
-      if (ok) {
-        groupPhotoSetAt = new Date().toISOString();
-      }
-    } else {
-      // Basic group: prova comunque (migrazione gestita sotto + handler migrate_*).
-      const ok = await ensureEscrowitaGroupPhoto(api, chatId);
-      if (ok) {
-        groupPhotoSetAt = new Date().toISOString();
-      }
+    const [photoOk, resolvedId] = await Promise.all([
+      ensureEscrowitaGroupPhoto(api, chatId),
+      resolveLiveChatId(api, chatId),
+    ]);
+    if (photoOk) {
+      groupPhotoSetAt = new Date().toISOString();
     }
+    liveId = resolvedId;
+  } else {
+    liveId = await resolveLiveChatId(api, chatId);
   }
-
-  const liveId = await resolveLiveChatId(api, chatId);
   if (liveId !== chatId) {
     console.log(
       `bindGroupToDeal #${deal.id}: chat migrated ${chatId} → ${liveId}`,
@@ -867,43 +864,113 @@ export async function postDealActivated(
 }
 
 /**
+ * Lock in-process: coalescia chiamate concorrenti (watcher + Verifica / Stato)
+ * sullo stesso deal così non partono due sendMessage «consegna».
+ */
+const deliveryCtaInFlight = new Map<string, Promise<Deal>>();
+
+function withDeliveryCtaLock(
+  dealId: string,
+  run: () => Promise<Deal>,
+): Promise<Deal> {
+  const existing = deliveryCtaInFlight.get(dealId);
+  if (existing) return existing;
+  const promise = run().finally(() => {
+    if (deliveryCtaInFlight.get(dealId) === promise) {
+      deliveryCtaInFlight.delete(dealId);
+    }
+  });
+  deliveryCtaInFlight.set(dealId, promise);
+  return promise;
+}
+
+function hasTrackedStagePrompt(deal: Deal): boolean {
+  return (deal.botPromptIds?.length ?? 0) > 0;
+}
+
+/**
  * Dopo deposito confermato: aggiorna la card pinnata (*DEPOSITO CONFERMATO*),
  * chiude UI deposito (prompt + effimeri + errori ruolo) e chiede al seller di consegnare.
  * Usato da watcher e Verifica deposito.
+ * Idempotente: una sola card «Consegnato» anche con race watcher/Verifica.
  */
 export async function postShipAsk(
   api: Api,
   store: DealStore,
   deal: Deal,
 ): Promise<Deal> {
-  let current = await clearEphemeralReplies(api, store, deal);
-  current = await clearRoleError(api, store, current);
-  // Pin / card vivente: stato funded senza shouty separate.
-  try {
-    current = await refreshGroupSetupCard(api, store, current);
-  } catch (err) {
-    console.warn(
-      `postShipAsk refresh card #${current.id}:`,
-      err instanceof Error ? err.message : err,
-    );
-  }
-  if (current.sellerShippedAt) {
-    return postBuyerAfterShip(api, store, current);
-  }
-  // sendTrackedPrompt cancella i prompt stage (card Verifica deposito / Indirizzo).
-  return sendTrackedPrompt(api, store, current, it.shipAsk(current), {
-    parse_mode: "Markdown",
-    reply_markup: shipAskKeyboard(),
+  return withDeliveryCtaLock(deal.id, async () => {
+    let current = store.get(deal.id) ?? deal;
+    if (current.sellerShippedAt) {
+      return postBuyerAfterShipUnlocked(api, store, current);
+    }
+
+    // Già posta e ancora in chat → non ripostare (niente doppione).
+    if (current.deliveryCta === "ship_ask" && hasTrackedStagePrompt(current)) {
+      try {
+        current = await refreshGroupSetupCard(api, store, current);
+      } catch (err) {
+        console.warn(
+          `postShipAsk refresh (idempotent) #${current.id}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+      return store.get(current.id) ?? current;
+    }
+
+    current = await clearEphemeralReplies(api, store, current);
+    current = await clearRoleError(api, store, current);
+    // Pin / card vivente: stato funded senza shouty separate.
+    try {
+      current = await refreshGroupSetupCard(api, store, current);
+    } catch (err) {
+      console.warn(
+        `postShipAsk refresh card #${current.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+    if (current.sellerShippedAt) {
+      return postBuyerAfterShipUnlocked(api, store, current);
+    }
+
+    // Claim prima del send: un secondo path che entra dopo il lock vede deliveryCta.
+    current =
+      store.update(current.id, { deliveryCta: "ship_ask" }) ?? current;
+
+    // sendTrackedPrompt cancella i prompt stage (card Verifica deposito / Indirizzo).
+    return sendTrackedPrompt(api, store, current, it.shipAsk(current), {
+      parse_mode: "Markdown",
+      reply_markup: shipAskKeyboard(),
+    });
   });
 }
 
-/** Seller ha consegnato: CTA buyer (paga / info / disputa). */
+/** Seller ha consegnato: CTA buyer (paga / info / disputa). Idempotente. */
 export async function postBuyerAfterShip(
   api: Api,
   store: DealStore,
   deal: Deal,
 ): Promise<Deal> {
-  let current = await clearRoleError(api, store, deal);
+  return withDeliveryCtaLock(deal.id, () =>
+    postBuyerAfterShipUnlocked(api, store, deal),
+  );
+}
+
+async function postBuyerAfterShipUnlocked(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  let current = store.get(deal.id) ?? deal;
+  if (
+    current.deliveryCta === "buyer_after_ship" &&
+    hasTrackedStagePrompt(current)
+  ) {
+    return current;
+  }
+  current = await clearRoleError(api, store, current);
+  current =
+    store.update(current.id, { deliveryCta: "buyer_after_ship" }) ?? current;
   return sendTrackedPrompt(api, store, current, it.buyerAfterShip(current), {
     parse_mode: "Markdown",
     reply_markup: buyerAfterShipKeyboard(current),
@@ -1050,6 +1117,11 @@ export async function startDealInGroup(
     runnerId?: number;
     runnerUsername?: string;
     runnerDisplayName?: string;
+    /**
+     * Skip harden+demote (già fatti in createEscrowGroup sul path helper create).
+     * /avvia e join lifecycle non passano questo flag.
+     */
+    skipHarden?: boolean;
   },
 ): Promise<StartDealResult> {
   const { deal: bound, perms } = await bindGroupToDeal(api, store, deal, chatId);
@@ -1062,9 +1134,11 @@ export async function startDealInGroup(
   const liveChatId = bound.groupChatId ?? chatId;
 
   // Helper-owned: harden + strip party admin rights (bot cannot be owner).
-  if (bound.groupCreatedVia === "helper") {
-    await hardenGroupPermissions(api, liveChatId);
-    await demoteNonOwnerHumanAdmins(api, liveChatId);
+  if (bound.groupCreatedVia === "helper" && !opts?.skipHarden) {
+    await Promise.all([
+      hardenGroupPermissions(api, liveChatId),
+      demoteNonOwnerHumanAdmins(api, liveChatId),
+    ]);
   }
 
   let current = trackSeenGroupUser(store, bound, bound.creatorId);

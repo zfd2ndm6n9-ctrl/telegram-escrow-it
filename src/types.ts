@@ -189,6 +189,13 @@ export interface Deal {
    */
   sellerShippedAt?: string;
   /**
+   * CTA stage post-deposito già posta nel gruppo (idempotenza).
+   * Evita doppio «consegna / Consegnato» se watcher + Verifica corrono insieme.
+   * `ship_ask` = seller deve consegnare; `buyer_after_ship` = buyer paga/disputa.
+   * Se i `botPromptIds` sono vuoti (es. dopo annulla disputa) si riposta.
+   */
+  deliveryCta?: "ship_ask" | "buyer_after_ship";
+  /**
    * Dopo 2/2 pay-seller (non refund): review bot prima del payout on-chain.
    * `seller` → `buyer` → `done` (poi release).
    */

@@ -35,7 +35,16 @@ assert.match(creaSrc, /proceedToRoleStep/);
 assert.match(creaSrc, /creaInGroup/);
 assert.match(creaSrc, /openBotDmKeyboard/);
 assert.match(creaSrc, /start=crea/);
-assert.match(creaSrc, /step !== "invite"/); // crea_cancel anche su invite
+// crea_cancel: qualsiasi step creating (incl. invite) — niente gate solo-role
+{
+  const cancelBlock = creaSrc.slice(
+    creaSrc.indexOf('callbackQuery("crea_cancel"'),
+    creaSrc.indexOf('callbackQuery("tos"'),
+  );
+  assert.match(cancelBlock, /cancelCreateWizard/);
+  assert.match(cancelBlock, /!ctx\.session\.creating/);
+  assert.doesNotMatch(cancelBlock, /step === "role"/);
+}
 
 {
   const menusSrc = readFileSync(resolve(root, "src/keyboards/menus.ts"), "utf8");
