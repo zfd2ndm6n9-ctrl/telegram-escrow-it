@@ -71,9 +71,12 @@ export function invitePromptKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("❌ Annulla", "crea_cancel");
 }
 
-/** Redirect gruppo → DM bot (deep-link opzionale `?start=crea`). */
+/**
+ * URL button → t.me/<bot> (o deep-link `?start=…`).
+ * Stesso stile dell’invito gruppo (APRI GRUPPO nativo su t.me/+): CTA corta «Apri bot».
+ */
 export function openBotDmKeyboard(botUrl: string): InlineKeyboard {
-  return new InlineKeyboard().url("Apri il bot", botUrl);
+  return new InlineKeyboard().url("Apri bot", botUrl);
 }
 
 /** @deprecated Prefer inline `crea_cancel` on role/asset prompts. */

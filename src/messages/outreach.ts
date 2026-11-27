@@ -1,7 +1,7 @@
 /**
  * Copy outreach IT (admin `/outreach escrow|seller`).
  * Markdown legacy Telegram — niente `_` non escapati nei testi.
- * Un solo messaggio con URL in testo → Inoltra pulito (niente bottone obbligatorio).
+ * Link nel body + CTA URL «Apri bot» (openBotDmKeyboard) → Inoltra con bottone.
  */
 
 export const OUTREACH_BOT_USERNAME = "ESCROWITAbot";
@@ -28,10 +28,10 @@ Disponibile *24/7*, rilascio e rimborso con *doppia conferma*. Fee trasparente: 
 
 Quando vuoi: https://t.me/ESCROWITAbot`;
 
-/** Uso admin: un messaggio inoltrabile (link nel body). */
+/** Uso admin: messaggio inoltrabile (link nel body + Apri bot). */
 export const OUTREACH_USAGE =
   "Uso (admin, DM): `/outreach escrow` oppure `/outreach seller`\n" +
-  "Ricevi *un solo messaggio* con il link nel testo — Inoltra così com’è.";
+  "Ricevi *un messaggio* con link + bottone *Apri bot* — Inoltra così com’è.";
 
 export function outreachBotUrl(botUsername?: string): string {
   const user = (botUsername ?? OUTREACH_BOT_USERNAME).replace(/^@/, "");
