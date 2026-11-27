@@ -23,6 +23,7 @@ const ESSENTIAL_LABELS: Record<EssentialTermsField, string> = {
   product: "Prodotto/servizio",
   price: "Prezzo",
   conditions: "Condizioni",
+  fee_payer: "Fee (Buyer/Seller)",
 };
 
 function formatMissingList(fields: EssentialTermsField[]): string {
@@ -291,8 +292,18 @@ ${escMd(body)}`;
     if (step === "price") {
       return "2️⃣ Qual è il *Prezzo* in euro? (es. `10` o `12,50`)";
     }
-    return "3️⃣ Quali sono le *Condizioni*? (consegna, tempi, formato…)";
+    if (step === "conditions") {
+      return "3️⃣ Quali sono le *Condizioni*? (consegna, tempi, formato…)";
+    }
+    return (
+      "4️⃣ Chi paga la fee del *5%*?\n" +
+      "• *Buyer* → +5% sul deposito\n" +
+      "• *Seller* → −5% al seller"
+    );
   },
+
+  /** Free text sullo step fee (servono i bottoni). */
+  dmTermsFeeNeedButton: "Scegli *Buyer* o *Seller* con i bottoni.",
 
   dmTermsComplete: (deal: Deal) =>
     `✅ Termini salvati per deal *#${deal.id}*.
@@ -307,20 +318,20 @@ Nel gruppo l'altra parte può *Accetta* o *Proponi i ToS*.`,
 
   dmTermsProposerBlocked: (deal: Deal) => {
     const who = mentionTermsProposer(deal, "proponente");
-    return `${who}: apri una chat *privata* con il bot (/start), poi rispondi alle 3 domande sui termini.`;
+    return `${who}: apri una chat *privata* con il bot (/start), poi completa le domande sui termini.`;
   },
 
   /** @deprecated alias → dmTermsProposerBlocked */
   dmTermsSellerBlocked: (deal: Deal) => {
     const who = mentionTermsProposer(deal, "proponente");
-    return `${who}: apri una chat *privata* con il bot (/start), poi rispondi alle 3 domande sui termini.`;
+    return `${who}: apri una chat *privata* con il bot (/start), poi completa le domande sui termini.`;
   },
 
   /** Post-crea (senza importo in DM): istruzioni gruppo manuale. */
   afterAmountInstructions: (deal: Deal) => {
     const termsNote = termsReadyForConfirm(deal)
       ? "\nTermini già compilati in privato."
-      : "\nRispondi alle *3 domande* in privato (Prodotto/servizio, Prezzo €, Condizioni).";
+      : "\nRispondi alle domande in privato (Prodotto, Prezzo €, Condizioni, Fee).";
     return `✅ Deal *#${deal.id}* pronto.
 
 • Ruolo: *${deal.creatorRole}*
@@ -506,7 +517,7 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
         if (missing.length > 0 && missing.length < 3) {
           action = `${who}: nel gruppo manca ancora ${formatMissingList(missing)}.`;
         } else {
-          action = `${who}: rispondi alle *3 domande* nel gruppo.`;
+          action = `${who}: rispondi alle domande nel gruppo.`;
         }
       } else if (missing.length > 0 && missing.length < 3) {
         action = `${who}: in privato manca ancora ${formatMissingList(missing)}.`;
@@ -630,13 +641,13 @@ ${label}: entra o scrivi un messaggio nel gruppo.`;
   /** Proponi i ToS: domanda già in gruppo — niente DM. */
   tosProposeStarted: (deal: Deal) => {
     const who = mentionTermsProposer(deal, "proponente");
-    return `${who}: rispondi alle *3 domande* nel gruppo.`;
+    return `${who}: rispondi alle domande nel gruppo.`;
   },
 
   /** @deprecated Proponi è in gruppo; tenuto per compat. */
   tosProposeDmBlocked: (deal: Deal) => {
     const who = mentionTermsProposer(deal, "proponente");
-    return `${who}: rispondi alle *3 domande* nel gruppo.`;
+    return `${who}: rispondi alle domande nel gruppo.`;
   },
 
   termsOnlyProposer: (deal: Deal) => {
@@ -794,7 +805,15 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     if (postDeposit) {
       lines.push("• Deposito confermato");
     }
-    lines.push("• Fee: *5%*", "• Rimborso: senza fee");
+    {
+      const who =
+        deal.feePayer === "buyer"
+          ? "Buyer"
+          : deal.feePayer === "seller"
+            ? "Seller"
+            : "Seller";
+      lines.push(`• Fee: *5%* (a carico *${who}*)`, "• Rimborso: senza fee");
+    }
     if (postDeposit) {
       lines.push("• Supporto: *Disputa*");
     }
@@ -880,7 +899,18 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
 
 
   /** Disclosure corta fee (UI utente): sempre 5%, elenco puntato. */
-  feeDisclosureShort: (_deal?: Deal) => "• Fee: *5%*\n• Rimborso: senza fee",
+  feeDisclosureShort: (deal?: Deal) => {
+    const who =
+      deal?.feePayer === "buyer"
+        ? "Buyer"
+        : deal?.feePayer === "seller"
+          ? "Seller"
+          : null;
+    if (who) {
+      return `• Fee: *5%* (a carico *${who}*)\n• Rimborso: senza fee`;
+    }
+    return "• Fee: *5%*\n• Rimborso: senza fee";
+  },
 
   /** Stessa parte riconferma 1/2. */
   alreadyVoted: (deal: Deal, kind: "release" | "refund") =>

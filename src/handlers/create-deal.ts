@@ -21,6 +21,7 @@ import {
   termsReadyForConfirm,
 } from "../services/deal-logic.js";
 import {
+  applyFeePayerChoice,
   applyTermsAnswer,
   clearDmTermsUi,
   findOpenTermsDeal,
@@ -62,7 +63,7 @@ import {
   lookupDealInvite,
   replyInviteAttachError,
 } from "../services/invite-step.js";
-import type { Deal, PartyRole } from "../types.js";
+import type { Deal, FeePayer, PartyRole } from "../types.js";
 
 /** Pulsanti menu / wizard: non sono un codice invito né risposta termini. */
 const MENU_TEXTS = new Set([
@@ -326,6 +327,81 @@ export function registerCreateDealHandlers(bot: Bot<BotContext>): void {
     await pickRole(ctx, role);
   });
 
+  /**
+   * Wizard termini DM: chi paga la fee 5% (Buyer / Seller).
+   * Callback `terms_fee:buyer:<dealId>` | `terms_fee:seller:<dealId>`.
+   * In gruppo → `next()` al handler di group-lifecycle.
+   */
+  bot.callbackQuery(
+    /^terms_fee:(buyer|seller):([a-fA-F0-9]{8})$/,
+    async (ctx, next) => {
+    const feePayer = ctx.match![1] as FeePayer;
+    const dealId = ctx.match![2];
+    if (ctx.chat?.type !== "private" || !ctx.from) {
+      await next();
+      return;
+    }
+    const deal = ctx.store.get(dealId);
+    if (!deal) {
+      await ctx.answerCallbackQuery({ text: "Deal non trovato" });
+      return;
+    }
+    if (deal.termsWizardInGroup) {
+      // Scelta fee in gruppo — handler group-lifecycle.
+      await next();
+      return;
+    }
+    const proposer = deal.tosProposedBy ?? deal.creatorId;
+    if (proposer !== ctx.from.id) {
+      await ctx.answerCallbackQuery({
+        text: "Solo il proponente.",
+        show_alert: true,
+      });
+      return;
+    }
+    if (nextDmTermsStep(deal) !== "fee_payer" && deal.feePayer) {
+      await ctx.answerCallbackQuery({ text: "Già scelto" });
+      return;
+    }
+
+    await ctx.answerCallbackQuery({
+      text: feePayer === "buyer" ? "Fee: Buyer" : "Fee: Seller",
+    });
+
+    const result = await applyFeePayerChoice(
+      ctx.api,
+      ctx.store,
+      deal,
+      ctx.from.id,
+      feePayer,
+    );
+    if (!result.ok) {
+      return;
+    }
+
+    if (!result.done && result.nextStep) {
+      ctx.session.termsQa = { dealId, step: result.nextStep };
+      return;
+    }
+
+    ctx.session.termsQa = undefined;
+    if (result.deal.groupChatId != null) {
+      await clearDmTermsUi(ctx.api, ctx.store, result.deal, ctx.chat.id);
+      await ctx.reply(it.dmTermsComplete(result.deal), {
+        parse_mode: "Markdown",
+      });
+      await refreshGroupSetupCard(ctx.api, ctx.store, result.deal);
+    } else if (result.deal.creatorId === ctx.from.id) {
+      await finishDealReady(ctx, result.deal);
+    } else {
+      await clearDmTermsUi(ctx.api, ctx.store, result.deal, ctx.chat.id);
+      await ctx.reply(it.dmTermsComplete(result.deal), {
+        parse_mode: "Markdown",
+      });
+    }
+  },
+  );
+
   bot.callbackQuery("crea_cancel", async (ctx) => {
     if (ctx.chat?.type !== "private") {
       await ctx.answerCallbackQuery();
@@ -571,6 +647,8 @@ async function handlePrivateTermsReply(
     let errText: string | undefined;
     if (result.reason === "price") {
       errText = it.dmTermsInvalidPrice;
+    } else if (result.reason === "need_button") {
+      errText = it.dmTermsFeeNeedButton;
     } else if (result.reason === "short" || result.reason === "empty") {
       errText = it.dmTermsTooShort;
     }

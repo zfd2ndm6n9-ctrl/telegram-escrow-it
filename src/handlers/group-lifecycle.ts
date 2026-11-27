@@ -1,7 +1,7 @@
 import type { Bot } from "grammy";
 import type { BotContext } from "../context.js";
 import { it } from "../messages/it.js";
-import type { Deal } from "../types.js";
+import type { Deal, FeePayer } from "../types.js";
 import {
   amountConfirmed,
   assignJoiningParty,
@@ -21,10 +21,11 @@ import {
 } from "../services/deal-logic.js";
 import { markGroupCompromised } from "../services/group-compromise.js";
 import {
+  applyFeePayerChoice,
   applyGroupTermsAnswer,
   startProposeTermsWizard,
 } from "../services/dm-terms.js";
-import { convertPriceEurToAsset } from "../services/asset-crypto.js";
+import { convertPriceEurToDepositAmount } from "../services/asset-crypto.js";
 import {
   demoteIfPartyPromoted,
   hardenGroupPermissions,
@@ -706,7 +707,71 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
     await ctx.answerCallbackQuery({ text: "Termini accettati" });
   });
 
-  // Controparte Proponi i ToS → 3 domande nel gruppo → card Accetta/Proponi all'altra parte
+  /**
+   * Wizard termini gruppo: chi paga la fee 5% (Buyer / Seller).
+   * Stesso callback del DM; qui solo se `termsWizardInGroup`.
+   */
+  bot.callbackQuery(/^terms_fee:(buyer|seller):([a-fA-F0-9]{8})$/, async (ctx) => {
+    const feePayer = ctx.match![1] as FeePayer;
+    const dealId = ctx.match![2];
+    if (!ctx.from || !ctx.chat) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup") {
+      // DM handler in create-deal.
+      return;
+    }
+    let deal = ctx.store.get(dealId);
+    if (!deal) {
+      await ctx.answerCallbackQuery({ text: "Deal non trovato" });
+      return;
+    }
+    {
+      const boundHere = await dealInThisChat(ctx, deal);
+      if (!boundHere) {
+        await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
+        return;
+      }
+      deal = boundHere;
+    }
+    if (!deal.termsWizardInGroup) {
+      await ctx.answerCallbackQuery({ text: "Passo non attivo" });
+      return;
+    }
+    if (!isTermsProposer(deal, ctx.from.id)) {
+      await ctx.answerCallbackQuery({
+        text: "Solo il proponente.",
+        show_alert: true,
+      });
+      return;
+    }
+    if (nextDmTermsStep(deal) !== "fee_payer" && deal.feePayer) {
+      await ctx.answerCallbackQuery({ text: "Già scelto" });
+      return;
+    }
+
+    await ctx.answerCallbackQuery({
+      text: feePayer === "buyer" ? "Fee: Buyer" : "Fee: Seller",
+    });
+
+    const result = await applyFeePayerChoice(
+      ctx.api,
+      ctx.store,
+      deal,
+      ctx.from.id,
+      feePayer,
+      { inGroup: true },
+    );
+    if (!result.ok) return;
+
+    let updated = result.deal;
+    await clearRoleError(ctx.api, ctx.store, updated);
+    updated = await refreshGroupSetupCard(ctx.api, ctx.store, updated);
+    void updated;
+  });
+
+  // Controparte Proponi i ToS → domande nel gruppo → card Accetta/Proponi all'altra parte
   bot.callbackQuery(/^tospropose:(.+)$/, async (ctx) => {
     const dealId = ctx.match![1];
     let deal = ctx.store.get(dealId);
@@ -955,9 +1020,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
         !amountConfirmed(current) &&
         !current.amount
       ) {
-        const converted = await convertPriceEurToAsset(
+        const converted = await convertPriceEurToDepositAmount(
           current.asset,
           current.priceEur,
+          current.feePayer,
         );
         if (!converted) {
           await ctx.reply(it.rateUnavailable(current.asset), {
@@ -1082,7 +1148,9 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           const errText =
             result.reason === "price"
               ? it.dmTermsInvalidPrice
-              : it.dmTermsTooShort;
+              : result.reason === "need_button"
+                ? it.dmTermsFeeNeedButton
+                : it.dmTermsTooShort;
           await replaceRoleError(ctx.api, ctx.store, result.deal, errText, {
             parse_mode: "Markdown",
           });

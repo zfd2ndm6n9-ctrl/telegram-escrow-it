@@ -168,6 +168,16 @@ export function tosConfirmKeyboard(dealId: string): InlineKeyboard {
     .text("✏️ Proponi i ToS", `tospropose:${dealId}`);
 }
 
+/**
+ * Wizard termini: chi paga la fee 5%.
+ * Callback: `terms_fee:buyer:<dealId>` | `terms_fee:seller:<dealId>`.
+ */
+export function feePayerKeyboard(dealId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🛒 Buyer", `terms_fee:buyer:${dealId}`)
+    .text("🏪 Seller", `terms_fee:seller:${dealId}`);
+}
+
 /** @deprecated Dual-confirm importo rimosso; crypto amount dopo Accetto se manca. */
 export function amountConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo importo", `amtok:${dealId}`);

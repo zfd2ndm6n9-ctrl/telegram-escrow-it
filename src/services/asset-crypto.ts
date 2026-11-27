@@ -3,15 +3,17 @@
  * USDC / LTC / ETH non supportati.
  */
 
-import type { Asset, Deal } from "../types.js";
+import type { Asset, Deal, FeePayer } from "../types.js";
 import { convertPriceEurToSol } from "./fx/sol-eur.js";
 import {
   checkDealDeposit,
+  depositLamportsForFeePayer,
   getEscrowBalanceLamports,
   isValidSolAddress,
   looksLikeSolAddressAttempt,
   lamportsToSolString,
   payoutDealSol,
+  solToLamports,
   classifyPayoutError as classifySolPayoutError,
   isSolanaConfigured,
   getDealEscrowAddress as getSolEscrowAddress,
@@ -69,6 +71,24 @@ export async function convertPriceEurToAsset(
   return null;
 }
 
+/**
+ * Importo escrow da lockare all'Accetto (SOL string).
+ * Se `feePayer === "buyer"` → prezzo commerciale + 5% fee.
+ */
+export async function convertPriceEurToDepositAmount(
+  asset: Asset,
+  priceEur: string,
+  feePayer?: FeePayer | null,
+): Promise<string | null> {
+  const commercial = await convertPriceEurToAsset(asset, priceEur);
+  if (!commercial) return null;
+  if (asset !== "SOL") return commercial;
+  const commercialLamports = solToLamports(commercial);
+  if (commercialLamports == null) return null;
+  const deposit = depositLamportsForFeePayer(commercialLamports, feePayer);
+  return lamportsToSolString(deposit);
+}
+
 export async function checkDealDepositForAsset(
   store: Parameters<typeof checkDealDeposit>[0],
   deal: Deal,
@@ -110,10 +130,14 @@ export async function payoutDealAsset(
   options: {
     kind: "release" | "refund";
     collaboratorWallet?: string;
+    feePayer?: FeePayer;
   },
 ): Promise<UnifiedPayoutResult> {
   if (deal.asset === "SOL") {
-    const r: SolTransferResult = await payoutDealSol(deal.id, toAddress, options);
+    const r: SolTransferResult = await payoutDealSol(deal.id, toAddress, {
+      ...options,
+      feePayer: options.feePayer ?? deal.feePayer,
+    });
     if (!r.ok) return r;
     return {
       ok: true,
