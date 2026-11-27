@@ -36,7 +36,6 @@ import {
   postHelperCounterpartInvite,
   refreshGroupSetupCard,
   startDealInGroup,
-  type RequiredBotPerm,
 } from "../services/group-setup.js";
 import {
   getEscrowAddressForAsset,
@@ -824,35 +823,52 @@ async function finishDealReady(
             dmGroupInstructionsMessageId: undefined,
           }) ?? current;
 
-        // Setup gruppo (invite A+B) non deve bloccare il DM col link creator.
-        let started = withGroup;
-        let permsOk = true;
-        let missingPerms: RequiredBotPerm[] = [];
-        let notAdmin = false;
+        // DM subito col link (create già ok + bot admin): non attendere
+        // foto/invite A+B / harden — latenza percepita = solo createEscrowGroup.
+        const creatorLink = created.creatorInviteLink;
+        if (creatingMsgId != null && ctx.chat?.type === "private") {
+          await deleteMessageSafe(ctx.api, ctx.chat.id, creatingMsgId);
+          creatingMsgId = undefined;
+        }
+        const inviteMsgId = await replyCreatorInviteDm(
+          ctx,
+          it.groupReady(
+            withGroup,
+            {
+              creatorLink,
+              counterpartLink: created.counterpartInviteLink,
+            },
+            created.creatorInvited,
+          ),
+          creatorLink,
+        );
+        if (inviteMsgId != null) {
+          const prev = withGroup.dmCreatorInviteMessageIds ?? [];
+          ctx.store.update(withGroup.id, {
+            dmCreatorInviteMessageIds: [...prev, inviteMsgId],
+          });
+        }
+
+        // Setup gruppo in background rispetto al DM (invite A+B, foto, pin).
+        // skipHarden: createEscrowGroup ha già setChatPermissions + demote.
         try {
-          const result = await startDealInGroup(
+          await startDealInGroup(
             ctx.api,
             ctx.store,
-            withGroup,
+            ctx.store.get(withGroup.id) ?? withGroup,
             created.chatId,
+            { skipHarden: true },
           );
-          started = result.deal;
-          permsOk = result.perms.ok;
-          if (!result.perms.ok) {
-            missingPerms = result.perms.missing;
-            notAdmin = result.perms.notAdmin;
-          }
         } catch (err) {
           console.error(
             `startDealInGroup after helper create #${withGroup.id}:`,
             err instanceof Error ? err.message : err,
           );
-          // Best-effort: posta comunque i due messaggi invite nel gruppo.
           try {
-            started = await postHelperCounterpartInvite(
+            await postHelperCounterpartInvite(
               ctx.api,
               ctx.store,
-              withGroup,
+              ctx.store.get(withGroup.id) ?? withGroup,
             );
           } catch (postErr) {
             console.warn(
@@ -860,33 +876,6 @@ async function finishDealReady(
               postErr instanceof Error ? postErr.message : postErr,
             );
           }
-        }
-
-        // DM: link creator + «entra nel gruppo e invita il buyer/seller».
-        const creatorLink = created.creatorInviteLink;
-        const inviteMsgId = !permsOk
-          ? await replyCreatorInviteDm(
-              ctx,
-              it.missingBotPerms(missingPerms, { notAdmin }),
-              creatorLink,
-            )
-          : await replyCreatorInviteDm(
-              ctx,
-              it.groupReady(
-                started,
-                {
-                  creatorLink,
-                  counterpartLink: created.counterpartInviteLink,
-                },
-                created.creatorInvited,
-              ),
-              creatorLink,
-            );
-        if (inviteMsgId != null) {
-          const prev = started.dmCreatorInviteMessageIds ?? [];
-          ctx.store.update(started.id, {
-            dmCreatorInviteMessageIds: [...prev, inviteMsgId],
-          });
         }
         return;
       }
