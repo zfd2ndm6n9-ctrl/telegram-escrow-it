@@ -815,7 +815,7 @@ async function applyWallet(
 }
 
 /**
- * Stato: una riga In attesa / Rilevato / Confermato + progresso € (niente SOL).
+ * Stato: una riga In attesa / Mancante / Confermato + progresso € (niente SOL).
  * Se il check fonda il deal → pin DEPOSITO CONFERMATO + ship ask (niente summary `#id — Confermato`).
  * Altrimenti reply con ← Indietro (igiene: niente tastiera azioni duplicate).
  */
@@ -985,11 +985,13 @@ async function verifyDeposit(
     );
     return;
   }
-  // Underpay: testo effimero senza re-attaccare Verifica (resta sulla card stage).
-  await replyResult(
+  // Underpay: replace effimero (igiene — cancella underpay/error precedenti).
+  await replaceActionReply(
+    ctx.api,
+    ctx.store,
     fresh,
-    it.depositCheckResult(fresh, result.balanceStr, result.funded),
-    false,
+    it.depositCheckResult(fresh, result.balanceStr, false),
+    { parse_mode: "Markdown" },
   );
 }
 

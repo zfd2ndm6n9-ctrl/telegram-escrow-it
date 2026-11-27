@@ -76,6 +76,53 @@ export function formatEuroNumber(n: number): string {
 }
 
 /**
+ * Importo € atteso in deposito (UI Stato / progresso).
+ * - feePayer seller / legacy: = prezzo commerciale
+ * - feePayer buyer: prezzo + 5% (es. 1 → `1,05`)
+ * Restituisce stringa display IT senza simbolo €; `null` se prezzo assente/invalido.
+ */
+export function expectedDepositEurDisplay(deal: Deal): string | null {
+  const raw = deal.priceEur?.trim();
+  if (!raw) return null;
+  const commercial = euroDisplayToNumberLocal(raw);
+  if (commercial == null) return null;
+  const total =
+    effectiveFeePayer(deal.feePayer) === "buyer"
+      ? Math.round(commercial * 1.05 * 100) / 100
+      : commercial;
+  return formatEuroNumber(total);
+}
+
+/** Stesso numero di `expectedDepositEurDisplay` (per stime progresso). */
+export function expectedDepositEurNumber(deal: Deal): number | null {
+  const display = expectedDepositEurDisplay(deal);
+  if (display == null) return null;
+  return euroDisplayToNumberLocal(display);
+}
+
+/** Parse display IT/EN locale senza dipendere da fx (evita cicli import). */
+function euroDisplayToNumberLocal(priceEur: string): number | null {
+  const s = priceEur.trim().replace(/\s/g, "");
+  if (!s) return null;
+  let normalized: string;
+  if (s.includes(",") && s.includes(".")) {
+    if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
+      normalized = s.replace(/\./g, "").replace(",", ".");
+    } else {
+      normalized = s.replace(/,/g, "");
+    }
+  } else if (s.includes(",")) {
+    normalized = s.replace(",", ".");
+  } else {
+    normalized = s;
+  }
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return null;
+  const n = Number(normalized);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+/**
  * Split commerciale in € per messaggio di rilascio (UI only).
  * - feePayer seller: 95% seller · 5% fee (2.5/2.5 se collab)
  * - feePayer buyer: 100% prezzo → seller · 5% fee (buyer ha depositato +5%)

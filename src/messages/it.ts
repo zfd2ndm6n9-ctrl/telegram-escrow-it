@@ -4,6 +4,8 @@ import {
   bothPartiesPresent,
   commercialReleaseSplitEur,
   escMd,
+  expectedDepositEurDisplay,
+  expectedDepositEurNumber,
   formatEuroNumber,
   formatEuroPrice,
   formatTosBullets,
@@ -17,8 +19,6 @@ import {
   tosAccepted,
   type EssentialTermsField,
 } from "../services/deal-logic.js";
-import { euroDisplayToNumber } from "../services/fx/sol-eur.js";
-
 const ESSENTIAL_LABELS: Record<EssentialTermsField, string> = {
   product: "Prodotto/servizio",
   price: "Prezzo",
@@ -88,7 +88,8 @@ export type DepositPhase = "in_attesa" | "rilevato" | "confermato";
 
 const DEPOSIT_PHASE_LABELS: Record<DepositPhase, string> = {
   in_attesa: "In attesa",
-  rilevato: "Rilevato",
+  /** Saldo > 0 ma sotto target (underpay). */
+  rilevato: "Mancante",
   confermato: "Confermato",
 };
 
@@ -930,14 +931,24 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     deal: Deal,
     balanceStr: string,
     funded: boolean,
-  ) =>
-    funded
-      ? `✅ #${deal.id} fondato: *${balanceStr} ${deal.asset}*.`
-      : `⏳ #${deal.id}: *${balanceStr}* / *${deal.amount} ${deal.asset}* (target lockato)\n\`${deal.escrowAddress}\``,
+  ) => {
+    if (funded) {
+      return `✅ #${deal.id} fondato: *${balanceStr} ${deal.asset}*.`;
+    }
+    const eur = expectedDepositEurDisplay(deal);
+    const eurBit = eur ? ` · attesi *${escMd(formatEuroPrice(eur))}*` : "";
+    return (
+      `⏳ Deposito *insufficiente* (#${deal.id}): ` +
+      `*${balanceStr}* / *${deal.amount} ${deal.asset}*${eurBit}.\n` +
+      `Completa l'importo, poi verifica di nuovo.\n` +
+      `\`${deal.escrowAddress}\``
+    );
+  },
 
   /**
    * Riga unica Stato deposito (pre-deposito):
-   * In attesa / Rilevato / Confermato + progresso 0/X € (niente SOL / prezzo).
+   * In attesa / Mancante / Confermato + progresso 0/X € (niente SOL / prezzo).
+   * Con feePayer=buyer il target € è prezzo+5% (es. 1 → 1,05).
    */
   depositStatusBullets: (
     deal: Deal,
@@ -947,8 +958,8 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   ) => {
     void _expectedSol;
     const phase = depositPhaseFromBalance(balanceSol, funded);
-    const eurRaw = deal.priceEur?.trim();
-    const eur = eurRaw ? formatEuroPrice(eurRaw) : null;
+    const eurDisplay = expectedDepositEurDisplay(deal);
+    const eur = eurDisplay ? formatEuroPrice(eurDisplay) : null;
     if (!eur) {
       return `• Deposito: *${DEPOSIT_PHASE_LABELS[phase]}*`;
     }
@@ -958,8 +969,8 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     if (phase === "in_attesa") {
       return `• Deposito: *In attesa* — *0* / *${escMd(eur)}*`;
     }
-    // Parziale on-chain → stima € dal rapporto saldo/target (niente SOL in UI).
-    const targetEur = eurRaw ? euroDisplayToNumber(eurRaw) : null;
+    // Underpay on-chain → stima € dal rapporto saldo/target (niente SOL in UI).
+    const targetEur = expectedDepositEurNumber(deal);
     const targetSol = Number(deal.amount);
     const bal = Number(balanceSol);
     let progressLabel = "0";
@@ -974,7 +985,7 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
         formatEuroNumber((bal / targetSol) * targetEur),
       );
     }
-    return `• Deposito: *Rilevato* — *${escMd(progressLabel)}* / *${escMd(eur)}*`;
+    return `• Deposito: *Mancante* — *${escMd(progressLabel)}* / *${escMd(eur)}*`;
   },
 
   markFundedAdmin: (deal: Deal) =>
