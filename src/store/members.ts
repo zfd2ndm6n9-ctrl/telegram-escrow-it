@@ -121,7 +121,17 @@ export class MemberStore {
       if (id === userId) this.byUsername.delete(uname);
     }
     if (username) {
-      this.byUsername.set(normalizeUsername(username), userId);
+      const key = normalizeUsername(username);
+      const prevOwner = this.byUsername.get(key);
+      // Evita identità spezzata: se un altro membro aveva ancora questa @
+      // sullo store, togli il campo (l'indice punta al nuovo userId).
+      if (prevOwner != null && prevOwner !== userId) {
+        const prev = this.members.get(prevOwner);
+        if (prev?.username && normalizeUsername(prev.username) === key) {
+          this.members.set(prevOwner, { ...prev, username: undefined });
+        }
+      }
+      this.byUsername.set(key, userId);
     }
   }
 
@@ -184,20 +194,25 @@ export class MemberStore {
 
   /**
    * Completa iscrizione a /start (con o senza @).
-   * Riconnette per userId; se c’è @ e punta a un altro id, rimappa.
+   * Riconnette per userId; se c’è @ e punta a un altro id, rimappa
+   * (salvo blocco C1 via `allowProfileTransfer`).
    */
   registerFromStart(
     userId: number,
     username?: string,
+    opts?: {
+      allowProfileTransfer?: (previousUserId: number) => boolean;
+    },
   ): {
     member: Member;
     isNew: boolean;
     reconnected: boolean;
     previousUserId?: number;
+    reclaimBlocked?: boolean;
   } {
     const clean = username?.trim().replace(/^@+/, "") || undefined;
     if (clean) {
-      return this.registerWithUsername(userId, clean);
+      return this.registerWithUsername(userId, clean, opts);
     }
 
     const ts = nowIso();
@@ -266,16 +281,25 @@ export class MemberStore {
    * Conferma iscrizione con @.
    * Riconnette profilo esistente per userId o per username (stesso handle).
    * Se lo stesso @ era legato a un altro userId, restituisce `previousUserId`
-   * così il caller può rimappare i deal.
+   * così il caller può rimappare i deal idle/closed.
+   *
+   * `allowProfileTransfer(previousUserId)`: se false (es. deal protetti C1),
+   * non cancella il vecchio membro né espone previousUserId — solo claim @
+   * come iscrizione nuova. Ownership deal resta sul Telegram userId immutabile.
    */
   registerWithUsername(
     userId: number,
     username: string,
+    opts?: {
+      allowProfileTransfer?: (previousUserId: number) => boolean;
+    },
   ): {
     member: Member;
     isNew: boolean;
     reconnected: boolean;
     previousUserId?: number;
+    /** @ reclaim bloccato perché il precedente userId ha deal protetti. */
+    reclaimBlocked?: boolean;
   } {
     const ts = nowIso();
     const clean = username.trim().replace(/^@+/, "");
@@ -300,6 +324,51 @@ export class MemberStore {
 
     const byNameId = this.byUsername.get(key);
     if (byNameId != null && byNameId !== userId) {
+      const allow = opts?.allowProfileTransfer?.(byNameId) ?? true;
+      if (!allow) {
+        // C1 / churn: non rubare profilo né deal funded. Claim solo l'@.
+        const old = this.members.get(byNameId);
+        if (old?.username && normalizeUsername(old.username) === key) {
+          this.members.set(byNameId, { ...old, username: undefined });
+        }
+        this.byUsername.delete(key);
+
+        if (byId) {
+          const next: Member = {
+            ...byId,
+            username: clean,
+            lastSeen: ts,
+            registeredAt: byId.registeredAt ?? ts,
+          };
+          this.members.set(userId, next);
+          this.indexUsername(userId, clean);
+          this.persist();
+          return {
+            member: next,
+            isNew: !byId.registeredAt,
+            reconnected: false,
+            reclaimBlocked: true,
+          };
+        }
+
+        const member: Member = {
+          userId,
+          username: clean,
+          firstSeen: ts,
+          lastSeen: ts,
+          registeredAt: ts,
+        };
+        this.members.set(userId, member);
+        this.indexUsername(userId, clean);
+        this.persist();
+        return {
+          member,
+          isNew: true,
+          reconnected: false,
+          reclaimBlocked: true,
+        };
+      }
+
       const old = this.members.get(byNameId)!;
       this.members.delete(byNameId);
       const next: Member = {

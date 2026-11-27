@@ -143,6 +143,18 @@ assert(
   shouldSendAvviaAutoBindStatus("too_many", 1, 1) === true,
   "too_many on repeat always sends",
 );
+assert(
+  shouldSendAvviaAutoBindStatus("need_confirm", 1, 1) === true,
+  "need_confirm always sends creator prompt",
+);
+const confirmCopy = avviaAutoBindReply("need_confirm", {
+  id: "deadbeef",
+  creatorRole: "buyer",
+  pendingCounterpartUserId: 9,
+  pendingCounterpartUsername: "bob",
+});
+assert(/Confermi/i.test(confirmCopy), "need_confirm asks creator");
+assert(/bob/i.test(confirmCopy), "need_confirm names candidate");
 
 const withInviteMsgs = {
   ...dealSellerHelper,

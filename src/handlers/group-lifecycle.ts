@@ -38,10 +38,13 @@ import {
   syncDealLiveChatId,
 } from "../services/group-chat-remap.js";
 import {
+  applyCounterpartConfirm,
+  applyCounterpartReject,
   autoBindCounterpart,
   avviaAutoBindReply,
   checkRequiredBotAdminPerms,
   clearAwaitingGroupDmHints,
+  ensureCounterpartConfirmPrompt,
   kickUnauthorized,
   postAskSellerWallet,
   refreshGroupSetupCard,
@@ -87,7 +90,7 @@ function adminPermsMessage(perms: Extract<BotAdminCheck, { ok: false }>): string
 
 function autoBindReply(
   reason: AutoBindFailure,
-  deal: { id: string; creatorRole: "buyer" | "seller" },
+  deal: Parameters<typeof avviaAutoBindReply>[1],
 ): string {
   return avviaAutoBindReply(reason, deal);
 }
@@ -196,7 +199,7 @@ async function onHumanJoined(
       return;
     }
     if (current.buyerId == null || current.sellerId == null) {
-      // Nuovo umano (invite-link): prova bind immediato.
+      // Nuovo umano (invite-link): prova bind immediato (helper) o pending (manuale).
       const bind = await autoBindCounterpart(
         ctx.api,
         ctx.store,
@@ -209,6 +212,19 @@ async function onHumanJoined(
         },
       );
       current = bind.deal;
+      if (!bind.ok && bind.reason === "need_confirm") {
+        await ensureCounterpartConfirmPrompt(ctx.api, ctx.store, current);
+        return;
+      }
+      if (
+        !bind.ok &&
+        bind.reason === "too_many" &&
+        current.pendingCounterpartUserId != null &&
+        current.pendingCounterpartUserId !== userId
+      ) {
+        await kickUnauthorized(ctx.api, chatId, userId);
+        return;
+      }
       if (
         bind.ok &&
         bothPartiesPresent(current) &&
@@ -512,6 +528,10 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       }
 
       if (autoBind) {
+        if (autoBind === "need_confirm") {
+          await ensureCounterpartConfirmPrompt(ctx.api, ctx.store, started);
+          return;
+        }
         // Due msg invite / card = unico identify. Status solo se assente o too_many.
         if (
           shouldSendAvviaAutoBindStatus(
@@ -630,6 +650,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       },
     );
     if (!bind.ok) {
+      if (bind.reason === "need_confirm") {
+        await ctx.answerCallbackQuery({ text: "Attendi conferma" });
+        await ensureCounterpartConfirmPrompt(ctx.api, ctx.store, bind.deal);
+        return;
+      }
       await ctx.answerCallbackQuery({ text: "Auto-bind fallito" });
       await sendTrackedPrompt(
         ctx.api,
@@ -654,6 +679,93 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
       },
     );
     await clearBotPrompts(ctx.api, ctx.store, advanced);
+  });
+
+  // A1: creator conferma / rifiuta controparte candidata (path manuale).
+  bot.callbackQuery(/^cpbind:(yes|no):(.+)$/, async (ctx) => {
+    const action = ctx.match![1] as "yes" | "no";
+    const dealId = ctx.match![2]!;
+    let deal = ctx.store.get(dealId);
+    if (!deal || !ctx.from || !ctx.chat) {
+      await ctx.answerCallbackQuery({ text: "Deal non trovato" });
+      return;
+    }
+    if (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup") {
+      await ctx.answerCallbackQuery({ text: "Solo in gruppo" });
+      return;
+    }
+    {
+      const boundHere = await dealInThisChat(ctx, deal);
+      if (!boundHere) {
+        await ctx.answerCallbackQuery({ text: "Gruppo sbagliato" });
+        return;
+      }
+      deal = boundHere;
+    }
+
+    if (action === "yes") {
+      const pendingUsername = deal.pendingCounterpartUsername;
+      const pendingDisplay = deal.pendingCounterpartDisplayName;
+      const pendingId = deal.pendingCounterpartUserId;
+      const result = applyCounterpartConfirm(ctx.store, deal, ctx.from.id);
+      if (!result.ok) {
+        const text =
+          result.reason === "not_creator"
+            ? it.counterpartConfirmOnlyCreator
+            : it.counterpartPendingNone;
+        await ctx.answerCallbackQuery({
+          text: plainAlert(text),
+          show_alert: true,
+        });
+        return;
+      }
+      const boundRole: "buyer" | "seller" =
+        result.deal.buyerId === pendingId ? "buyer" : "seller";
+      const boundWho = pendingUsername
+        ? `@${pendingUsername}`
+        : pendingDisplay?.trim() || "ok";
+      await ctx.answerCallbackQuery({ text: "Confermato" });
+      let advanced = await clearBotPrompts(ctx.api, ctx.store, result.deal);
+      const started = await startDealInGroup(
+        ctx.api,
+        ctx.store,
+        advanced,
+        ctx.chat.id,
+        {
+          runnerId: pendingId,
+          runnerUsername: pendingUsername,
+          runnerDisplayName: pendingDisplay,
+        },
+      );
+      advanced = started.deal;
+      await sendTrackedPrompt(
+        ctx.api,
+        ctx.store,
+        advanced,
+        it.counterpartConfirmed(boundWho, boundRole),
+        { parse_mode: "Markdown" },
+        { clearPrevious: false },
+      );
+      return;
+    }
+
+    const rejected = applyCounterpartReject(ctx.store, deal, ctx.from.id);
+    if (!rejected.ok) {
+      const text =
+        rejected.reason === "not_creator"
+          ? it.counterpartConfirmOnlyCreator
+          : it.counterpartPendingNone;
+      await ctx.answerCallbackQuery({
+        text: plainAlert(text),
+        show_alert: true,
+      });
+      return;
+    }
+    await ctx.answerCallbackQuery({ text: "Rifiutato" });
+    await kickUnauthorized(ctx.api, ctx.chat.id, rejected.rejectedUserId, {
+      notice: it.counterpartRejected,
+    });
+    await clearBotPrompts(ctx.api, ctx.store, rejected.deal);
   });
 
   // Accetta termini deal (card gruppo) → lock €→SOL → wallet seller
@@ -997,6 +1109,11 @@ export function registerGroupLifecycleHandlers(bot: Bot<BotContext>): void {
           },
         );
         await clearBotPrompts(ctx.api, ctx.store, advanced);
+        return;
+      }
+      if (bind.reason === "need_confirm") {
+        await deleteMessageSafe(ctx.api, ctx.chat.id, ctx.message.message_id);
+        await ensureCounterpartConfirmPrompt(ctx.api, ctx.store, bind.deal);
         return;
       }
       current = bind.deal;

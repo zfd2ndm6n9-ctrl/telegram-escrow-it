@@ -155,9 +155,17 @@ async function completeStart(ctx: BotContext): Promise<void> {
   const result = ctx.members.registerFromStart(
     ctx.from.id,
     ctx.from.username,
+    {
+      allowProfileTransfer: (prev) =>
+        !ctx.store.userOwnsRemapProtectedDeals(prev),
+    },
   );
 
-  if (result.previousUserId != null) {
+  if (result.reclaimBlocked) {
+    console.warn(
+      `Reclaim @ bloccato a /start: nuovo userId=${ctx.from.id} (deal protetti sul precedente; no remap)`,
+    );
+  } else if (result.previousUserId != null) {
     const remapped = ctx.store.remapUserId(
       result.previousUserId,
       ctx.from.id,

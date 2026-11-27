@@ -1335,11 +1335,35 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   forwardBlocked:
     "⚠️ Messaggi inoltrati non ammessi nel gruppo escrow (anti-truffa).",
 
+  /** A2: lookalike SOL in awaiting_deposit (non l'escrow del bot). */
+  solAddressPhishingBlocked:
+    "⚠️ Copia l'indirizzo *solo* dai messaggi del bot.",
+
   identityChanged: (who: string, detail: string) =>
     `⚠️ Attenzione: *${escMd(who)}* ha cambiato identità (${escMd(detail)}). Verificate di parlare con la persona giusta.`,
 
   escrowVerifyHint:
     "Controlla l'indirizzo escrow *solo* nei messaggi di Escrowita in questo gruppo. Non fidarti di altri canali o forward.",
+
+  /** A1: conferma creator su path manuale / ambiguo. */
+  counterpartConfirmAsk: (opts: {
+    dealId: string;
+    who: string;
+    role: "buyer" | "seller";
+  }) => {
+    const label = opts.role === "buyer" ? "Buyer" : "Seller";
+    return (
+      `Confermi *${escMd(opts.who)}* come *${label}*?\n` +
+      `Deal *#${escMd(opts.dealId)}*`
+    );
+  },
+  counterpartConfirmOnlyCreator: "Solo chi ha creato il deal conferma.",
+  counterpartConfirmed: (who: string, role: "buyer" | "seller") => {
+    const label = role === "buyer" ? "Buyer" : "Seller";
+    return `✅ *${escMd(who)}* confermato come *${label}*.`;
+  },
+  counterpartRejected: "Controparte rifiutata. Invia di nuovo il link giusto.",
+  counterpartPendingNone: "Nessuna controparte in attesa.",
 
   disputeOpened: (deal: Deal) =>
     `⚠️ Disputa aperta (#${deal.id}). Supporto può entrare e risolvere quando serve.`,

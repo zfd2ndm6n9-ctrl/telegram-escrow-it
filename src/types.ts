@@ -142,6 +142,13 @@ export interface Deal {
    */
   counterpartInviteLink?: string;
   /**
+   * Controparte candidata in attesa di conferma esplicita del creator (A1).
+   * Path helper dual-link (`member_limit:1`) auto-bind senza pending.
+   */
+  pendingCounterpartUserId?: number;
+  pendingCounterpartUsername?: string;
+  pendingCounterpartDisplayName?: string;
+  /**
    * Messaggio (A) nel gruppo helper in attesa: solo il link invito controparte.
    * Cancellato insieme a `counterpartInviteHintMessageId` al join → ToS.
    */

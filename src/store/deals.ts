@@ -278,13 +278,60 @@ export class DealStore {
   }
 
   /**
+   * Deal con fondi, lock deposito o voti dual-confirm: non rimappare su un
+   * nuovo Telegram userId solo perché un `@` abbandonato è stato ripreso (C1).
+   */
+  isRemapProtected(deal: Deal): boolean {
+    if (
+      deal.status === "awaiting_deposit" ||
+      deal.status === "funded" ||
+      deal.status === "release_pending" ||
+      deal.status === "refund_pending" ||
+      deal.status === "disputed"
+    ) {
+      return true;
+    }
+    if ((deal.releaseVotes?.length ?? 0) > 0) return true;
+    if ((deal.refundVotes?.length ?? 0) > 0) return true;
+    if (deal.depositLamports != null && deal.depositLamports !== "") return true;
+    if (deal.depositDetectedAt) return true;
+    return false;
+  }
+
+  /** True se userId è creator/buyer/seller di almeno un deal protetto dal remap. */
+  userOwnsRemapProtectedDeals(userId: number): boolean {
+    for (const deal of this.deals.values()) {
+      if (!this.isRemapProtected(deal)) continue;
+      if (
+        deal.creatorId === userId ||
+        deal.buyerId === userId ||
+        deal.sellerId === userId
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Riconnessione membro: se Telegram userId cambia ma la @ è la stessa,
-   * aggiorna creator/buyer/seller id sui deal collegati.
+   * aggiorna creator/buyer/seller id sui deal *idle/closed* collegati.
+   * Mai sui deal protetti (fondi / deposito atteso / voti / disputa).
    */
   remapUserId(previousUserId: number, newUserId: number): number {
     if (previousUserId === newUserId) return 0;
     let n = 0;
+    let skipped = 0;
     for (const deal of this.deals.values()) {
+      const touches =
+        deal.creatorId === previousUserId ||
+        deal.buyerId === previousUserId ||
+        deal.sellerId === previousUserId;
+      if (!touches) continue;
+      if (this.isRemapProtected(deal)) {
+        skipped += 1;
+        continue;
+      }
       const patch: Partial<Deal> = {};
       if (deal.creatorId === previousUserId) patch.creatorId = newUserId;
       if (deal.buyerId === previousUserId) patch.buyerId = newUserId;
@@ -299,6 +346,11 @@ export class DealStore {
       n += 1;
     }
     if (n > 0) this.persist();
+    if (skipped > 0) {
+      console.warn(
+        `remapUserId ${previousUserId}→${newUserId}: remapped=${n} skipped_protected=${skipped}`,
+      );
+    }
     return n;
   }
 }

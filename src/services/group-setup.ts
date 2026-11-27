@@ -8,6 +8,7 @@ import type { DealStore } from "../store/deals.js";
 import { it } from "../messages/it.js";
 import {
   buyerAfterShipKeyboard,
+  counterpartBindConfirmKeyboard,
   groupActionsKeyboard,
   shipAskKeyboard,
   tosConfirmKeyboard,
@@ -340,7 +341,50 @@ export type HumanMember = {
 export type AutoBindFailure =
   | "too_many"
   | "none"
-  | "need_message";
+  | "need_message"
+  /** Path manuale: creator deve confermare la controparte candidata (A1). */
+  | "need_confirm";
+
+/** Helper dual-link `member_limit:1`: auto-bind sicuro senza confirm creator. */
+export function isHelperSafeAutoBind(deal: Deal): boolean {
+  return (
+    deal.groupCreatedVia === "helper" && Boolean(deal.counterpartInviteLink)
+  );
+}
+
+function clearPendingCounterpartPatch(): Partial<Deal> {
+  return {
+    pendingCounterpartUserId: undefined,
+    pendingCounterpartUsername: undefined,
+    pendingCounterpartDisplayName: undefined,
+  };
+}
+
+/**
+ * Path manuale / ambiguo: salva candidato e chiede conferma al creator.
+ * Se c'è già un altro pending → too_many (kick extra lato caller).
+ */
+function parkPendingCounterpart(
+  store: DealStore,
+  deal: Deal,
+  runnerId: number,
+  runnerUsername?: string,
+  runnerDisplayName?: string,
+): { ok: false; reason: AutoBindFailure; deal: Deal } {
+  if (
+    deal.pendingCounterpartUserId != null &&
+    deal.pendingCounterpartUserId !== runnerId
+  ) {
+    return { ok: false, reason: "too_many", deal };
+  }
+  const next =
+    store.update(deal.id, {
+      pendingCounterpartUserId: runnerId,
+      pendingCounterpartUsername: runnerUsername,
+      pendingCounterpartDisplayName: runnerDisplayName,
+    }) ?? deal;
+  return { ok: false, reason: "need_confirm", deal: next };
+}
 
 type AdminFlags = {
   can_delete_messages?: boolean;
@@ -553,7 +597,9 @@ export async function autoBindCounterpart(
     current = trackSeenGroupUser(store, current, opts.runnerId);
   }
 
-  // Controparte attiva (messaggio / /avvia / join): bind immediato.
+  // Controparte attiva (messaggio / /avvia / join).
+  // Helper dual-link: bind immediato (member_limit:1).
+  // Manuale / ambiguo: pending + conferma creator (A1) — no first-join silent.
   // Mai il helper/support (owner MTProto) — solo le due parti invite-link.
   if (
     opts?.runnerId != null &&
@@ -561,6 +607,15 @@ export async function autoBindCounterpart(
     canBindAsDealParty(current, opts.runnerId) &&
     !bothPartiesPresent(current)
   ) {
+    if (!isHelperSafeAutoBind(current)) {
+      return parkPendingCounterpart(
+        store,
+        current,
+        opts.runnerId,
+        opts.runnerUsername,
+        opts.runnerDisplayName,
+      );
+    }
     const patch = assignJoiningParty(
       current,
       opts.runnerId,
@@ -576,6 +631,7 @@ export async function autoBindCounterpart(
       current =
         store.update(current.id, {
           ...patch,
+          ...clearPendingCounterpartPatch(),
           ...(seen ? { seenGroupUserIds: seen } : {}),
         }) ?? current;
       if (bothPartiesPresent(current)) {
@@ -627,6 +683,16 @@ export async function autoBindCounterpart(
   }
 
   // Fallback: runner === other (path runner sopra non ha chiuso lo slot).
+  if (!isHelperSafeAutoBind(current)) {
+    return parkPendingCounterpart(
+      store,
+      current,
+      other.id,
+      other.username,
+      other.displayName,
+    );
+  }
+
   const patch = assignJoiningParty(
     current,
     other.id,
@@ -641,10 +707,97 @@ export async function autoBindCounterpart(
   current =
     store.update(current.id, {
       ...patch,
+      ...clearPendingCounterpartPatch(),
       ...(seen ? { seenGroupUserIds: seen } : {}),
     }) ?? current;
 
   return { ok: true, deal: current };
+}
+
+/** Prompt creator: conferma controparte candidata (igiene via botPromptIds). */
+export async function ensureCounterpartConfirmPrompt(
+  api: Api,
+  store: DealStore,
+  deal: Deal,
+): Promise<Deal> {
+  const pendingId = deal.pendingCounterpartUserId;
+  if (pendingId == null || deal.groupChatId == null) return deal;
+  const role: "buyer" | "seller" =
+    deal.creatorRole === "buyer" ? "seller" : "buyer";
+  const who = deal.pendingCounterpartUsername
+    ? `@${deal.pendingCounterpartUsername}`
+    : deal.pendingCounterpartDisplayName?.trim() || `id ${pendingId}`;
+  return sendTrackedPrompt(
+    api,
+    store,
+    deal,
+    it.counterpartConfirmAsk({ dealId: deal.id, who, role }),
+    {
+      parse_mode: "Markdown",
+      reply_markup: counterpartBindConfirmKeyboard(deal.id),
+    },
+  );
+}
+
+/**
+ * Creator conferma il pending → bind reale + clear pending.
+ */
+export function applyCounterpartConfirm(
+  store: DealStore,
+  deal: Deal,
+  creatorId: number,
+):
+  | { ok: true; deal: Deal }
+  | { ok: false; reason: "not_creator" | "no_pending" | "bind_failed"; deal: Deal } {
+  if (creatorId !== deal.creatorId) {
+    return { ok: false, reason: "not_creator", deal };
+  }
+  const pendingId = deal.pendingCounterpartUserId;
+  if (pendingId == null) {
+    return { ok: false, reason: "no_pending", deal };
+  }
+  const patch = assignJoiningParty(
+    deal,
+    pendingId,
+    deal.pendingCounterpartUsername,
+    deal.pendingCounterpartDisplayName,
+  );
+  if (
+    !patch ||
+    (patch.buyerId !== pendingId && patch.sellerId !== pendingId)
+  ) {
+    return { ok: false, reason: "bind_failed", deal };
+  }
+  const seen = rememberSeenUser(deal, pendingId) ?? deal.seenGroupUserIds;
+  const next =
+    store.update(deal.id, {
+      ...patch,
+      ...clearPendingCounterpartPatch(),
+      ...(seen ? { seenGroupUserIds: seen } : {}),
+    }) ?? deal;
+  return { ok: true, deal: next };
+}
+
+/**
+ * Creator rifiuta: clear pending; caller kicka il candidato.
+ */
+export function applyCounterpartReject(
+  store: DealStore,
+  deal: Deal,
+  creatorId: number,
+):
+  | { ok: true; deal: Deal; rejectedUserId: number }
+  | { ok: false; reason: "not_creator" | "no_pending"; deal: Deal } {
+  if (creatorId !== deal.creatorId) {
+    return { ok: false, reason: "not_creator", deal };
+  }
+  const rejectedUserId = deal.pendingCounterpartUserId;
+  if (rejectedUserId == null) {
+    return { ok: false, reason: "no_pending", deal };
+  }
+  const next =
+    store.update(deal.id, clearPendingCounterpartPatch()) ?? deal;
+  return { ok: true, deal: next, rejectedUserId };
 }
 
 /**
@@ -1010,10 +1163,26 @@ export function avviaAutoBindReply(
   reason: AutoBindFailure,
   deal: Pick<
     Deal,
-    "id" | "creatorRole" | "groupCreatedVia" | "counterpartInviteLink"
+    | "id"
+    | "creatorRole"
+    | "groupCreatedVia"
+    | "counterpartInviteLink"
+    | "pendingCounterpartUserId"
+    | "pendingCounterpartUsername"
+    | "pendingCounterpartDisplayName"
   >,
 ): string {
   if (reason === "too_many") return it.autoBindTooMany;
+  if (reason === "need_confirm") {
+    const role: "buyer" | "seller" =
+      deal.creatorRole === "buyer" ? "seller" : "buyer";
+    const pendingId = deal.pendingCounterpartUserId;
+    const who = deal.pendingCounterpartUsername
+      ? `@${deal.pendingCounterpartUsername}`
+      : deal.pendingCounterpartDisplayName?.trim() ||
+        (pendingId != null ? `id ${pendingId}` : "candidato");
+    return it.counterpartConfirmAsk({ dealId: deal.id, who, role });
+  }
   return it.avviaAwaitingCounterpart(deal);
 }
 
@@ -1032,7 +1201,7 @@ export function shouldSendAvviaAutoBindStatus(
   _priorSetupMessageId: number | undefined,
   afterPromptMessageId: number | undefined,
 ): boolean {
-  if (reason === "too_many") return true;
+  if (reason === "too_many" || reason === "need_confirm") return true;
   if (afterPromptMessageId != null) return false;
   return true;
 }
@@ -1163,6 +1332,9 @@ export async function startDealInGroup(
         waiting = await refreshGroupSetupCard(api, store, waiting);
       } catch {
         waiting = store.get(waiting.id) ?? waiting;
+      }
+      if (bind.reason === "need_confirm") {
+        waiting = await ensureCounterpartConfirmPrompt(api, store, waiting);
       }
       return {
         deal: waiting,
