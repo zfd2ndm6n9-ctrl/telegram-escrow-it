@@ -860,6 +860,7 @@ async function showDealStatus(ctx: BotContext, deal: Deal): Promise<void> {
         depositPhase = depositPhaseFromBalance(
           result.balanceStr,
           result.funded,
+          result.expectedStr,
         );
       }
       // Appena fondato: pin DEPOSITO CONFERMATO + ship — niente secondo summary `#id — Confermato`.

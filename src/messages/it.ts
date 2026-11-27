@@ -19,6 +19,7 @@ import {
   tosAccepted,
   type EssentialTermsField,
 } from "../services/deal-logic.js";
+import { solToLamports } from "../services/solana/amounts.js";
 const ESSENTIAL_LABELS: Record<EssentialTermsField, string> = {
   product: "Prodotto/servizio",
   price: "Prezzo",
@@ -93,12 +94,22 @@ const DEPOSIT_PHASE_LABELS: Record<DepositPhase, string> = {
   confermato: "Confermato",
 };
 
-/** Deriva In attesa / Rilevato / Confermato da saldo vs target. */
+/**
+ * Deriva In attesa / Mancante / Confermato da saldo vs target.
+ * Se saldo ≥ expected (lamports) → Confermato anche se lo store non è ancora `funded`
+ * (evita «Mancante 1,05 / 1,05»).
+ */
 export function depositPhaseFromBalance(
   balanceSol: string,
   funded: boolean,
+  expectedSol?: string,
 ): DepositPhase {
   if (funded) return "confermato";
+  if (expectedSol) {
+    const balL = solToLamports(balanceSol);
+    const expL = solToLamports(expectedSol);
+    if (balL != null && expL != null && balL >= expL) return "confermato";
+  }
   const bal = Number(balanceSol);
   if (!Number.isFinite(bal) || bal <= 0) return "in_attesa";
   return "rilevato";
@@ -953,11 +964,12 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
   depositStatusBullets: (
     deal: Deal,
     balanceSol: string,
-    _expectedSol: string,
+    expectedSol: string,
     funded: boolean,
   ) => {
-    void _expectedSol;
-    const phase = depositPhaseFromBalance(balanceSol, funded);
+    const targetStr =
+      expectedSol?.trim() || deal.amount?.trim() || "";
+    const phase = depositPhaseFromBalance(balanceSol, funded, targetStr);
     const eurDisplay = expectedDepositEurDisplay(deal);
     const eur = eurDisplay ? formatEuroPrice(eurDisplay) : null;
     if (!eur) {
@@ -969,21 +981,25 @@ Scegli: *Paga* o *Chiedi il rimborso*.`;
     if (phase === "in_attesa") {
       return `• Deposito: *In attesa* — *0* / *${escMd(eur)}*`;
     }
-    // Underpay on-chain → stima € dal rapporto saldo/target (niente SOL in UI).
+    // Underpay on-chain → stima €; left deve essere strettamente < right (mai Mancante 1,05/1,05).
     const targetEur = expectedDepositEurNumber(deal);
-    const targetSol = Number(deal.amount);
+    const targetSolNum = Number(targetStr);
     const bal = Number(balanceSol);
     let progressLabel = "0";
     if (
       targetEur != null &&
-      Number.isFinite(targetSol) &&
-      targetSol > 0 &&
+      Number.isFinite(targetSolNum) &&
+      targetSolNum > 0 &&
       Number.isFinite(bal) &&
       bal > 0
     ) {
-      progressLabel = formatEuroPrice(
-        formatEuroNumber((bal / targetSol) * targetEur),
-      );
+      const rawProgress = (bal / targetSolNum) * targetEur;
+      let progressCents = Math.round(rawProgress * 100);
+      const targetCents = Math.round(targetEur * 100);
+      if (progressCents >= targetCents) {
+        progressCents = Math.max(0, targetCents - 1);
+      }
+      progressLabel = formatEuroPrice(formatEuroNumber(progressCents / 100));
     }
     return `• Deposito: *Mancante* — *${escMd(progressLabel)}* / *${escMd(eur)}*`;
   },
