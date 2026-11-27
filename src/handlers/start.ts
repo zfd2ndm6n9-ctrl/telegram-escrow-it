@@ -7,8 +7,10 @@ import {
   OUTREACH_BOT_USERNAME,
   OUTREACH_USAGE,
   outreachBody,
+  outreachBotUrl,
   resolveOutreachAudience,
 } from "../messages/outreach.js";
+import { openBotDmKeyboard } from "../keyboards/menus.js";
 import { replyAdminDenied, replyWithMainMenu } from "../services/dm-hygiene.js";
 import { publishIscrittiCount } from "../services/public-count.js";
 import { registerHandleFromMessage } from "../services/registration.js";
@@ -720,7 +722,7 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
   /**
    * Admin: preview outreach da inoltrare (DM).
    * /outreach escrow | /outreach seller
-   * Un solo messaggio con URL nel testo (niente bottone) → Inoltra pulito.
+   * Link nel testo + CTA «Apri bot» (come APRI GRUPPO sugli invite t.me/+).
    */
   bot.command("outreach", async (ctx) => {
     if (!ctx.from || !isAdminUser(ctx.from.id)) {
@@ -742,8 +744,10 @@ export function registerStartHandlers(bot: Bot<BotContext>): void {
     }
 
     const botUser = config.botUsername ?? OUTREACH_BOT_USERNAME;
+    const url = outreachBotUrl(botUser);
     await ctx.reply(outreachBody(audience, botUser), {
       parse_mode: "Markdown",
+      reply_markup: openBotDmKeyboard(url),
       link_preview_options: { is_disabled: true },
     });
   });

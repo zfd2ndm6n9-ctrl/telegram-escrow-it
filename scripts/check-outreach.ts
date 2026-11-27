@@ -1,10 +1,11 @@
 /**
- * Smoke: copy outreach + admin `/outreach` wiring.
+ * Smoke: copy outreach + admin `/outreach` wiring + Apri bot URL button.
  * npm exec tsx scripts/check-outreach.ts
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { openBotDmKeyboard } from "../src/keyboards/menus.js";
 import {
   OUTREACH_BOT_USERNAME,
   OUTREACH_ESCROW_BODY,
@@ -67,8 +68,17 @@ assert.doesNotMatch(OUTREACH_SELLER_BODY, /escrow automatico/i);
 
 assert.match(OUTREACH_USAGE, /\/outreach escrow/);
 assert.match(OUTREACH_USAGE, /\/outreach seller/);
+assert.match(OUTREACH_USAGE, /Apri bot/);
 assert.match(OUTREACH_USAGE, /Inoltra/i);
 
+const kb = openBotDmKeyboard(outreachBotUrl());
+const btn = kb.inline_keyboard?.[0]?.[0];
+assert.ok(btn && "text" in btn);
+assert.equal(btn.text, "Apri bot");
+assert.equal("url" in btn ? btn.url : undefined, "https://t.me/ESCROWITAbot");
+
+assert.match(menusSrc, /openBotDmKeyboard/);
+assert.match(menusSrc, /"Apri bot"/);
 assert.doesNotMatch(menusSrc, /outreachOpenBotKeyboard/);
 assert.match(outreachSrc, /OUTREACH_ESCROW_BODY/);
 assert.match(outreachSrc, /OUTREACH_SELLER_BODY/);
@@ -76,7 +86,8 @@ assert.match(startSrc, /bot\.command\("outreach"/);
 assert.match(startSrc, /resolveOutreachAudience/);
 assert.match(startSrc, /isAdminUser/);
 assert.match(startSrc, /chat\?\.type !== "private"/);
-assert.doesNotMatch(startSrc, /outreachOpenBotKeyboard/);
-assert.doesNotMatch(startSrc, /reply_markup:\s*outreachOpenBotKeyboard/);
+assert.match(startSrc, /openBotDmKeyboard/);
+assert.match(startSrc, /outreachBotUrl/);
+assert.match(startSrc, /reply_markup:\s*openBotDmKeyboard/);
 
 console.log("check-outreach: ok");
