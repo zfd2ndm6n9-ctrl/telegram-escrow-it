@@ -12,6 +12,8 @@ import {
   kickUnauthorized,
   refreshGroupSetupCard,
 } from "../services/group-setup.js";
+import { replaceActionReply } from "../services/prompt-cleanup.js";
+import { findSolAddressLookalikeInText } from "../services/solana/amounts.js";
 import type { Deal } from "../types.js";
 
 function partyRoleForLog(
@@ -149,6 +151,33 @@ export function registerGroupHygieneHandlers(bot: Bot<BotContext>): void {
     if (!deal || !ctx.from || ctx.from.is_bot) {
       await next();
       return;
+    }
+
+    // A2: in awaiting_deposit, cancella lookalike SOL ≠ escrow bot + warn corto.
+    // Messaggi del bot (is_bot) già esclusi sopra — non tocca card deposito.
+    if (deal.status === "awaiting_deposit" && ctx.message?.text) {
+      const lookalike = findSolAddressLookalikeInText(ctx.message.text);
+      const escrow = deal.escrowAddress?.trim();
+      if (
+        lookalike &&
+        escrow &&
+        !escrow.startsWith("PENDING") &&
+        lookalike !== escrow
+      ) {
+        silentLogHumanMessage(ctx, deal, { text: ctx.message.text });
+        try {
+          await ctx.deleteMessage();
+        } catch {
+          // senza can_delete_messages
+        }
+        await replaceActionReply(
+          ctx.api,
+          ctx.store,
+          deal,
+          it.solAddressPhishingBlocked,
+        );
+        return;
+      }
     }
 
     // Retention: ogni testo umano nel gruppo deal (chat libera buyer↔seller,

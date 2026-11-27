@@ -41,3 +41,19 @@ export function looksLikeSolAddressAttempt(value: string): boolean {
   // Pubkey Solana tipiche ~32–44 char base58 (no 0,O,I,l)
   return /^[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(t);
 }
+
+/**
+ * Estrae il primo lookalike Solana da un messaggio (intero o token nel testo).
+ * Usato anti-phishing deposito: non è validazione on-curve.
+ * Con spazi: cerca un token (non collassare «manda qui ADDR» in un unico base58).
+ */
+export function findSolAddressLookalikeInText(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+  if (/\s/.test(trimmed)) {
+    const m = trimmed.match(/[1-9A-HJ-NP-Za-km-z]{32,64}/);
+    return m?.[0];
+  }
+  if (looksLikeSolAddressAttempt(trimmed)) return trimmed;
+  return undefined;
+}

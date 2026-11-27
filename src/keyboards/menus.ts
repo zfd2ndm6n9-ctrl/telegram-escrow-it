@@ -153,9 +153,16 @@ export function groupTosMiniAppUrlKeyboard(tosUrl: string): InlineKeyboard {
   return new InlineKeyboard().url("Leggi", tosUrl);
 }
 
-/** @deprecated Conferma ruolo rimossa: auto-bind su /avvia. */
+/** @deprecated Legacy self-confirm ruolo (reindirizza ad auto-bind / pending). */
 export function counterpartConfirmKeyboard(dealId: string): InlineKeyboard {
   return new InlineKeyboard().text("✅ Confermo", `cp:${dealId}`);
+}
+
+/** A1: creator conferma/rifiuta la controparte candidata (path manuale). */
+export function counterpartBindConfirmKeyboard(dealId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✅ Sì", `cpbind:yes:${dealId}`)
+    .text("❌ No", `cpbind:no:${dealId}`);
 }
 
 /**

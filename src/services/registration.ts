@@ -102,9 +102,15 @@ export async function registerHandleFromMessage(
     return { ok: false, reason: "mismatch" };
   }
 
-  const result = ctx.members.registerWithUsername(ctx.from.id, tgUsername);
+  const result = ctx.members.registerWithUsername(ctx.from.id, tgUsername, {
+    allowProfileTransfer: (prev) => !ctx.store.userOwnsRemapProtectedDeals(prev),
+  });
 
-  if (result.previousUserId != null) {
+  if (result.reclaimBlocked) {
+    console.warn(
+      `Reclaim @${tgUsername} bloccato: userId precedente ha deal protetti; nuovo userId=${ctx.from.id} (no remap)`,
+    );
+  } else if (result.previousUserId != null) {
     const remapped = ctx.store.remapUserId(
       result.previousUserId,
       ctx.from.id,

@@ -10,6 +10,7 @@ export {
   lamportsToSolString,
   isValidSolAddress,
   looksLikeSolAddressAttempt,
+  findSolAddressLookalikeInText,
 } from "./amounts.js";
 export {
   payoutDealSol,
