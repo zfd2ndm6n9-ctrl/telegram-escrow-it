@@ -223,6 +223,26 @@ const baseDeal = {
     it.depositStatusBullets(buyerFee, "0.005", "0.0105", false),
     /• Deposito: \*Mancante\*/,
   );
+  // Saldo ≥ target (lamports) anche se funded=false → Confermato, mai Mancante 1,05/1,05
+  assert.match(
+    it.depositStatusBullets(buyerFee, "0.0105", "0.0105", false),
+    /• Deposito: \*Confermato\* — \*1,05 €\* \/ \*1,05 €\*/,
+  );
+  assert.doesNotMatch(
+    it.depositStatusBullets(buyerFee, "0.0105", "0.0105", false),
+    /Mancante/,
+  );
+  // Underpay che arrotonderebbe a 1,05: left deve restare strettamente < right
+  {
+    const near = it.depositStatusBullets(
+      buyerFee,
+      "0.010499999",
+      "0.0105",
+      false,
+    );
+    assert.match(near, /• Deposito: \*Mancante\*/);
+    assert.doesNotMatch(near, /Mancante\* — \*1,05 €\* \/ \*1,05 €\*/);
+  }
   assert.match(
     it.depositCheckResult(buyerFee, "0.005", false),
     /insufficiente/,
