@@ -11,6 +11,8 @@ import {
 import {
   blankTermsPatch,
   composeTosText,
+  expectedDepositEurDisplay,
+  expectedDepositEurNumber,
   feePayerLabel,
   formatTosBullets,
   nextDmTermsStep,
@@ -130,5 +132,29 @@ assert.equal(blank.termsWizardInGroup, true);
 
 assert.equal(depositLamportsForFeePayer(10_000_000n, "buyer"), 10_500_000n);
 assert.equal(depositLamportsForFeePayer(10_000_000n, "seller"), 10_000_000n);
+
+// UI € deposit target: buyer +5% with decimals (1 → 1,05)
+assert.equal(
+  expectedDepositEurDisplay({ ...deal, priceEur: "1", feePayer: "buyer" }),
+  "1,05",
+);
+assert.equal(
+  expectedDepositEurDisplay({ ...deal, priceEur: "1", feePayer: "seller" }),
+  "1",
+);
+assert.equal(
+  expectedDepositEurDisplay({ ...deal, priceEur: "12,50", feePayer: "buyer" }),
+  "13,13",
+); // 12.50 * 1.05 = 13.125 → 13,13
+assert.equal(expectedDepositEurNumber({ ...deal, priceEur: "1", feePayer: "buyer" }), 1.05);
+assert.match(
+  it.depositStatusBullets(
+    { ...deal, priceEur: "1", feePayer: "buyer", amount: "0.01" },
+    "0",
+    "0.01",
+    false,
+  ),
+  /1,05 €/,
+);
 
 console.log("check-fee-payer-terms: OK");

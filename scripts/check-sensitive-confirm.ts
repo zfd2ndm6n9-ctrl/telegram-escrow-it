@@ -190,7 +190,7 @@ const baseDeal = {
   assert.ok(!/Invito:/.test(status));
 }
 
-// Stato + riga deposito: In attesa (0 €) → Rilevato → Confermato
+// Stato + riga deposito: In attesa (0 €) → Mancante (underpay) → Confermato
 {
   const priced = { ...baseDeal, priceEur: "10" };
   assert.match(
@@ -199,7 +199,7 @@ const baseDeal = {
   );
   assert.match(
     it.depositStatusBullets(priced, "0.01", "0.1", false),
-    /• Deposito: \*Rilevato\* — \*1 €\* \/ \*10 €\*/,
+    /• Deposito: \*Mancante\* — \*1 €\* \/ \*10 €\*/,
   );
   assert.match(
     it.depositStatusBullets(priced, "0.1", "0.1", true),
@@ -208,6 +208,29 @@ const baseDeal = {
   assert.ok(
     !/SOL/.test(it.depositStatusBullets(priced, "0.01", "0.1", false)),
   );
+  // feePayer=buyer → target € = prezzo+5% (1 → 1,05)
+  const buyerFee = {
+    ...baseDeal,
+    priceEur: "1",
+    feePayer: "buyer" as const,
+    amount: "0.0105",
+  };
+  assert.match(
+    it.depositStatusBullets(buyerFee, "0", "0.0105", false),
+    /• Deposito: \*In attesa\* — \*0\* \/ \*1,05 €\*/,
+  );
+  assert.match(
+    it.depositStatusBullets(buyerFee, "0.005", "0.0105", false),
+    /• Deposito: \*Mancante\*/,
+  );
+  assert.match(
+    it.depositCheckResult(buyerFee, "0.005", false),
+    /insufficiente/,
+  );
+  assert.match(
+    it.depositCheckResult(buyerFee, "0.005", false),
+    /1,05 €/,
+  );
   const withDep = formatDepositStato(
     { ...baseDeal, status: "awaiting_deposit", priceEur: "10" },
     {
@@ -215,7 +238,7 @@ const baseDeal = {
       depositPhase: "rilevato",
     },
   );
-  assert.match(withDep, /• Deposito: \*Rilevato\*/);
+  assert.match(withDep, /• Deposito: \*Mancante\*/);
   assert.ok(!/• Prezzo:/.test(withDep));
   assert.ok(!/• Importo:/.test(withDep));
   assert.ok(!/In attesa deposito/.test(withDep));
