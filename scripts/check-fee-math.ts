@@ -19,7 +19,80 @@ function assert(cond: boolean, msg: string): void {
 }
 
 assert(effectiveFeePayer(undefined) === "seller", "legacy default seller");
+assert(effectiveFeePayer("seller") === "seller", "explicit seller");
 assert(effectiveFeePayer("buyer") === "buyer", "buyer flag");
+
+/** Bit-identical to main `computeReleaseFeeSplit` before feePayer existed. */
+function legacySellerSplit(
+  balanceLamports: bigint,
+  hasCollaborator: boolean,
+): {
+  sellerLamports: bigint;
+  feeTotalLamports: bigint;
+  platformLamports: bigint;
+  collaboratorLamports: bigint;
+} {
+  if (balanceLamports <= 0n) {
+    return {
+      sellerLamports: 0n,
+      feeTotalLamports: 0n,
+      platformLamports: 0n,
+      collaboratorLamports: 0n,
+    };
+  }
+  const feeTotalLamports =
+    (balanceLamports * PLATFORM_FEE_BPS) / BPS_DENOMINATOR;
+  const sellerLamports = balanceLamports - feeTotalLamports;
+  if (!hasCollaborator || feeTotalLamports === 0n) {
+    return {
+      sellerLamports,
+      feeTotalLamports,
+      platformLamports: feeTotalLamports,
+      collaboratorLamports: 0n,
+    };
+  }
+  const collaboratorLamports =
+    (balanceLamports * 250n) / BPS_DENOMINATOR;
+  return {
+    sellerLamports,
+    feeTotalLamports,
+    platformLamports: feeTotalLamports - collaboratorLamports,
+    collaboratorLamports,
+  };
+}
+
+// Seller path (and undefined feePayer) must match main legacy exactly.
+for (const bal of [
+  1n,
+  21n,
+  10_000_000n,
+  50_000_000n,
+  123_456_789n,
+  999_999_999n,
+  1_000_000_000n,
+]) {
+  for (const collab of [false, true]) {
+    for (const payer of [undefined, "seller"] as const) {
+      const s = computeReleaseFeeSplit(bal, collab, payer);
+      const L = legacySellerSplit(bal, collab);
+      assert(
+        s.sellerLamports === L.sellerLamports &&
+          s.feeTotalLamports === L.feeTotalLamports &&
+          s.platformLamports === L.platformLamports &&
+          s.collaboratorLamports === L.collaboratorLamports,
+        `seller≢legacy bal=${bal} collab=${collab} payer=${payer}`,
+      );
+    }
+  }
+  assert(
+    depositLamportsForFeePayer(bal, "seller") === bal,
+    "seller deposit must equal commercial",
+  );
+  assert(
+    depositLamportsForFeePayer(bal, undefined) === bal,
+    "legacy deposit must equal commercial",
+  );
+}
 
 const cases: Array<{
   bal: bigint;
